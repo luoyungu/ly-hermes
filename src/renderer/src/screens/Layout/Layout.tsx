@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react'
 import { MessageSquare, Settings, Info, LogOut, Palette, Users, Calendar } from 'lucide-react'
+import logoImg from '../../assets/logo.png'
 import Chat from '../Chat/Chat'
 import SettingsScreen from '../Settings/Settings'
 import About from '../About/About'
 import Appearance from '../Appearance/Appearance'
 import Manage from '../Manage/Manage'
 import Schedule from '../Schedule/Schedule'
+import WindowControls from '../../components/WindowControls'
 
 type ViewId = 'chat' | 'manage' | 'schedule' | 'appearance' | 'settings' | 'about'
 
@@ -50,7 +52,8 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
     <div className="flex h-screen bg-[var(--bg-primary)] relative">
       <div id="wallpaperLayer" className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500 pointer-events-none" style={{ opacity: 0 }} />
       <div id="wallpaperOverlay" className="fixed inset-0 z-0 bg-[var(--bg-primary)] pointer-events-none" style={{ opacity: 0 }} />
-      <aside className="flex w-[80px] min-w-[80px] flex-col items-center glass-medium border-r border-[var(--border)] z-10 relative" style={{ paddingTop: 48, paddingBottom: 16 }}>
+      <aside className="flex w-[80px] min-w-[80px] flex-col items-center glass-medium border-r border-[var(--border)] z-10 relative" style={{ paddingTop: 40, paddingBottom: 16 }}>
+        <img src={logoImg} alt="落云.Hermes" className="w-14 h-14 mb-4 rounded-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(124,106,239,0.25))' }} />
         <nav className="flex flex-1 flex-col items-center gap-1.5">
           {NAV_ITEMS.map((item) => (
             <button
@@ -85,7 +88,11 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-hidden relative z-10 glass-medium">
+      <main className="flex-1 overflow-hidden relative z-10 glass-medium flex flex-col">
+        <div className="drag-region flex items-center justify-end shrink-0 h-9 border-b border-[var(--border)] bg-[var(--bg-surface)]">
+          <WindowControls />
+        </div>
+        <div className="flex-1 overflow-hidden relative">
         {visitedViews.has('chat') && (
           <div className={`h-full ${currentView === 'chat' ? '' : 'hidden'}`}>
             <Chat />
@@ -116,6 +123,7 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
             <About />
           </div>
         )}
+        </div>
       </main>
     </div>
   )

@@ -4,13 +4,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  main: {
-    build: {
-      rollupOptions: {
-        external: ['better-sqlite3']
-      }
-    }
-  },
+  main: {},
   preload: {},
   renderer: {
     resolve: {

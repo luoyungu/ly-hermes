@@ -1,4 +1,5 @@
-import { ExternalLink, Zap, Server, Database, Code2 } from 'lucide-react'
+import { ExternalLink, Server, Database, Code2 } from 'lucide-react'
+import logoImg from '../../assets/logo.png'
 
 export default function About(): React.ReactElement {
   return (
@@ -8,10 +9,8 @@ export default function About(): React.ReactElement {
       </div>
       <div className="flex flex-1 items-center justify-center">
       <div className="animate-fade-in text-center">
-        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-accent-gradient shadow-lg shadow-[var(--accent)]/20">
-          <span className="text-4xl">☤</span>
-        </div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">Hermes Desktop</h1>
+        <img src={logoImg} alt="落云.Hermes" className="mx-auto mb-5 w-28 h-28 rounded-2xl" style={{ filter: 'drop-shadow(0 0 16px rgba(124,106,239,0.25))' }} />
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">落云.Hermes</h1>
         <p className="mt-1 text-sm text-[var(--text-dim)]">v1.0.0</p>
         <p className="mt-4 max-w-md text-sm leading-relaxed text-[var(--text-secondary)]">
           知识型个人 AI 员工的桌面工作站
@@ -20,7 +19,7 @@ export default function About(): React.ReactElement {
         <div className="mt-8 mx-auto max-w-sm space-y-3">
           <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 text-left">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-glow)]">
-              <Zap size={18} className="text-[var(--accent)]" />
+              <img src={logoImg} alt="" className="w-7 h-7" />
             </div>
             <div>
               <div className="text-xs text-[var(--text-dim)]">技术栈</div>

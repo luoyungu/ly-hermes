@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import type { EmployeeInfo, SkillInfo, ChatUsage, ApprovalRequest, MemoryData, SavedModel } from '../../../../preload/index'
 import { showToast } from '../../App'
+import logoImg from '../../assets/logo.png'
 import { mapStatus, TOOL_META, ALL_TOOLS } from '../../shared/employee-shared'
 
 interface ChatMessage {
@@ -418,21 +419,18 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
         )}
         {tab === 'tools' && (
           <div className="grid grid-cols-2 gap-3">
-            {ALL_TOOLS.map(t => {
+            {ALL_TOOLS.filter(t => tools.includes(t)).map(t => {
               const meta = TOOL_META[t]
-              const enabled = tools.includes(t)
               return (
                 <div
                   key={t}
-                  className={`glass-medium border rounded-[var(--radius-lg)] p-4 transition-all ${
-                    enabled ? 'border-[rgba(124,106,239,0.2)]' : 'border-[var(--border)] opacity-55'
-                  }`}
+                  className="glass-medium border border-[rgba(124,106,239,0.2)] rounded-[var(--radius-lg)] p-4 transition-all"
                 >
                   <div className="flex items-center gap-2.5 mb-2.5">
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${enabled ? 'bg-[var(--accent-glow)] text-[var(--accent)]' : 'bg-[var(--bg-surface)] text-[var(--text-dim)]'}`}>
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--accent-glow)] text-[var(--accent)]">
                       {meta?.icon || <Wrench size={18} />}
                     </div>
-                    <span className={`text-sm font-medium ${enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-dim)]'}`}>{meta?.label || t}</span>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">{meta?.label || t}</span>
                   </div>
                   {meta && <div className="text-xs text-[var(--text-dim)] leading-relaxed">{meta.desc}</div>}
                 </div>
@@ -975,6 +973,10 @@ export default function Chat(): React.ReactElement {
       ))
     })
 
+    const unsubListChanged = window.hermesAPI.onEmployeeListChanged(() => {
+      loadEmployees()
+    })
+
     return () => {
       unsubChunk()
       unsubDone()
@@ -987,6 +989,7 @@ export default function Chat(): React.ReactElement {
       unsubUsage()
       unsubApproval()
       unsubStatus()
+      unsubListChanged()
     }
   }, [])
 
@@ -1428,7 +1431,7 @@ export default function Chat(): React.ReactElement {
             <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-4 glass-light">
               {currentMessages.length === 0 && !isStreaming ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
-                  <span className="text-[64px] opacity-60">⚡</span>
+                  <img src={logoImg} alt="" className="w-24 h-24 opacity-60" />
                   <div className="text-[22px] font-bold text-[var(--text-primary)]">开始对话</div>
                   <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
                     向 {empName} 发送消息开始对话，或使用 / 命令执行操作
@@ -1607,8 +1610,8 @@ export default function Chat(): React.ReactElement {
         ) : (
           /* No employee selected */
           <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
-            <span className="text-[64px] opacity-60">⚡</span>
-            <div className="text-[22px] font-bold text-[var(--text-primary)]">欢迎使用 Hermes</div>
+            <img src={logoImg} alt="" className="w-24 h-24 opacity-60" />
+            <div className="text-[22px] font-bold text-[var(--text-primary)]">欢迎使用 落云.Hermes</div>
             <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
               选择左侧的员工开始对话
             </div>

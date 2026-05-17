@@ -43,18 +43,7 @@ export function hashPassword(password: string, salt: string): string {
 export function ensureDefaultUser(): void {
   const users = readUsers();
   const existing = users.find((u) => u.username === DEFAULT_USERNAME);
-  if (existing) {
-    const testHash = hashPassword(DEFAULT_PASSWORD, existing.salt);
-    if (testHash !== existing.passwordHash) {
-      const newSalt = crypto.randomBytes(32).toString("hex");
-      const newHash = hashPassword(DEFAULT_PASSWORD, newSalt);
-      existing.salt = newSalt;
-      existing.passwordHash = newHash;
-      existing.displayName = "Admin";
-      writeUsers(users);
-    }
-    return;
-  }
+  if (existing) return;
   const salt = crypto.randomBytes(32).toString("hex");
   const hash = hashPassword(DEFAULT_PASSWORD, salt);
   users.push({
@@ -67,6 +56,30 @@ export function ensureDefaultUser(): void {
     lastLogin: new Date().toISOString(),
   });
   writeUsers(users);
+}
+
+export function createUserWithPassword(password: string): void {
+  if (!password || password.length < 4) return;
+  const users = readUsers();
+  const existing = users.find((u) => u.username === DEFAULT_USERNAME);
+  const salt = crypto.randomBytes(32).toString("hex");
+  const hash = hashPassword(password, salt);
+  if (existing) {
+    existing.salt = salt;
+    existing.passwordHash = hash;
+    writeUsers(users);
+  } else {
+    users.push({
+      id: "u-default",
+      username: DEFAULT_USERNAME,
+      passwordHash: hash,
+      salt,
+      displayName: "Admin",
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+    });
+    writeUsers(users);
+  }
 }
 
 export function registerAuthIpcHandlers(): void {
@@ -125,4 +138,34 @@ export function registerAuthIpcHandlers(): void {
       return { success: true };
     },
   );
+
+  ipcMain.handle(
+    "auth-setup-password",
+    async (_, password: string) => {
+      if (!password || password.length < 4)
+        return { error: "密码至少4个字符" };
+      createUserWithPassword(password);
+      const users = readUsers();
+      const user = users.find((u) => u.username === DEFAULT_USERNAME);
+      if (user) {
+        user.lastLogin = new Date().toISOString();
+        writeUsers(users);
+        currentUser = user;
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+          },
+        };
+      }
+      return { error: "创建用户失败" };
+    },
+  );
+
+  ipcMain.handle("check-initialized", async () => {
+    const users = readUsers();
+    return users.length > 0;
+  });
 }

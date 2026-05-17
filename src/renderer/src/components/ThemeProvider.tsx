@@ -7,7 +7,7 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'dark',
+  theme: 'light',
   setTheme: () => {}
 })
 
@@ -20,7 +20,7 @@ const ALL_THEMES: ThemeName[] = ['dark', 'light', 'ocean', 'ocean-light', 'fores
 export { ALL_THEMES }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const [theme, setThemeState] = useState<ThemeName>('dark')
+  const [theme, setThemeState] = useState<ThemeName>('light')
 
   useEffect(() => {
     window.hermesAPI.getTheme().then((savedTheme) => {
@@ -29,7 +29,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
         document.documentElement.setAttribute('data-theme', savedTheme)
       }
     }).catch(() => {
-      document.documentElement.setAttribute('data-theme', 'dark')
+      document.documentElement.setAttribute('data-theme', 'light')
     })
   }, [])
 

@@ -14,6 +14,7 @@ import {
   runHermesCli,
   isApiServerReady,
   validateProfileName,
+  DEFAULT_HERMES_BIN,
 } from "./config";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 import type { BrowserWindow } from "electron";
@@ -264,8 +265,7 @@ export async function wakeUpEmployee(
 
   const appConfig = loadAppConfig();
   const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-  let hermesBin = (hermesCfg?.bin as string) || "hermes";
-  hermesBin = path.basename(hermesBin);
+  const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
   const defaults = appConfig.defaults as Record<string, unknown> | undefined;
   const maxOnline = (defaults?.max_online as number) || 5;
   const onlineCount = Object.keys(_gatewayProcesses).filter(
@@ -304,32 +304,59 @@ export async function wakeUpEmployee(
     if (fs.existsSync(configPath)) {
       const cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
       const m = cfg.model as Record<string, unknown> | undefined;
-      const provider = (m?.provider as string) || "";
+      let provider = (m?.provider as string) || "";
       const providerInfo = PROVIDER_KEY_MAP[provider];
       const isCustomProvider = !providerInfo && provider !== "";
 
       console.log("[wakeUpEmployee] config provider:", provider, "isBuiltin:", !!providerInfo, "isCustom:", isCustomProvider);
 
-      if (providerInfo) {
+      if (!providerInfo && provider !== "custom" && provider !== "") {
+        const baseUrl = (m?.base_url as string) || "";
+        for (const [pid, info] of Object.entries(PROVIDER_KEY_MAP)) {
+          if (baseUrl && info.baseUrl === baseUrl) {
+            provider = pid;
+            console.log("[wakeUpEmployee] auto-corrected provider from", m?.provider, "to", pid);
+            m!.provider = pid;
+            safeWriteFile(configPath, yamlStringify(cfg));
+            break;
+          }
+        }
+      }
+
+      const resolvedProviderInfo = PROVIDER_KEY_MAP[provider];
+
+      if (resolvedProviderInfo) {
         if (!env.OPENAI_BASE_URL && !env.CUSTOM_API_BASE_URL) {
-          const baseUrl = (m?.base_url as string) || providerInfo.baseUrl || "";
+          const baseUrl = (m?.base_url as string) || resolvedProviderInfo.baseUrl || "";
           if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
         }
+        if (env[resolvedProviderInfo.envKey]) {
+          env.OPENAI_API_KEY = env[resolvedProviderInfo.envKey] as string;
+        }
         delete env.HERMES_INFERENCE_PROVIDER;
-        // Also scrub stale HERMES_INFERENCE_PROVIDER from .env (gateway loads it directly)
         const envPath = path.join(getProfilePath(profileName), ".env");
         if (fs.existsSync(envPath)) {
           let envContent = fs.readFileSync(envPath, "utf-8");
-          const cleaned = envContent
-            .split("\n")
-            .filter((l: string) => {
-              const eqIdx = l.indexOf("=");
-              return eqIdx === -1 || l.slice(0, eqIdx).trim() !== "HERMES_INFERENCE_PROVIDER";
-            })
-            .join("\n");
-          if (cleaned !== envContent) {
-            safeWriteFile(envPath, cleaned);
-            console.log("[wakeUpEmployee] scrubbed HERMES_INFERENCE_PROVIDER from .env");
+          const lines = envContent.split("\n");
+          let changed = false;
+          const filtered = lines.filter((l: string) => {
+            const eqIdx = l.indexOf("=");
+            if (eqIdx === -1) return true;
+            const key = l.slice(0, eqIdx).trim();
+            if (key === "HERMES_INFERENCE_PROVIDER") { changed = true; return false; }
+            return true;
+          });
+          const hasOpenaiKey = filtered.some((l: string) => {
+            const eqIdx = l.indexOf("=");
+            return eqIdx !== -1 && l.slice(0, eqIdx).trim() === "OPENAI_API_KEY";
+          });
+          if (!hasOpenaiKey && env[resolvedProviderInfo.envKey]) {
+            filtered.push("OPENAI_API_KEY=" + (env[resolvedProviderInfo.envKey] as string));
+            changed = true;
+          }
+          if (changed) {
+            safeWriteFile(envPath, filtered.join("\n"));
+            console.log("[wakeUpEmployee] updated .env: added OPENAI_API_KEY, removed HERMES_INFERENCE_PROVIDER");
           }
         }
       } else if (provider === "custom" || isCustomProvider) {
@@ -341,9 +368,31 @@ export async function wakeUpEmployee(
         if (keyFromEnv) {
           env.OPENAI_API_KEY = keyFromEnv;
           env.CUSTOM_API_KEY = keyFromEnv;
+        } else {
+          for (const info of Object.values(PROVIDER_KEY_MAP)) {
+            const v = env[info.envKey] as string | undefined;
+            if (v) {
+              env.OPENAI_API_KEY = v;
+              env.CUSTOM_API_KEY = v;
+              break;
+            }
+          }
         }
         env.CUSTOM_API_BASE_URL = env.OPENAI_BASE_URL || "";
         env.HERMES_INFERENCE_PROVIDER = "custom";
+        const envPath = path.join(getProfilePath(profileName), ".env");
+        if (fs.existsSync(envPath) && env.OPENAI_API_KEY) {
+          let envContent = fs.readFileSync(envPath, "utf-8");
+          const lines = envContent.split("\n");
+          const hasOpenaiKey = lines.some((l: string) => {
+            const eqIdx = l.indexOf("=");
+            return eqIdx !== -1 && l.slice(0, eqIdx).trim() === "OPENAI_API_KEY";
+          });
+          if (!hasOpenaiKey) {
+            safeWriteFile(envPath, envContent.trimEnd() + "\nOPENAI_API_KEY=" + env.OPENAI_API_KEY + "\n");
+            console.log("[wakeUpEmployee] added OPENAI_API_KEY to .env for custom provider");
+          }
+        }
       }
       console.log("[wakeUpEmployee] final env has DEEPSEEK_API_KEY:", !!env.DEEPSEEK_API_KEY, "OPENAI_API_KEY:", !!env.OPENAI_API_KEY, "HERMES_INFERENCE_PROVIDER:", env.HERMES_INFERENCE_PROVIDER);
     }
@@ -632,6 +681,11 @@ export function registerEmployeeIpcHandlers(
         );
       }
 
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("employee-list-changed", { action: "created", name });
+      }
+
       return { success: true, name };
     },
   );
@@ -659,7 +713,14 @@ export function registerEmployeeIpcHandlers(
       ["profile", "delete", name, "--yes"],
       "default",
     );
-    return { success: !output.includes("Error") };
+    const success = !output.includes("Error");
+    if (success) {
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("employee-list-changed", { action: "deleted", name });
+      }
+    }
+    return { success };
   });
 
   ipcMain.handle("employee:wake-up", async (_, name: string) => {

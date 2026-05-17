@@ -190,6 +190,8 @@ interface HermesAPI {
   authLogout: () => Promise<{ success: boolean }>
   authGetCurrent: () => Promise<{ id: string; username: string; displayName: string } | null>
   authChangePassword: (oldPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>
+  authSetupPassword: (password: string) => Promise<{ success: boolean; error?: string; user?: { id: string; username: string; displayName: string } }>
+  checkInitialized: () => Promise<boolean>
 
   listEmployees: () => Promise<EmployeeInfo[]>
   getEmployee: (name: string) => Promise<EmployeeInfo | null>
@@ -271,9 +273,13 @@ interface HermesAPI {
     hasApiKey: boolean
     version: string | null
   }>
+  checkInstall: () => Promise<{ installed: boolean; configured: boolean; hasApiKey: boolean }>
+  verifyInstall: () => Promise<{ installed: boolean; version?: string; error?: string }>
+  startInstall: () => Promise<{ success: boolean; error?: string }>
   getModelConfig: () => Promise<{ provider: string; model: string; baseUrl: string }>
   getAvailableModels: () => Promise<{ models: Array<Record<string, unknown>> }>
   setModel: (modelName: string) => Promise<{ success: boolean; error?: string }>
+  setModelConfig: (modelConfig: { model?: string; provider?: string; baseUrl?: string }) => Promise<{ success: boolean; error?: string }>
   listSavedModels: () => Promise<SavedModel[]>
   addSavedModel: (name: string, provider: string, model: string, baseUrl: string, apiKey: string) => Promise<SavedModel>
   removeSavedModel: (id: string) => Promise<boolean>
@@ -290,6 +296,10 @@ interface HermesAPI {
   refreshHermesVersion: () => Promise<string | null>
   runHermesDoctor: () => Promise<string>
   runHermesUpdate: () => Promise<{ success: boolean; error?: string }>
+  checkAppUpdate: () => Promise<{ success: boolean; error?: string }>
+  downloadAppUpdate: () => Promise<{ success: boolean; error?: string }>
+  installAppUpdate: () => Promise<void>
+  getAppVersion: () => Promise<string>
   onInstallProgress: (callback: (progress: { step: number; totalSteps: number; title: string; detail: string; log: string }) => void) => () => void
 
   onChatChunk: (callback: (data: { profileName: string; chunk: string }) => void) => () => void
@@ -302,8 +312,15 @@ interface HermesAPI {
   onChatThinking: (callback: (data: { profileName: string; chunk: string }) => void) => () => void
   onChatUsage: (callback: (data: { profileName: string; promptTokens: number; completionTokens: number; totalTokens: number }) => void) => () => void
   onEmployeeStatusChanged: (callback: (data: { profileName: string; status: string }) => void) => () => void
+  onEmployeeListChanged: (callback: (data: { action: string; name: string }) => void) => () => void
   onEmployeeIdleTimeout: (callback: (data: { profileName: string }) => void) => () => void
   onNewConversation: (callback: (data: { employeeId: string; sessionId: string }) => void) => () => void
+  onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void) => () => void
+
+  windowMinimize: () => Promise<void>
+  windowMaximize: () => Promise<void>
+  windowClose: () => Promise<void>
+  windowIsMaximized: () => Promise<boolean>
 }
 
 declare global {

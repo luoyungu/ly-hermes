@@ -22,6 +22,10 @@ const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
 export const HERMES_HOME: string =
   process.env.HERMES_HOME || path.join(os.homedir(), ".hermes");
 export const APP_DATA_DIR: string = path.join(os.homedir(), ".hermes-desktop");
+export const DEFAULT_HERMES_BIN: string =
+  process.platform === "win32"
+    ? path.join(HERMES_HOME, "hermes-agent", "venv", "Scripts", "hermes.exe")
+    : path.join(HERMES_HOME, "hermes-agent", "venv", "bin", "hermes");
 export const USERS_FILE: string = path.join(APP_DATA_DIR, "users.json");
 export const WINDOW_STATE_FILE: string = path.join(
   APP_DATA_DIR,
@@ -103,7 +107,7 @@ export function loadAppConfig(): Record<string, unknown> {
     ui: { theme: "dark", language: "zh-CN", font_size: 14 },
     hermes: {
       home: HERMES_HOME,
-      bin: process.env.HERMES_BIN || "hermes",
+      bin: process.env.HERMES_BIN || DEFAULT_HERMES_BIN,
       port_range: [8644, 8743],
     },
   };
@@ -178,29 +182,37 @@ export function readEnvFile(envPath: string): Record<string, string> {
 export function runHermesCli(
   args: string[],
   profileName?: string,
+  timeoutMs = 60000,
 ): string {
   const appConfig = loadAppConfig();
   const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-  let hermesBin = (hermesCfg?.bin as string) || "hermes";
-  hermesBin = path.basename(hermesBin);
-  const env = Object.assign({}, process.env, {
-    HOME: os.homedir(),
-    HERMES_HOME: HERMES_HOME,
-  });
+  const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+  const spawnOpts: Record<string, unknown> = {
+    encoding: "utf-8",
+    timeout: timeoutMs,
+    env: Object.assign({}, process.env, {
+      HOME: os.homedir(),
+      HERMES_HOME: HERMES_HOME,
+    }),
+    shell: process.platform === "win32",
+  };
   const hermesEnv = readHermesEnv(profileName || "default");
   for (const [key, value] of Object.entries(hermesEnv)) {
-    if (value && !env[key]) env[key] = value;
+    if (value && !(spawnOpts.env as Record<string, string>)[key]) {
+      (spawnOpts.env as Record<string, string>)[key] = value;
+    }
   }
   const safeArgs = args.map((a) => String(a).slice(0, 500));
   try {
-    return execFileSync(hermesBin, safeArgs, {
-      encoding: "utf-8",
-      timeout: 10000,
-      env,
-    }).trim();
+    const out = execFileSync(hermesBin, safeArgs, spawnOpts as Parameters<typeof execFileSync>[2]);
+    return (out as string).trim();
   } catch (e: unknown) {
-    const err = e as { stderr?: Buffer | string; message?: string };
-    return (err.stderr && err.stderr.toString().trim()) || err.message || "";
+    const err = e as { stderr?: Buffer | string; message?: string; code?: string };
+    const msg = (err.stderr && err.stderr.toString().trim()) || err.message || "";
+    if (err.code === "ETIMEDOUT") {
+      return "命令执行超时，请检查 hermes-agent 是否正常运行，或稍后重试";
+    }
+    return msg;
   }
 }
 
@@ -322,7 +334,7 @@ export function registerConfigIpcHandlers(): void {
       version: null,
     };
     const appConfig = loadAppConfig();
-    const hermesBin = (appConfig.hermes as Record<string, unknown>)?.bin as string || "hermes";
+    const hermesBin = (appConfig.hermes as Record<string, unknown>)?.bin as string || DEFAULT_HERMES_BIN;
     try {
       const versionOut = execFileSync(hermesBin, ["--version"], {
         encoding: "utf-8",
@@ -413,6 +425,26 @@ export function registerConfigIpcHandlers(): void {
       }
       if (!cfg.model) cfg.model = {};
       (cfg.model as Record<string, unknown>).default = modelName;
+      ensureDir(HERMES_HOME);
+      safeWriteFile(configPath, yamlStringify(cfg));
+      return { success: true };
+    } catch (e: unknown) {
+      return { error: (e as Error).message };
+    }
+  });
+
+  ipcMain.handle("set-model-config", async (_, modelConfig: { model?: string; provider?: string; baseUrl?: string }) => {
+    const configPath = path.join(HERMES_HOME, "config.yaml");
+    try {
+      let cfg: Record<string, unknown> = {};
+      if (fs.existsSync(configPath)) {
+        cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
+      }
+      if (!cfg.model) cfg.model = {};
+      const m = cfg.model as Record<string, unknown>;
+      if (modelConfig.model) m.default = modelConfig.model;
+      if (modelConfig.provider) m.provider = modelConfig.provider;
+      if (modelConfig.baseUrl) m.base_url = modelConfig.baseUrl;
       ensureDir(HERMES_HOME);
       safeWriteFile(configPath, yamlStringify(cfg));
       return { success: true };
@@ -643,16 +675,12 @@ export function registerConfigIpcHandlers(): void {
     return new Promise((resolve) => {
       const appConfig = loadAppConfig();
       const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-      const hermesBin = (hermesCfg?.bin as string) || "hermes";
+      const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
       const env = Object.assign({}, process.env, {
         HOME: os.homedir(),
         HERMES_HOME,
       });
-      execFile(
-        hermesBin,
-        ["--version"],
-        { env, timeout: 15000 },
-        (error, stdout) => {
+      execFile(hermesBin, ["--version"], { env, timeout: 15000 }, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
@@ -668,7 +696,7 @@ export function registerConfigIpcHandlers(): void {
     _cachedVersion = null;
     const appConfig = loadAppConfig();
     const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-    const hermesBin = (hermesCfg?.bin as string) || "hermes";
+    const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
     const env = Object.assign({}, process.env, {
       HOME: os.homedir(),
       HERMES_HOME,
@@ -698,7 +726,7 @@ export function registerConfigIpcHandlers(): void {
 
   ipcMain.handle("run-hermes-doctor", async () => {
     try {
-      return runHermesCli(["doctor"]);
+      return runHermesCli(["doctor"], undefined, 60000);
     } catch {
       return "诊断执行失败";
     }
@@ -707,7 +735,7 @@ export function registerConfigIpcHandlers(): void {
   ipcMain.handle("run-hermes-update", async (event) => {
     const appConfig = loadAppConfig();
     const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-    const hermesBin = (hermesCfg?.bin as string) || "hermes";
+    const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
     const env = Object.assign({}, process.env, {
       HOME: os.homedir(),
       HERMES_HOME,

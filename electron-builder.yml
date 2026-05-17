@@ -1,0 +1,58 @@
+appId: com.hermes.desktop
+productName: 落云.Hermes
+copyright: Copyright © 2025 luoyun
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**/*
+  - package.json
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+  signAndEditExecutable: true
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 落云.Hermes
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  deleteAppDataOnUninstall: true
+
+mac:
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - universal
+  category: public.app-category.productivity
+  artifactName: ${productName}-${version}.${ext}
+
+linux:
+  icon: build
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Development
+  artifactName: ${productName}-${version}.${ext}
+
+asar: false
+
+publish:
+  provider: generic
+  url: https://your-update-server.com/hermes-desktop

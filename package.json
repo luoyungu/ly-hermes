@@ -1,7 +1,7 @@
 {
   "name": "hermes-desktop",
   "version": "0.1.0",
-  "description": "Hermes Desktop — Multi-Agent AI Workstation",
+  "description": "落云.Hermes — AI 员工管理平台",
   "main": "./out/main/index.js",
   "author": "luoyun",
   "scripts": {
@@ -9,6 +9,13 @@
     "dev:debug": "HERMES_DEVTOOLS=1 electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
+    "postbuild": "electron-builder install-app-deps",
+    "pack": "npm run build && electron-builder --dir",
+    "pack:win": "npm run build && electron-builder --win",
+    "pack:mac": "npm run build && electron-builder --mac",
+    "pack:linux": "npm run build && electron-builder --linux",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win --x64",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -19,7 +26,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "better-sqlite3": "^12.10.0",
+    "electron-updater": "^6.8.3",
     "js-yaml": "^4.1.1",
     "lucide-react": "^1.7.0",
     "react-markdown": "^10.1.0",

@@ -19,7 +19,9 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Box
+  Box,
+  ArrowUpCircle,
+  Lock as LockIcon
 } from 'lucide-react'
 import { PROVIDER_PRESETS } from '../../shared/employee-shared'
 
@@ -32,21 +34,33 @@ export default function SettingsScreen(): React.ReactElement {
 
   const [idleTimeout, setIdleTimeout] = useState(60)
   const [maxOnline, setMaxOnline] = useState(5)
-  const [binaryPath, setBinaryPath] = useState('hermes')
 
   const [hermesVersion, setHermesVersion] = useState<string | null>(null)
   const [doctorOutput, setDoctorOutput] = useState<string | null>(null)
   const [doctorRunning, setDoctorRunning] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [reinstalling, setReinstalling] = useState(false)
   const [updateResult, setUpdateResult] = useState<string | null>(null)
   const [updateResultType, setUpdateResultType] = useState<'success' | 'error' | null>(null)
   const [updateLog, setUpdateLog] = useState<string | null>(null)
+
+  const [appVersion, setAppVersion] = useState('')
+  const [appUpdateStatus, setAppUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'>('idle')
+  const [appUpdateVersion, setAppUpdateVersion] = useState('')
+  const [appUpdatePercent, setAppUpdatePercent] = useState(0)
+  const [appUpdateError, setAppUpdateError] = useState('')
 
   const [backingUp, setBackingUp] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importConfirm, setImportConfirm] = useState(false)
   const [backupResult, setBackupResult] = useState<{ success: boolean; message: string } | null>(null)
   const selectedImportPath = useRef<string>('')
+
+  const [oldPassword, setOldPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [changePasswordResult, setChangePasswordResult] = useState<{ success: boolean; message: string } | null>(null)
 
   const [savedModels, setSavedModels] = useState<SavedModel[]>([])
   const [modelFormVisible, setModelFormVisible] = useState(false)
@@ -74,15 +88,43 @@ export default function SettingsScreen(): React.ReactElement {
     window.hermesAPI.getAppConfig().then((config) => {
       const c = config as unknown as Record<string, Record<string, unknown>>
       const d = c.defaults || {}
-      const h = c.hermes || {}
       setIdleTimeout((d.idle_timeout as number) || 60)
       setMaxOnline((d.max_online as number) || 5)
-      setBinaryPath((h.bin as string) || 'hermes')
     }).catch(() => {})
   }, [])
 
   useEffect(() => {
     window.hermesAPI.getHermesVersion().then(setHermesVersion).catch(() => {})
+    window.hermesAPI.getAppVersion().then((v) => setAppVersion(v)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.hermesAPI.onUpdateStatus((data) => {
+      switch (data.status) {
+        case 'checking':
+          setAppUpdateStatus('checking')
+          break
+        case 'available':
+          setAppUpdateStatus('available')
+          setAppUpdateVersion(data.version || '')
+          break
+        case 'not-available':
+          setAppUpdateStatus('not-available')
+          break
+        case 'downloading':
+          setAppUpdateStatus('downloading')
+          setAppUpdatePercent(data.percent || 0)
+          break
+        case 'downloaded':
+          setAppUpdateStatus('downloaded')
+          break
+        case 'error':
+          setAppUpdateStatus('error')
+          setAppUpdateError(data.error || '未知错误')
+          break
+      }
+    })
+    return unsub
   }, [])
 
   useEffect(() => {
@@ -140,6 +182,29 @@ export default function SettingsScreen(): React.ReactElement {
     }
   }
 
+  const handleReinstall = async (): Promise<void> => {
+    setReinstalling(true)
+    setUpdateResult(null)
+    setUpdateResultType(null)
+    setUpdateLog(null)
+    try {
+      const result = await window.hermesAPI.startInstall()
+      if (result.success) {
+        setUpdateResult('重新安装成功！')
+        setUpdateResultType('success')
+        refreshVersion()
+      } else {
+        setUpdateResult(result.error || '安装失败')
+        setUpdateResultType('error')
+      }
+    } catch (e: unknown) {
+      setUpdateResult((e as Error).message || '安装失败')
+      setUpdateResultType('error')
+    } finally {
+      setReinstalling(false)
+    }
+  }
+
   const handleSave = async (): Promise<void> => {
     setSaving(true)
     setSaveResult('idle')
@@ -150,7 +215,6 @@ export default function SettingsScreen(): React.ReactElement {
       if (!newConfig.hermes) newConfig.hermes = {}
       ;(newConfig.defaults as Record<string, unknown>).idle_timeout = idleTimeout
       ;(newConfig.defaults as Record<string, unknown>).max_online = maxOnline
-      ;(newConfig.hermes as Record<string, unknown>).bin = binaryPath || 'hermes'
       await window.hermesAPI.setAppConfig(newConfig)
       setSaveResult('success')
     } catch {
@@ -158,6 +222,27 @@ export default function SettingsScreen(): React.ReactElement {
     } finally {
       setSaving(false)
       setTimeout(() => setSaveResult('idle'), 2000)
+    }
+  }
+
+  const handleChangePassword = async (): Promise<void> => {
+    if (!oldPassword || !newPassword || newPassword !== confirmNewPassword) return
+    setChangingPassword(true)
+    setChangePasswordResult(null)
+    try {
+      const result = await window.hermesAPI.authChangePassword(oldPassword, newPassword)
+      if (result.success) {
+        setChangePasswordResult({ success: true, message: '密码修改成功' })
+        setOldPassword('')
+        setNewPassword('')
+        setConfirmNewPassword('')
+      } else {
+        setChangePasswordResult({ success: false, message: result.error || '密码修改失败' })
+      }
+    } catch {
+      setChangePasswordResult({ success: false, message: '密码修改失败' })
+    } finally {
+      setChangingPassword(false)
     }
   }
 
@@ -377,17 +462,45 @@ export default function SettingsScreen(): React.ReactElement {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="mb-1.5 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                      <Terminal size={14} /> Hermes Binary 路径
-                    </label>
-                    <input
-                      type="text"
-                      value={binaryPath}
-                      onChange={(e) => setBinaryPath(e.target.value)}
-                      placeholder="/usr/local/bin/hermes"
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
-                    />
+                  <div className="border-t border-[var(--border)] pt-4 mt-4">
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-3">修改密码</h4>
+                    <div className="space-y-3">
+                      <input
+                        type="password"
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        placeholder="当前密码"
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="新密码（至少 4 个字符）"
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                      <input
+                        type="password"
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        placeholder="确认新密码"
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                      {confirmNewPassword && newPassword !== confirmNewPassword && (
+                        <p className="text-xs text-[var(--danger)]">两次密码不一致</p>
+                      )}
+                      {changePasswordResult && (
+                        <p className={`text-xs ${changePasswordResult.success ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{changePasswordResult.message}</p>
+                      )}
+                      <button
+                        onClick={handleChangePassword}
+                        disabled={changingPassword || !oldPassword || !newPassword || newPassword !== confirmNewPassword || newPassword.length < 4}
+                        className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {changingPassword ? <Loader2 size={14} className="animate-spin" /> : <LockIcon size={14} />}
+                        {changingPassword ? '修改中...' : '修改密码'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -680,11 +793,81 @@ export default function SettingsScreen(): React.ReactElement {
 
             {section === 'engine' && (
               <section className="animate-fade-in">
-                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">引擎管理</h3>
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">更新与引擎</h3>
 
                 <div className="space-y-5">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-4">引擎信息</h4>
+                    <div className="flex items-center gap-2 mb-4">
+                      <ArrowUpCircle size={16} className="text-[var(--accent)]" />
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">落云.Hermes 桌面端</h4>
+                      <span className="text-xs text-[var(--text-dim)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">应用本身</span>
+                    </div>
+                    <p className="text-xs text-[var(--text-dim)] mb-3">桌面应用的版本更新，包含界面功能改进和问题修复</p>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs text-[var(--text-dim)]">当前版本</span>
+                        <div className="text-sm text-[var(--text-primary)] mt-0.5">v{appVersion || '—'}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {appUpdateStatus === 'idle' && (
+                          <button
+                            onClick={() => { setAppUpdateStatus('checking'); window.hermesAPI.checkAppUpdate() }}
+                            className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                          >
+                            <ArrowUpCircle size={14} /> 检查更新
+                          </button>
+                        )}
+                        {appUpdateStatus === 'checking' && (
+                          <span className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
+                            <Loader2 size={14} className="animate-spin" /> 检查中...
+                          </span>
+                        )}
+                        {appUpdateStatus === 'available' && (
+                          <>
+                            <span className="text-sm text-[var(--accent)]">发现新版本 v{appUpdateVersion}</span>
+                            <button
+                              onClick={() => { setAppUpdateStatus('downloading'); setAppUpdatePercent(0); window.hermesAPI.downloadAppUpdate() }}
+                              className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+                            >
+                              <Download size={14} /> 下载更新
+                            </button>
+                          </>
+                        )}
+                        {appUpdateStatus === 'downloading' && (
+                          <div className="flex items-center gap-3 w-full max-w-[200px]">
+                            <div className="flex-1 h-1.5 rounded-full bg-[var(--bg-primary)] overflow-hidden">
+                              <div className="h-full rounded-full bg-accent-gradient transition-all" style={{ width: `${appUpdatePercent}%` }} />
+                            </div>
+                            <span className="text-xs text-[var(--text-dim)]">{appUpdatePercent}%</span>
+                          </div>
+                        )}
+                        {appUpdateStatus === 'downloaded' && (
+                          <button
+                            onClick={() => window.hermesAPI.installAppUpdate()}
+                            className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+                          >
+                            <RefreshCw size={14} /> 重启安装
+                          </button>
+                        )}
+                        {appUpdateStatus === 'not-available' && (
+                          <span className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
+                            <Check size={14} /> 已是最新版本
+                          </span>
+                        )}
+                        {appUpdateStatus === 'error' && (
+                          <span className="text-sm text-[var(--danger)]">{appUpdateError}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Terminal size={16} className="text-[var(--accent)]" />
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">Hermes Agent 引擎</h4>
+                      <span className="text-xs text-[var(--text-dim)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">AI 后端</span>
+                    </div>
+                    <p className="text-xs text-[var(--text-dim)] mb-3">AI 员工的运行引擎，负责对话推理和工具调用</p>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                       <div>
                         <span className="text-xs text-[var(--text-dim)]">引擎版本</span>
@@ -716,65 +899,72 @@ export default function SettingsScreen(): React.ReactElement {
                         有新版本可用：{parsedVersion.updateInfo}
                       </div>
                     )}
-                  </div>
 
-                  <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-4">操作</h4>
-                    <div className="flex flex-wrap gap-3">
-                      {parsedVersion?.updateInfo ? (
+                    <div className="mt-4 border-t border-[var(--border)] pt-4">
+                      <div className="flex flex-wrap gap-3">
+                        {parsedVersion?.updateInfo ? (
+                          <button
+                            onClick={handleUpdateHermes}
+                            disabled={updating}
+                            className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+                          >
+                            {updating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                            {updating ? '更新中...' : '更新引擎'}
+                          </button>
+                        ) : parsedVersion?.isUpToDate ? (
+                          <button className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-dim)] cursor-not-allowed" disabled>
+                            <Check size={14} /> 已是最新版本
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleUpdateHermes}
+                            disabled={updating}
+                            className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                          >
+                            {updating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                            {updating ? '更新中...' : '更新引擎'}
+                          </button>
+                        )}
                         <button
-                          onClick={handleUpdateHermes}
-                          disabled={updating}
-                          className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-                        >
-                          {updating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                          {updating ? '更新中...' : '更新引擎'}
-                        </button>
-                      ) : parsedVersion?.isUpToDate ? (
-                        <button className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-dim)] cursor-not-allowed" disabled>
-                          <Check size={14} /> 已是最新版本
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleUpdateHermes}
-                          disabled={updating}
+                          onClick={handleDoctor}
+                          disabled={doctorRunning}
                           className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
                         >
-                          {updating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                          {updating ? '更新中...' : '更新引擎'}
+                          {doctorRunning ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
+                          {doctorRunning ? '诊断中...' : '运行诊断'}
                         </button>
-                      )}
-                      <button
-                        onClick={handleDoctor}
-                        disabled={doctorRunning}
-                        className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                      >
-                        {doctorRunning ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
-                        {doctorRunning ? '诊断中...' : '运行诊断'}
-                      </button>
-                    </div>
-
-                    {updateResult && (
-                      <div className={`mt-4 rounded-lg border p-3 text-sm ${
-                        updateResultType === 'success'
-                          ? 'border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] text-[var(--success)]'
-                          : 'border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.1)] text-[var(--danger)]'
-                      }`}>
-                        {updateResult}
+                        <button
+                          onClick={handleReinstall}
+                          disabled={reinstalling}
+                          className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[rgba(239,68,68,0.1)] border-[rgba(239,68,68,0.3)] px-4 py-2 text-sm text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-50"
+                        >
+                          {reinstalling ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
+                          {reinstalling ? '安装中...' : '重新安装'}
+                        </button>
                       </div>
-                    )}
 
-                    {updateLog && updating && (
-                      <pre className="mt-4 max-h-[200px] overflow-y-auto rounded-lg bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs whitespace-pre-wrap text-[var(--text-secondary)] border border-[var(--border)]">
-                        {updateLog}
-                      </pre>
-                    )}
+                      {updateResult && (
+                        <div className={`mt-4 rounded-lg border p-3 text-sm ${
+                          updateResultType === 'success'
+                            ? 'border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] text-[var(--success)]'
+                            : 'border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.1)] text-[var(--danger)]'
+                        }`}>
+                          {updateResult}
+                        </div>
+                      )}
 
-                    {doctorOutput && (
-                      <pre className="mt-4 max-h-[300px] overflow-y-auto rounded-lg bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs whitespace-pre-wrap text-[var(--text-secondary)] border border-[var(--border)]">
-                        {doctorOutput}
-                      </pre>
-                    )}
+                      {updateLog && updating && (
+                        <pre className="mt-4 max-h-[200px] overflow-y-auto rounded-lg bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs whitespace-pre-wrap text-[var(--text-secondary)] border border-[var(--border)]">
+                          {updateLog}
+                        </pre>
+                      )}
+
+                      {doctorOutput && (
+                        <pre className="mt-4 max-h-[300px] overflow-y-auto rounded-lg bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs whitespace-pre-wrap text-[var(--text-secondary)] border border-[var(--border)]">
+                          {doctorOutput}
+                        </pre>
+                      )}
+                    </div>
                   </div>
                 </div>
               </section>

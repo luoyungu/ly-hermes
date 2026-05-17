@@ -202,6 +202,12 @@ const hermesAPI = {
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-change-password', oldPassword, newPassword),
 
+  authSetupPassword: (password: string): Promise<{ success: boolean; error?: string; user?: { id: string; username: string; displayName: string } }> =>
+    ipcRenderer.invoke('auth-setup-password', password),
+
+  checkInitialized: (): Promise<boolean> =>
+    ipcRenderer.invoke('check-initialized'),
+
   listEmployees: (): Promise<EmployeeInfo[]> =>
     ipcRenderer.invoke('employee:list'),
 
@@ -395,6 +401,15 @@ const hermesAPI = {
   }> =>
     ipcRenderer.invoke('check-hermes-install'),
 
+  checkInstall: (): Promise<{ installed: boolean; configured: boolean; hasApiKey: boolean }> =>
+    ipcRenderer.invoke('check-install'),
+
+  verifyInstall: (): Promise<{ installed: boolean; version?: string; error?: string }> =>
+    ipcRenderer.invoke('verify-install'),
+
+  startInstall: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('start-install'),
+
   getModelConfig: (): Promise<{ provider: string; model: string; baseUrl: string }> =>
     ipcRenderer.invoke('get-model-config'),
 
@@ -403,6 +418,9 @@ const hermesAPI = {
 
   setModel: (modelName: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('set-model', modelName),
+
+  setModelConfig: (modelConfig: { model?: string; provider?: string; baseUrl?: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('set-model-config', modelConfig),
 
   listSavedModels: (): Promise<SavedModel[]> =>
     ipcRenderer.invoke('list-saved-models'),
@@ -464,6 +482,18 @@ const hermesAPI = {
 
   runHermesUpdate: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('run-hermes-update'),
+
+  checkAppUpdate: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('check-app-update'),
+
+  downloadAppUpdate: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('download-app-update'),
+
+  installAppUpdate: (): Promise<void> =>
+    ipcRenderer.invoke('install-app-update'),
+
+  getAppVersion: (): Promise<string> =>
+    ipcRenderer.invoke('get-app-version'),
 
   onInstallProgress: (callback: (progress: { step: number; totalSteps: number; title: string; detail: string; log: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: unknown): void =>
@@ -542,6 +572,13 @@ const hermesAPI = {
     return () => ipcRenderer.removeListener('employee-status-changed', handler)
   },
 
+  onEmployeeListChanged: (callback: (data: { action: string; name: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
+      callback(data as { action: string; name: string })
+    ipcRenderer.on('employee-list-changed', handler)
+    return () => ipcRenderer.removeListener('employee-list-changed', handler)
+  },
+
   onEmployeeIdleTimeout: (callback: (data: { profileName: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
       callback(data as { profileName: string })
@@ -554,7 +591,26 @@ const hermesAPI = {
       callback(data as { employeeId: string; sessionId: string })
     ipcRenderer.on('new-conversation', handler)
     return () => ipcRenderer.removeListener('new-conversation', handler)
-  }
+  },
+
+  onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
+      callback(data as { status: string; version?: string; percent?: number; error?: string })
+    ipcRenderer.on('update-status', handler)
+    return () => ipcRenderer.removeListener('update-status', handler)
+  },
+
+  windowMinimize: (): Promise<void> =>
+    ipcRenderer.invoke('window-minimize'),
+
+  windowMaximize: (): Promise<void> =>
+    ipcRenderer.invoke('window-maximize'),
+
+  windowClose: (): Promise<void> =>
+    ipcRenderer.invoke('window-close'),
+
+  windowIsMaximized: (): Promise<boolean> =>
+    ipcRenderer.invoke('window-is-maximized'),
 }
 
 if (process.contextIsolated) {

@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Lock, Eye, EyeOff, Loader2 } from 'lucide-react'
+import logoImg from '../../assets/logo.png'
+import loginBg from '../../assets/login-bg.jpg'
+import WindowControls from '../../components/WindowControls'
 
 interface LoginProps {
   onSuccess: () => void
@@ -33,30 +36,39 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
   }
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-[var(--bg-primary)] relative overflow-hidden">
+    <div className="flex h-screen w-full items-center justify-center relative overflow-hidden" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+      <div className="absolute top-0 right-0 z-50" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <WindowControls />
+      </div>
+      <img
+        src={loginBg}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ filter: 'brightness(0.4)' }}
+      />
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse 80% 60% at 20% 30%, rgba(124,106,239,0.12), transparent), radial-gradient(ellipse 60% 80% at 80% 70%, rgba(91,141,239,0.08), transparent)'
+            'radial-gradient(ellipse 80% 60% at 50% 50%, rgba(124,106,239,0.15), transparent)'
         }}
       />
 
       <div
         className="relative glass-heavy border border-[var(--border)] rounded-[var(--radius-xl)] w-[420px] text-center animate-slide-up shadow-[0_24px_80px_rgba(0,0,0,0.3)]"
-        style={{ padding: '56px 48px 48px' }}
+        style={{ padding: '56px 48px 48px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        <span
-          className="block mb-4"
-          style={{ fontSize: 56, filter: 'drop-shadow(0 0 24px rgba(124,106,239,0.3))' }}
-        >
-          ⚡
-        </span>
+        <img
+          src={logoImg}
+          alt="落云.Hermes"
+          className="block mx-auto mb-4"
+          style={{ width: 120, height: 120, filter: 'drop-shadow(0 0 24px rgba(124,106,239,0.3))' }}
+        />
         <h1
           className="text-accent-gradient mb-2"
           style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}
         >
-          Hermes
+          落云.Hermes
         </h1>
         <p className="text-[var(--text-dim)] mb-10" style={{ fontSize: 14 }}>
           多智能体 AI 工作站
@@ -105,13 +117,13 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
                 解锁中...
               </span>
             ) : (
-              '进入 Hermes'
+              '进入落云'
             )}
           </button>
         </form>
 
         <p className="text-[var(--text-dim)]" style={{ marginTop: 32, fontSize: 12, opacity: 0.4 }}>
-          Hermes Desktop v0.1.0
+          落云.Hermes v0.1.0
         </p>
       </div>
     </div>

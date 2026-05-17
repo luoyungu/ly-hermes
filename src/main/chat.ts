@@ -13,6 +13,7 @@ import {
   readHermesEnv,
   getModelFromProfile,
   validateProfileName,
+  DEFAULT_HERMES_BIN,
 } from "./config";
 import {
   getApiPortForProfile,
@@ -374,8 +375,7 @@ export function sendMessageViaCli(
 ): ChildProcess {
   const appConfig = loadAppConfig();
   const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-  let hermesBin = (hermesCfg?.bin as string) || "hermes";
-  hermesBin = path.basename(hermesBin);
+  const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
   const args = [
     "chat",
     "-q",

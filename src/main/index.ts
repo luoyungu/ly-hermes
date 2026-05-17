@@ -5,11 +5,11 @@ import {
   Menu,
   protocol,
   net,
+  ipcMain,
 } from "electron";
 import path from "path";
 import fs from "fs";
 import { WINDOW_STATE_FILE, APP_DATA_DIR } from "./config";
-import { ensureDefaultUser } from "./auth";
 import { ensureApiServerConfig } from "./config";
 import { _gatewayProcesses, _idleTimers, clearIdleTimer } from "./employees";
 import { _pendingApprovals } from "./chat";
@@ -19,6 +19,14 @@ import { registerConfigIpcHandlers } from "./config";
 import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
 import { registerSessionIpcHandlers } from "./sessions";
+import { initUpdater } from "./updater";
+import { autoUpdater } from "electron-updater";
+import {
+  checkInstallStatus,
+  verifyInstall,
+  runInstall,
+  getHermesVersion,
+} from "./installer";
 
 process.on("uncaughtException", (err) => {
   console.error("[MAIN UNCAUGHT]", err);
@@ -77,16 +85,24 @@ function saveWindowState(): void {
 }
 
 function createWindow(): void {
+  const isMac = process.platform === "darwin";
   const savedState = loadWindowState();
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: ((savedState?.width as number) || 1400),
     height: ((savedState?.height as number) || 900),
     minWidth: 1000,
     minHeight: 600,
-    title: "Hermes Desktop",
-    titleBarStyle: "hiddenInset",
+    title: "落云.Hermes",
+    ...(isMac
+      ? {
+          titleBarStyle: "hiddenInset",
+          vibrancy: "under-window" as const,
+        }
+      : {
+          frame: false,
+          autoHideMenuBar: true,
+        }),
     backgroundColor: "#000000",
-    vibrancy: "under-window" as const,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -166,7 +182,7 @@ function createWindow(): void {
 function createTray(): void {
   const icon = createTrayIcon();
   tray = new Tray(icon);
-  tray.setToolTip("Hermes Desktop");
+  tray.setToolTip("落云.Hermes");
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -208,13 +224,55 @@ function createTray(): void {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
+
   protocol.handle("wallpaper", (request) => {
     const filePath = decodeURIComponent(request.url.replace("wallpaper://", ""));
     return net.fetch(`file://${filePath}`);
   });
 
-  ensureDefaultUser();
   ensureApiServerConfig();
+
+  ipcMain.handle("check-install", () => checkInstallStatus());
+  ipcMain.handle("verify-install", async () => {
+    const ok = await verifyInstall();
+    if (ok) {
+      const version = await getHermesVersion();
+      return { installed: true, version: version || undefined };
+    }
+    return { installed: false, error: "验证失败" };
+  });
+  ipcMain.handle("start-install", async () => {
+    return await runInstall((progress) => {
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("install-progress", progress);
+      }
+    });
+  });
+
+  ipcMain.handle("window-minimize", () => {
+    const win = getMainWindow();
+    if (win) win.minimize();
+  });
+  ipcMain.handle("window-maximize", () => {
+    const win = getMainWindow();
+    if (win) {
+      if (win.isMaximized()) {
+        win.unmaximize();
+      } else {
+        win.maximize();
+      }
+    }
+  });
+  ipcMain.handle("window-close", () => {
+    const win = getMainWindow();
+    if (win) win.close();
+  });
+  ipcMain.handle("window-is-maximized", () => {
+    const win = getMainWindow();
+    return win ? win.isMaximized() : false;
+  });
 
   registerAuthIpcHandlers();
   registerConfigIpcHandlers();
@@ -222,8 +280,14 @@ app.whenReady().then(() => {
   registerChatIpcHandlers(getMainWindow);
   registerSessionIpcHandlers();
 
+  initUpdater(getMainWindow);
+
   createWindow();
   createTray();
+
+  if (app.isPackaged) {
+    setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
+  }
 });
 
 app.on("before-quit", () => {
