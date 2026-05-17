@@ -1,0 +1,1668 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import {
+  Send, Square, History, UserCircle,
+  ChevronDown, Copy, Check, X,
+  ArrowLeft, Trash2, Puzzle, Wrench
+} from 'lucide-react'
+import type { EmployeeInfo, SkillInfo, ChatUsage, ApprovalRequest, MemoryData, SavedModel } from '../../../../preload/index'
+import { showToast } from '../../App'
+import { mapStatus, TOOL_META, ALL_TOOLS } from '../../shared/employee-shared'
+
+interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  toolCalls?: ToolCallInfo[]
+  thinking?: string
+}
+
+interface ToolCallInfo {
+  name: string
+  args?: string
+  result?: string
+  error?: string
+  status: 'running' | 'done' | 'error'
+}
+
+interface EmployeeStreamState {
+  isStreaming: boolean
+  streamingThinking: string
+  streamingUsage: ChatUsage | null
+  streamingCurrentTool: string | null
+  messageQueue: string[]
+}
+
+interface ContextMenu {
+  x: number
+  y: number
+  employeeName: string
+}
+
+interface SessionDisplay {
+  id: string
+  title: string
+  startedAt: number
+  messageCount: number
+}
+
+const DEFAULT_STREAM: EmployeeStreamState = {
+  isStreaming: false,
+  streamingThinking: '',
+  streamingUsage: null,
+  streamingCurrentTool: null,
+  messageQueue: []
+}
+
+const SLASH_COMMANDS = [
+  { cmd: '/new', desc: '开始新对话' },
+  { cmd: '/clear', desc: '清空当前对话' },
+  { cmd: '/help', desc: '显示帮助信息' },
+  { cmd: '/web', desc: '搜索互联网' },
+  { cmd: '/image', desc: '生成图片' },
+  { cmd: '/code', desc: '执行代码' },
+  { cmd: '/shell', desc: '执行终端命令' },
+  { cmd: '/model', desc: '查看/切换模型' },
+  { cmd: '/memory', desc: '查看记忆' },
+  { cmd: '/tools', desc: '查看工具列表' },
+  { cmd: '/skills', desc: '查看技能列表' },
+  { cmd: '/usage', desc: '查看用量统计' },
+  { cmd: '/compact', desc: '压缩对话上下文' },
+  { cmd: '/undo', desc: '撤销上一轮对话' },
+  { cmd: '/retry', desc: '重试上一条消息' },
+  { cmd: '/status', desc: '查看员工状态' },
+]
+
+function mapSession(r: Record<string, unknown>): SessionDisplay {
+  return {
+    id: String(r.id || ''),
+    title: String(r.title || '未命名会话'),
+    startedAt: Number(r.started_at || r.startedAt || 0),
+    messageCount: Number(r.message_count || r.messageCount || 0)
+  }
+}
+
+function buildChatHistory(messages: Record<string, unknown>[]): ChatMessage[] {
+  const result: ChatMessage[] = []
+  const toolResults = new Map<string, { content: string; error?: string }>()
+
+  for (const m of messages) {
+    const role = m.role as string
+    const content = m.content as string | null
+    const toolCallId = m.tool_call_id as string | null
+    const timestamp = Number(m.timestamp) || Date.now()
+
+    if (role === 'tool') {
+      if (toolCallId && content) {
+        let parsed: Record<string, unknown> | null = null
+        try { parsed = JSON.parse(content) } catch { /* not json */ }
+        const errorMsg = parsed?.error ? String(parsed.error) : undefined
+        const output = parsed?.output ? String(parsed.output) : (parsed ? content : content)
+        toolResults.set(toolCallId, { content: output || content, error: errorMsg })
+      }
+      continue
+    }
+
+    if (role === 'user' && content) {
+      result.push({ id: String(m.id), role: 'user', content, timestamp })
+    } else if (role === 'assistant') {
+      const toolCallsRaw = m.tool_calls as string | null
+      let parsedToolCalls: ToolCallInfo[] = []
+
+      if (toolCallsRaw) {
+        try {
+          const calls = JSON.parse(toolCallsRaw) as Array<Record<string, unknown>>
+          for (const call of calls) {
+            const fn = call.function as Record<string, unknown> | undefined
+            const callId = (call.id || call.call_id) as string | undefined
+            const toolResult = callId ? toolResults.get(callId) : undefined
+            parsedToolCalls.push({
+              name: (fn?.name as string) || String(call.name || ''),
+              args: fn?.arguments ? String(fn.arguments) : undefined,
+              result: toolResult?.content || '已完成',
+              error: toolResult?.error || undefined,
+              status: toolResult?.error ? 'error' : 'done' as const
+            })
+          }
+        } catch { /* skip */ }
+      }
+
+      const toolName = m.tool_name as string | null
+      if (toolName) {
+        parsedToolCalls.push({
+          name: toolName,
+          result: '已完成',
+          status: 'done' as const
+        })
+      }
+
+      if (content || parsedToolCalls.length > 0) {
+        const msg: ChatMessage = {
+          id: String(m.id),
+          role: 'assistant',
+          content: content || '',
+          timestamp,
+          toolCalls: parsedToolCalls.length > 0 ? parsedToolCalls : undefined
+        }
+        result.push(msg)
+      }
+    }
+  }
+
+  return result
+}
+
+function formatMessageTime(date: number | Date): string {
+  const d = new Date(date)
+  const now = new Date()
+  const h = d.getHours().toString().padStart(2, '0')
+  const m = d.getMinutes().toString().padStart(2, '0')
+  const isToday = d.toDateString() === now.toDateString()
+  if (isToday) return h + ':' + m
+  const month = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
+  return month + '/' + day + ' ' + h + ':' + m
+}
+
+function formatNumber(n: number | null | undefined): string {
+  if (n == null) return '0'
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
+  return n.toString()
+}
+
+function formatDate(ts: number): string {
+  if (!ts) return '--'
+  const d = new Date(ts)
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function statusText(s: string): string {
+  if (s === 'awake') return '在线'
+  if (s === 'busy') return '忙碌...'
+  if (s === 'sleeping') return '离线'
+  if (s === 'error') return '异常'
+  return s || '未知'
+}
+
+function statusColor(s: string): string {
+  if (s === 'awake') return 'var(--success)'
+  if (s === 'busy') return 'var(--accent)'
+  if (s === 'sleeping') return 'var(--text-dim)'
+  if (s === 'error') return 'var(--danger)'
+  return 'var(--text-dim)'
+}
+
+function statusDotClass(s: string): string {
+  if (s === 'awake') return 'bg-[var(--success)] shadow-[0_0_8px_rgba(34,197,94,0.4)]'
+  if (s === 'busy') return 'bg-[var(--accent)] animate-pulse-custom'
+  if (s === 'sleeping') return 'bg-[var(--text-dim)]'
+  if (s === 'error') return 'bg-[var(--danger)] shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+  return 'bg-[var(--text-dim)]'
+}
+
+function CopyButton({ text }: { text: string }): React.ReactElement {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = (): void => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      showToast('已复制到剪贴板', 'success')
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => showToast('复制失败', 'error'))
+  }
+  return (
+    <button onClick={handleCopy} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors p-0.5" title="复制">
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  )
+}
+
+function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] overflow-hidden text-xs">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full px-3.5 py-2.5 text-left hover:bg-[var(--bg-hover)] transition-colors gap-2"
+      >
+        <span className="flex items-center gap-2 font-medium text-[var(--accent)] text-[13px]">🔧 {toolCall.name}</span>
+        <div className="flex items-center gap-2">
+          <span className={`text-[11px] px-2.5 py-0.5 rounded-xl font-medium ${
+            toolCall.status === 'running' ? 'bg-[var(--accent-glow)] text-[var(--accent)] animate-pulse-custom' :
+            toolCall.status === 'done' ? 'bg-[rgba(34,197,94,0.12)] text-[var(--success)]' :
+            'bg-[rgba(239,68,68,0.12)] text-[var(--danger)]'
+          }`}>
+            {toolCall.status === 'running' ? '执行中' : toolCall.status === 'done' ? '完成' : '失败'}
+          </span>
+          <ChevronDown size={10} className={`text-[var(--text-dim)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-3.5 py-3 border-t border-[var(--border)]">
+          {toolCall.args && (
+            <div className="mb-2.5">
+              <div className="text-[11px] font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1.5">参数</div>
+              <pre className="bg-[rgba(0,0,0,0.25)] backdrop-blur-sm p-2.5 rounded-lg font-mono text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto text-[var(--text-secondary)] border border-[var(--border)]">
+                {toolCall.args}
+              </pre>
+            </div>
+          )}
+          <div>
+            <div className="text-[11px] font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1.5">结果</div>
+            <pre className="bg-[rgba(0,0,0,0.25)] backdrop-blur-sm p-2.5 rounded-lg font-mono text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto text-[var(--text-secondary)] border border-[var(--border)]">
+              {toolCall.error ? <span style={{ color: 'var(--danger)' }}>{toolCall.error}</span> : toolCall.result || (toolCall.status === 'done' ? '已完成' : '等待中...')}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking }: {
+  msg: ChatMessage
+  empName: string
+  empAvatar: string
+  isStreaming?: boolean
+  thinking?: string
+}): React.ReactElement {
+  const isUser = msg.role === 'user'
+  const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
+  const hasThinking = !!thinking
+  const hasContent = !!msg.content
+  const [expandedThinking, setExpandedThinking] = useState(false)
+
+  return (
+    <div className={`flex gap-3 max-w-[85%] animate-fade-in ${isUser ? 'self-end flex-row-reverse' : 'self-start'}`}>
+      <div className={`w-7 h-7 rounded-md flex items-center justify-center text-sm shrink-0 mt-0.5 ${isUser ? 'bg-[var(--bg-surface)] border border-[var(--border)]' : 'bg-[var(--accent-glow)] border border-[rgba(124,106,239,0.2)]'}`}>
+        {isUser ? '👤' : empAvatar}
+      </div>
+      <div className="flex-1 min-w-0">
+        {!isUser && <div className="text-xs font-semibold text-[var(--text-dim)] mb-1">{empName}</div>}
+        <div className={`py-2.5 px-4 rounded-[var(--radius-lg)] text-sm leading-relaxed break-words overflow-wrap-break-word ${
+          isUser
+            ? 'bg-[var(--user-bubble)] text-[var(--user-bubble-text)] rounded-br-[4px] shadow-[0_2px_8px_rgba(0,0,0,0.15)]'
+            : 'glass-medium border border-[var(--border)] text-[var(--agent-bubble-text)] rounded-bl-[4px]'
+        }`}>
+          {hasThinking && (
+            <div className="mb-2 glass-medium border border-[rgba(234,179,8,0.15)] rounded-[var(--radius)] overflow-hidden">
+              <button
+                onClick={() => setExpandedThinking(!expandedThinking)}
+                className="flex items-center justify-between w-full px-3.5 py-2.5 text-left hover:bg-[rgba(234,179,8,0.04)] transition-colors"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-medium text-[var(--warning)]">💭 思考过程</span>
+                <ChevronDown size={12} className={`text-[var(--text-dim)] transition-transform ${expandedThinking ? 'rotate-180' : ''}`} />
+              </button>
+              {expandedThinking && (
+                <div className="px-3.5 py-3 border-t border-[rgba(234,179,8,0.1)] text-[13px] text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                  {thinking}
+                </div>
+              )}
+            </div>
+          )}
+          {hasToolCalls && (
+            <div className={`flex flex-col gap-2 ${hasContent ? 'mb-3 border-b border-[var(--border)] pb-3' : ''}`}>
+              {msg.toolCalls!.map((tc, i) => (
+                <ToolCard key={i} toolCall={tc} />
+              ))}
+            </div>
+          )}
+          {hasContent && (
+            <div className={`message-content ${!isUser ? 'agent-markdown' : ''}`}>
+              {isUser ? (
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+              )}
+              {isStreaming && <span className="inline-block w-[2px] h-[1em] bg-[var(--accent)] animate-blink align-text-bottom ml-0.5" />}
+            </div>
+          )}
+          {!hasContent && isStreaming && !hasToolCalls && !hasThinking && (
+            <span className="inline-block w-[2px] h-[1em] bg-[var(--accent)] animate-blink align-text-bottom ml-0.5" />
+          )}
+        </div>
+        <div className={`flex items-center gap-2 mt-1 px-1 text-[11px] text-[var(--text-dim)] opacity-60 ${isUser ? 'justify-end' : ''}`}>
+          <span>{formatMessageTime(msg.timestamp)}</span>
+          {!isUser && hasContent && <CopyButton text={msg.content} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ApprovalModal({ request, onApprove, onDeny }: {
+  request: ApprovalRequest
+  onApprove: () => void
+  onDeny: () => void
+}): React.ReactElement {
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center">
+      <div className="absolute inset-0 bg-[rgba(0,0,0,0.5)] backdrop-blur-sm" onClick={onDeny} />
+      <div className="relative glass-heavy border border-[var(--border)] rounded-[var(--radius-xl)] w-[90%] max-w-[520px] max-h-[85vh] overflow-y-auto animate-scale-in shadow-[0_24px_80px_rgba(0,0,0,0.4)]">
+        <div className="flex justify-between items-center px-6 border-b border-[var(--border)] h-14 sticky top-0 glass-heavy z-[1]">
+          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">审批请求</h3>
+        </div>
+        <div className="p-6">
+          <div className="text-[15px] font-semibold text-[var(--accent)] mb-2.5">工具: {request.tool}</div>
+          <pre className="bg-[rgba(0,0,0,0.25)] backdrop-blur-sm p-3.5 rounded-[var(--radius)] font-mono text-[13px] whitespace-pre-wrap break-all text-[var(--text-primary)] mb-2.5 max-h-[200px] overflow-y-auto border border-[var(--border)]">
+            {JSON.stringify(request.args, null, 2)}
+          </pre>
+          <span className={`text-xs px-3 py-1 rounded-xl font-medium inline-block ${
+            request.riskLevel === 'high' ? 'bg-[rgba(239,68,68,0.12)] text-[var(--danger)]' :
+            request.riskLevel === 'medium' ? 'bg-[rgba(234,179,8,0.12)] text-[var(--warning)]' :
+            'bg-[rgba(34,197,94,0.12)] text-[var(--success)]'
+          }`}>
+            风险: {request.riskLevel === 'high' ? '高' : request.riskLevel === 'medium' ? '中' : '低'}
+          </span>
+        </div>
+        <div className="flex justify-end gap-2.5 px-6 py-4 border-t border-[var(--border)] glass-heavy">
+          <button onClick={onDeny} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-4 py-2 rounded-[var(--radius)] text-sm cursor-pointer transition-all hover:bg-[var(--bg-hover)] font-medium">拒绝</button>
+          <button onClick={onApprove} className="bg-accent-gradient text-white border-none px-4 py-2 rounded-[var(--radius)] text-sm cursor-pointer transition-all hover:opacity-90 font-medium">批准</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type DetailTab = 'soul' | 'tools' | 'skills' | 'memory'
+
+function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: () => void }): React.ReactElement {
+  const [tab, setTab] = useState<DetailTab>('soul')
+  const [soulContent, setSoulContent] = useState('')
+  const [tools, setTools] = useState<string[]>([])
+  const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [memoryData, setMemoryData] = useState<MemoryData | null>(null)
+
+  useEffect(() => {
+    const ename = employee.name
+    window.hermesAPI.getEmployeeSoul(ename).then((s) => { setSoulContent(s || '') }).catch(() => {})
+    window.hermesAPI.getEmployeeTools(ename).then(setTools).catch(() => {})
+    window.hermesAPI.getEmployeeSkills(ename).then(setSkills).catch(() => {})
+    window.hermesAPI.getEmployeeMemory(ename).then(setMemoryData).catch(() => {})
+  }, [employee.name])
+
+  const tabs: { id: DetailTab; label: string }[] = [
+    { id: 'soul', label: '灵魂' },
+    { id: 'tools', label: '工具' },
+    { id: 'skills', label: '技能' },
+    { id: 'memory', label: '记忆' },
+  ]
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="drag-region flex items-center gap-3 border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 28, paddingBottom: 8, paddingLeft: 24, paddingRight: 24 }}>
+        <button onClick={onBack} className="no-drag text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors"><ArrowLeft size={20} /></button>
+        <span style={{ fontSize: 17, fontWeight: 600 }}>{employee.displayName || employee.name}</span>
+      </div>
+      <div className="flex flex-col items-center py-7 px-5 border-b border-[var(--border)]">
+        <div className="w-[72px] h-[72px] rounded-[18px] glass-medium flex items-center justify-center text-[36px] mb-3 border border-[var(--border)]">{employee.avatar || '🧑‍💼'}</div>
+        <div className="text-[20px] font-semibold tracking-[-0.3px]">{employee.displayName || employee.name}</div>
+        <div className="text-sm text-[var(--text-dim)]">{employee.model} · <span style={{ color: statusColor(employee.status || '') }}>{statusText(employee.status || '')}</span></div>
+      </div>
+      <div className="flex border-b border-[var(--border)] px-4">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === t.id ? 'text-[var(--accent)] border-[var(--accent)]' : 'text-[var(--text-dim)] border-transparent hover:text-[var(--text-primary)]'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto p-5">
+        {tab === 'soul' && (
+          <pre className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5 text-[13px] text-[var(--text-primary)] min-h-[300px] font-mono leading-relaxed whitespace-pre-wrap">{soulContent || '暂无灵魂设定'}</pre>
+        )}
+        {tab === 'tools' && (
+          <div className="grid grid-cols-2 gap-3">
+            {ALL_TOOLS.map(t => {
+              const meta = TOOL_META[t]
+              const enabled = tools.includes(t)
+              return (
+                <div
+                  key={t}
+                  className={`glass-medium border rounded-[var(--radius-lg)] p-4 transition-all ${
+                    enabled ? 'border-[rgba(124,106,239,0.2)]' : 'border-[var(--border)] opacity-55'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 mb-2.5">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${enabled ? 'bg-[var(--accent-glow)] text-[var(--accent)]' : 'bg-[var(--bg-surface)] text-[var(--text-dim)]'}`}>
+                      {meta?.icon || <Wrench size={18} />}
+                    </div>
+                    <span className={`text-sm font-medium ${enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-dim)]'}`}>{meta?.label || t}</span>
+                  </div>
+                  {meta && <div className="text-xs text-[var(--text-dim)] leading-relaxed">{meta.desc}</div>}
+                </div>
+              )
+            })}
+            {tools.filter(t => !ALL_TOOLS.includes(t)).length > 0 && (
+              <div className="col-span-2 glass-medium border border-[var(--border)] rounded-[var(--radius)] p-4">
+                <div className="text-sm font-medium text-[var(--text-primary)] mb-2">其他已启用工具</div>
+                <div className="flex flex-wrap gap-2">
+                  {tools.filter(t => !ALL_TOOLS.includes(t)).map(t => (
+                    <span key={t} className="inline-flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-xl text-[13px] text-[var(--text-primary)] border border-[var(--border)]">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {tools.length === 0 && (
+              <span className="text-[13px] text-[var(--text-dim)] col-span-2">暂无已启用工具</span>
+            )}
+          </div>
+        )}
+        {tab === 'skills' && (
+          <div className="grid grid-cols-2 gap-3">
+            {skills.length > 0 ? skills.map(s => (
+              <div key={s.name} className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-lg bg-[rgba(34,197,94,0.1)] text-[var(--success)] flex items-center justify-center">
+                      <Puzzle size={18} />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">{s.name}</span>
+                  </div>
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium">已安装</span>
+                </div>
+              </div>
+            )) : <span className="text-[13px] text-[var(--text-dim)] col-span-2">暂无技能</span>}
+          </div>
+        )}
+        {tab === 'memory' && (
+          <div className="flex flex-col gap-4">
+            {memoryData ? (
+              <>
+                <div className="flex items-center gap-4 text-[13px]">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
+                    <span className="text-[var(--accent)]">📝</span>
+                    <span className="text-[var(--text-primary)] font-medium">{memoryData.memory.length}</span>
+                    <span className="text-[var(--text-dim)]">条记忆</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
+                    <span className="text-[var(--accent)]">👤</span>
+                    <span className="text-[var(--text-primary)] font-medium">{memoryData.userCharCount ?? 0}</span>
+                    <span className="text-[var(--text-dim)]">字符用户档案</span>
+                  </div>
+                  {memoryData.stats && Object.keys(memoryData.stats).length > 0 && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
+                      <span className="text-[var(--accent)]">📊</span>
+                      <span className="text-[var(--text-primary)] font-medium">{Object.keys(memoryData.stats).length}</span>
+                      <span className="text-[var(--text-dim)]">项统计</span>
+                    </div>
+                  )}
+                </div>
+
+                {(memoryData.memoryCharCount != null && memoryData.memoryCharLimit != null) && (
+                  <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
+                    <div className="flex items-center justify-between text-[12px] mb-2">
+                      <span className="text-[var(--text-secondary)]">记忆容量</span>
+                      <span className="text-[var(--text-dim)]">{memoryData.memoryCharCount} / {memoryData.memoryCharLimit}</span>
+                    </div>
+                    <div className="w-full h-1 bg-[var(--bg-surface)] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min(100, (memoryData.memoryCharCount / memoryData.memoryCharLimit) * 100)}%`,
+                          backgroundColor: (memoryData.memoryCharCount / memoryData.memoryCharLimit) > 0.9 ? 'var(--danger)' : (memoryData.memoryCharCount / memoryData.memoryCharLimit) > 0.7 ? 'var(--warning)' : 'var(--success)'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {(memoryData.userCharCount != null && memoryData.userCharLimit != null) && (
+                  <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
+                    <div className="flex items-center justify-between text-[12px] mb-2">
+                      <span className="text-[var(--text-secondary)]">用户档案容量</span>
+                      <span className="text-[var(--text-dim)]">{memoryData.userCharCount} / {memoryData.userCharLimit}</span>
+                    </div>
+                    <div className="w-full h-1 bg-[var(--bg-surface)] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min(100, (memoryData.userCharCount / memoryData.userCharLimit) * 100)}%`,
+                          backgroundColor: (memoryData.userCharCount / memoryData.userCharLimit) > 0.9 ? 'var(--danger)' : (memoryData.userCharCount / memoryData.userCharLimit) > 0.7 ? 'var(--warning)' : 'var(--success)'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {memoryData.memory.length > 0 && (
+                  <div>
+                    <div className="text-[13px] font-medium text-[var(--accent)] mb-2.5">系统记忆</div>
+                    <div className="flex flex-col gap-2">
+                      {memoryData.memory.map((entry, i) => (
+                        <div key={i} className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
+                          <div className="text-[12px] text-[var(--text-dim)] mb-1.5">#{entry.index ?? i}</div>
+                          <pre className="text-[var(--text-secondary)] whitespace-pre-wrap text-[13px] leading-relaxed max-h-[200px] overflow-y-auto">{entry.content}</pre>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {memoryData.user && (
+                  <div>
+                    <div className="text-[13px] font-medium text-[var(--accent)] mb-2.5">用户档案</div>
+                    <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
+                      <pre className="text-[var(--text-secondary)] whitespace-pre-wrap text-[13px] leading-relaxed max-h-[200px] overflow-y-auto">{memoryData.user}</pre>
+                    </div>
+                  </div>
+                )}
+
+                {memoryData.memory.length === 0 && !memoryData.user && (
+                  <div className="text-center py-12 text-[var(--text-dim)]">
+                    <div className="text-4xl mb-3 opacity-30">🧠</div>
+                    <p className="text-sm">暂无记忆</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-12 text-[var(--text-dim)]">
+                <div className="text-4xl mb-3 opacity-30">⏳</div>
+                <p className="text-sm">加载中...</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: string; onClose: () => void; onRestore: (sessionId: string, messages: ChatMessage[]) => void }): React.ReactElement {
+  const [sessions, setSessions] = useState<SessionDisplay[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadSessions()
+  }, [employeeName])
+
+  const loadSessions = async (query?: string): Promise<void> => {
+    setLoading(true)
+    try {
+      if (query) {
+        const results = await window.hermesAPI.searchSessions(query)
+        const mapped = (results || []).map(mapSession)
+        setSessions(mapped)
+      } else {
+        const results = await window.hermesAPI.getEmployeeSessions(employeeName)
+        const mapped = (results || []).map(mapSession)
+        setSessions(mapped)
+      }
+    } catch { setSessions([]) }
+    finally { setLoading(false) }
+  }
+
+  const handleSearch = (q: string): void => {
+    setSearchQuery(q)
+    if (q.trim()) {
+      setTimeout(() => loadSessions(q.trim()), 300)
+    } else {
+      loadSessions()
+    }
+  }
+
+  const handleDelete = async (sessionId: string): Promise<void> => {
+    try {
+      await window.hermesAPI.deleteSession(sessionId, employeeName)
+      setSessions(prev => prev.filter(s => s.id !== sessionId))
+      showToast('会话已删除', 'success')
+    } catch { showToast('删除失败', 'error') }
+  }
+
+  return (
+    <div className="no-drag absolute right-0 top-0 bottom-0 w-[340px] glass-heavy border-l border-[var(--border)] z-50 flex flex-col animate-slide-in-right shadow-[-8px_0_40px_rgba(0,0,0,0.2)]">
+      <div className="flex items-center justify-between px-4 h-[52px] border-b border-[var(--border)] text-[15px] font-semibold">
+        <span>历史会话</span>
+        <button onClick={onClose} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors"><X size={18} /></button>
+      </div>
+      <div className="px-3 py-2.5 border-b border-[var(--border)]">
+        <input
+          value={searchQuery}
+          onChange={(e) => handleSearch(e.target.value)}
+          placeholder="搜索会话..."
+          className="w-full glass-medium border border-[var(--border)] rounded-lg py-2 px-3 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto p-2">
+        {loading ? (
+          <div className="text-center py-12 text-[var(--text-dim)] text-sm">加载中...</div>
+        ) : sessions.length === 0 ? (
+          <div className="text-center py-12 text-[var(--text-dim)] text-sm">暂无历史会话</div>
+        ) : (
+          sessions.map(s => (
+            <div key={s.id} className="px-3.5 py-3 rounded-[var(--radius)] cursor-pointer transition-all hover:bg-[var(--bg-hover)] mb-0.5">
+              <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || '未命名会话'}</div>
+              <div className="text-xs text-[var(--text-dim)] mt-0.5">{formatDate(s.startedAt)} · {s.messageCount} 条消息</div>
+              <div className="flex gap-1.5 mt-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const messages = await window.hermesAPI.getSessionMessages(s.id, employeeName)
+                      const history = buildChatHistory(messages || [])
+                      onRestore(s.id, history)
+                      showToast('会话已加载', 'success')
+                      onClose()
+                    } catch { showToast('加载失败', 'error') }
+                  }}
+                  className="bg-accent-gradient text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-90"
+                >恢复</button>
+                <button
+                  onClick={() => handleDelete(s.id)}
+                  className="bg-[var(--danger)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
+                >删除</button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function Chat(): React.ReactElement {
+  const [employees, setEmployees] = useState<EmployeeInfo[]>([])
+  const [currentEmployeeName, setCurrentEmployeeName] = useState<string | null>(null)
+  const [chatHistories, setChatHistories] = useState<Record<string, ChatMessage[]>>({})
+  const [, setCurrentSessionId] = useState<string | null>(null)
+  const [streamStates, setStreamStates] = useState<Record<string, EmployeeStreamState>>({})
+  const [searchQuery, setSearchQuery] = useState('')
+  const [input, setInput] = useState('')
+  const [showDetail, setShowDetail] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
+  const [slashPopupVisible, setSlashPopupVisible] = useState(false)
+  const [slashItems, setSlashItems] = useState(SLASH_COMMANDS)
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0)
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  const [isComposing, setIsComposing] = useState(false)
+  const [savedModels, setSavedModels] = useState<SavedModel[]>([])
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const messageQueueRef = useRef<Record<string, string[]>>({})
+  const streamingThinkingMapRef = useRef<Record<string, string>>({})
+  const chunkBufferRef = useRef<Record<string, string[]>>({})
+  const chunkFlushScheduledRef = useRef<Record<string, boolean>>({})
+
+  const flushChunks = useCallback((profileName: string) => {
+    const chunks = chunkBufferRef.current[profileName]
+    if (!chunks || chunks.length === 0) {
+      chunkFlushScheduledRef.current[profileName] = false
+      return
+    }
+    chunkBufferRef.current[profileName] = []
+    chunkFlushScheduledRef.current[profileName] = false
+    const combined = chunks.join('')
+    setChatHistories(prev => {
+      const history = prev[profileName] || []
+      const last = history[history.length - 1]
+      if (last && last.role === 'assistant') {
+        return { ...prev, [profileName]: [...history.slice(0, -1), { ...last, content: last.content + combined }] }
+      }
+      if (!combined.trim()) return prev
+      return { ...prev, [profileName]: [...history, { id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'assistant' as const, content: combined, timestamp: Date.now() }] }
+    })
+  }, [])
+
+  const currentEmployeeNameRef = useRef(currentEmployeeName)
+  currentEmployeeNameRef.current = currentEmployeeName
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  const scrollToBottomRef = useRef(scrollToBottom)
+  scrollToBottomRef.current = scrollToBottom
+
+  const currentStream = useMemo(() => {
+    const name = currentEmployeeName || ''
+    return streamStates[name] || DEFAULT_STREAM
+  }, [streamStates, currentEmployeeName])
+
+  const isStreaming = currentStream.isStreaming
+
+  const currentEmployee = useMemo(() =>
+    employees.find(e => e.name === currentEmployeeName) || null
+  , [employees, currentEmployeeName])
+
+  const currentMessages = useMemo(() =>
+    chatHistories[currentEmployeeName || ''] || []
+  , [chatHistories, currentEmployeeName])
+
+  const filteredEmployees = useMemo(() => {
+    if (!searchQuery) return employees
+    const q = searchQuery.toLowerCase()
+    return employees.filter(e =>
+      (e.name || '').toLowerCase().includes(q) ||
+      (e.displayName || '').toLowerCase().includes(q) ||
+      (e.model || '').toLowerCase().includes(q)
+    )
+  }, [employees, searchQuery])
+
+  useEffect(() => {
+    loadEmployees()
+  }, [])
+
+  useEffect(() => {
+    window.hermesAPI.listSavedModels().then(setSavedModels).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!modelDropdownOpen) return
+    const handler = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.model-dropdown-container')) {
+        setModelDropdownOpen(false)
+      }
+    }
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [modelDropdownOpen])
+
+  useEffect(() => {
+    const unsubChunk = window.hermesAPI.onChatChunk((data) => {
+      if (!data.chunk) return
+      if (!chunkBufferRef.current[data.profileName]) {
+        chunkBufferRef.current[data.profileName] = []
+      }
+      chunkBufferRef.current[data.profileName].push(data.chunk)
+      if (!chunkFlushScheduledRef.current[data.profileName]) {
+        chunkFlushScheduledRef.current[data.profileName] = true
+        requestAnimationFrame(() => flushChunks(data.profileName))
+      }
+      setStreamStates(prev => ({ ...prev, [data.profileName]: { ...(prev[data.profileName] || DEFAULT_STREAM), isStreaming: true } }))
+    })
+
+    const unsubDone = window.hermesAPI.onChatDone((data) => {
+      const empName = data.profileName
+      if (data.sessionId) setCurrentSessionId(data.sessionId)
+
+      flushChunks(empName)
+
+      const thinkingContent = streamingThinkingMapRef.current[empName] || undefined
+
+      setChatHistories(prev => {
+        const history = prev[empName] || []
+        const last = history[history.length - 1]
+        if (last && last.role === 'assistant') {
+          const updatedToolCalls = last.toolCalls?.map(tc =>
+            tc.status === 'running' ? { ...tc, status: 'done' as const, result: tc.result || '已完成' } : tc
+          )
+          return { ...prev, [empName]: [...history.slice(0, -1), { ...last, toolCalls: updatedToolCalls, thinking: thinkingContent }] }
+        }
+        return prev
+      })
+
+      streamingThinkingMapRef.current = { ...streamingThinkingMapRef.current, [empName]: '' }
+
+      const remainingQueue = messageQueueRef.current[empName] || []
+      if (remainingQueue.length > 0) {
+        const next = remainingQueue[0]
+        messageQueueRef.current = { ...messageQueueRef.current, [empName]: remainingQueue.slice(1) }
+        setStreamStates(prev => ({ ...prev, [empName]: { ...DEFAULT_STREAM, isStreaming: true, messageQueue: remainingQueue.slice(1) } }))
+        setTimeout(() => doSend(empName, next, true), 100)
+      } else {
+        messageQueueRef.current = { ...messageQueueRef.current, [empName]: [] }
+        setStreamStates(prev => ({ ...prev, [empName]: DEFAULT_STREAM }))
+      }
+    })
+
+    const unsubError = window.hermesAPI.onChatError((data) => {
+      flushChunks(data.profileName)
+      const thinkingContent = streamingThinkingMapRef.current[data.profileName] || undefined
+      setStreamStates(prev => ({ ...prev, [data.profileName]: DEFAULT_STREAM }))
+      setChatHistories(prev => {
+        const history = prev[data.profileName] || []
+        const last = history[history.length - 1]
+        if (last && last.role === 'assistant') {
+          const updatedToolCalls = last.toolCalls?.map(tc =>
+            tc.status === 'running' ? { ...tc, status: 'error' as const, error: data.error } : tc
+          )
+          return { ...prev, [data.profileName]: [...history.slice(0, -1), { ...last, toolCalls: updatedToolCalls, thinking: thinkingContent }] }
+        }
+        return { ...prev, [data.profileName]: [...history, { id: `error-${Date.now()}`, role: 'assistant' as const, content: `❌ ${data.error || '发生错误'}`, timestamp: Date.now() }] }
+      })
+      streamingThinkingMapRef.current = { ...streamingThinkingMapRef.current, [data.profileName]: '' }
+      showToast(data.error || '发生错误', 'error')
+    })
+
+    const unsubToolProgress = window.hermesAPI.onChatToolProgress((data) => {
+      const status = data.status || 'running'
+      const isCompleted = status === 'completed' || status === 'done'
+
+      if (isCompleted) {
+        setChatHistories(prev => {
+          const history = prev[data.profileName] || []
+          const last = history[history.length - 1]
+          if (last && last.role === 'assistant' && last.toolCalls) {
+            let toolIdx = -1
+            for (let i = last.toolCalls.length - 1; i >= 0; i--) {
+              if (last.toolCalls[i].name === data.toolName && last.toolCalls[i].status === 'running') {
+                toolIdx = i
+                break
+              }
+            }
+            if (toolIdx >= 0) {
+              const newToolCalls = [...last.toolCalls]
+              newToolCalls[toolIdx] = {
+                ...newToolCalls[toolIdx],
+                result: data.result ? (typeof data.result === 'string' ? data.result : JSON.stringify(data.result)) : '已完成',
+                error: data.error ? String(data.error) : undefined,
+                status: (data.error ? 'error' : 'done') as 'done' | 'error'
+              }
+              return { ...prev, [data.profileName]: [...history.slice(0, -1), { ...last, toolCalls: newToolCalls }] }
+            }
+          }
+          return prev
+        })
+      } else {
+        setChatHistories(prev => {
+          const history = prev[data.profileName] || []
+          const last = history[history.length - 1]
+          const newToolCall: ToolCallInfo = {
+            name: data.toolName || data.tool,
+            args: data.args ? (typeof data.args === 'string' ? data.args : JSON.stringify(data.args)) : undefined,
+            status: 'running' as const
+          }
+          if (last && last.role === 'assistant') {
+            return { ...prev, [data.profileName]: [...history.slice(0, -1), { ...last, toolCalls: [...(last.toolCalls || []), newToolCall] }] }
+          }
+          return { ...prev, [data.profileName]: [...history, { id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'assistant' as const, content: '', timestamp: Date.now(), toolCalls: [newToolCall] }] }
+        })
+      }
+
+      setStreamStates(prev => {
+        const emp = prev[data.profileName] || DEFAULT_STREAM
+        return { ...prev, [data.profileName]: { ...emp, isStreaming: true, streamingCurrentTool: isCompleted ? null : (data.toolName || data.tool) } }
+      })
+      setTimeout(() => scrollToBottomRef.current(), 10)
+    })
+
+    const unsubToolStart = window.hermesAPI.onChatToolStart((data) => {
+      setChatHistories(prev => {
+        const history = prev[data.profileName] || []
+        const last = history[history.length - 1]
+        const newToolCall: ToolCallInfo = {
+          name: data.toolName,
+          args: data.args ? (typeof data.args === 'string' ? data.args : JSON.stringify(data.args)) : undefined,
+          status: 'running' as const
+        }
+        if (last && last.role === 'assistant') {
+          return { ...prev, [data.profileName]: [...history.slice(0, -1), { ...last, toolCalls: [...(last.toolCalls || []), newToolCall] }] }
+        }
+        return { ...prev, [data.profileName]: [...history, { id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'assistant' as const, content: '', timestamp: Date.now(), toolCalls: [newToolCall] }] }
+      })
+      setStreamStates(prev => {
+        const emp = prev[data.profileName] || DEFAULT_STREAM
+        return { ...prev, [data.profileName]: { ...emp, isStreaming: true, streamingCurrentTool: data.toolName } }
+      })
+      setTimeout(() => scrollToBottomRef.current(), 10)
+    })
+
+    const unsubToolEnd = window.hermesAPI.onChatToolEnd((data) => {
+      setChatHistories(prev => {
+        const history = prev[data.profileName] || []
+        const last = history[history.length - 1]
+        if (last && last.role === 'assistant' && last.toolCalls) {
+          let toolIdx = -1
+          for (let i = last.toolCalls.length - 1; i >= 0; i--) {
+            if (last.toolCalls[i].name === data.toolName && last.toolCalls[i].status === 'running') {
+              toolIdx = i
+              break
+            }
+          }
+          if (toolIdx >= 0) {
+            const newToolCalls = [...last.toolCalls]
+            newToolCalls[toolIdx] = {
+              ...newToolCalls[toolIdx],
+              result: data.result ? (typeof data.result === 'string' ? data.result : JSON.stringify(data.result)) : '已完成',
+              error: data.error ? String(data.error) : undefined,
+              status: (data.error ? 'error' : 'done') as 'done' | 'error'
+            }
+            return { ...prev, [data.profileName]: [...history.slice(0, -1), { ...last, toolCalls: newToolCalls }] }
+          }
+        }
+        return prev
+      })
+    })
+
+    const unsubThinking = window.hermesAPI.onChatThinking((data) => {
+      streamingThinkingMapRef.current = {
+        ...streamingThinkingMapRef.current,
+        [data.profileName]: (streamingThinkingMapRef.current[data.profileName] || '') + data.chunk
+      }
+      setStreamStates(prev => {
+        const emp = prev[data.profileName] || DEFAULT_STREAM
+        return { ...prev, [data.profileName]: { ...emp, streamingThinking: emp.streamingThinking + data.chunk } }
+      })
+    })
+
+    const unsubNewConv = window.hermesAPI.onNewConversation(() => {
+      const empName = currentEmployeeNameRef.current
+      if (empName) {
+        setChatHistories(prev => ({ ...prev, [empName]: [] }))
+        setCurrentSessionId(null)
+        setStreamStates(prev => ({ ...prev, [empName]: DEFAULT_STREAM }))
+        inputRef.current?.focus()
+      }
+    })
+
+    const unsubUsage = window.hermesAPI.onChatUsage((data) => {
+      setStreamStates(prev => {
+        const emp = prev[data.profileName] || DEFAULT_STREAM
+        return { ...prev, [data.profileName]: { ...emp, streamingUsage: { promptTokens: data.promptTokens, completionTokens: data.completionTokens, totalTokens: data.totalTokens } } }
+      })
+    })
+
+    const unsubApproval = window.hermesAPI.onChatApprovalRequest((data) => {
+      setApprovalRequest({ id: data.approvalId, employeeId: data.profileName, tool: data.tool, args: { command: data.command }, riskLevel: data.risk as 'low' | 'medium' | 'high' })
+    })
+
+    const unsubStatus = window.hermesAPI.onEmployeeStatusChanged((data) => {
+      setEmployees(prev => prev.map(e =>
+        e.name === data.profileName ? { ...e, status: mapStatus(data.status) } : e
+      ))
+    })
+
+    return () => {
+      unsubChunk()
+      unsubDone()
+      unsubError()
+      unsubToolProgress()
+      unsubToolStart()
+      unsubToolEnd()
+      unsubThinking()
+      unsubNewConv()
+      unsubUsage()
+      unsubApproval()
+      unsubStatus()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (currentMessages.length > 0 || isStreaming) {
+      scrollToBottom()
+    }
+  }, [currentMessages.length, isStreaming, scrollToBottom])
+
+  const loadEmployees = async (): Promise<void> => {
+    try {
+      const list = await window.hermesAPI.listEmployees()
+      const mapped = (list || []).map(e => ({ ...e, status: mapStatus(e.status || '') }))
+      setEmployees(mapped)
+      if (mapped.length > 0 && !currentEmployeeName) {
+        const firstAwake = mapped.find((e: EmployeeInfo) => e.status === 'awake')
+        selectEmployee((firstAwake || mapped[0]).name)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const selectEmployee = useCallback(async (employeeName: string) => {
+    setCurrentEmployeeName(employeeName)
+    setShowDetail(false)
+    setShowHistory(false)
+
+    const emp = employees.find(e => e.name === employeeName)
+    if (emp && (emp.status === 'sleeping' || emp.status === 'error')) {
+      wakeUpEmployee(employeeName)
+    }
+
+    if (!chatHistories[employeeName] || chatHistories[employeeName].length === 0) {
+      try {
+        const sessions = await window.hermesAPI.getEmployeeSessions(employeeName)
+        if (sessions && sessions.length > 0 && sessions[0].id) {
+          const messages = await window.hermesAPI.getSessionMessages(String(sessions[0].id), employeeName)
+          if (messages && messages.length > 0) {
+            const history = buildChatHistory(messages)
+            setChatHistories(prev => ({ ...prev, [employeeName]: history }))
+            setCurrentSessionId(String(sessions[0].id))
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    inputRef.current?.focus()
+  }, [employees, chatHistories])
+
+  const wakeUpEmployee = async (employeeName: string): Promise<void> => {
+    setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'busy' as const } : e))
+    try {
+      await window.hermesAPI.wakeUpEmployee(employeeName)
+      const pollStatus = async (retries: number): Promise<void> => {
+        if (retries <= 0) return
+        await new Promise(r => setTimeout(r, 2000))
+        try {
+          const list = await window.hermesAPI.listEmployees()
+          const emp = (list || []).find((e: EmployeeInfo) => e.name === employeeName)
+          if (emp) {
+            const mapped = mapStatus(emp.status || '')
+            if (mapped === 'awake') {
+              setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'awake' as const } : e))
+              return
+            }
+            if (mapped === 'error') {
+              setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'error' as const } : e))
+              return
+            }
+          }
+          await pollStatus(retries - 1)
+        } catch { await pollStatus(retries - 1) }
+      }
+      pollStatus(10)
+    } catch {
+      setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'error' as const } : e))
+    }
+  }
+
+  const sleepEmployee = async (employeeName: string): Promise<void> => {
+    try {
+      await window.hermesAPI.sleepEmployee(employeeName)
+      setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'sleeping' as const } : e))
+    } catch { showToast('休眠失败', 'error') }
+  }
+
+  const deleteEmployee = async (employeeName: string): Promise<void> => {
+    try {
+      const result = await window.hermesAPI.deleteEmployee(employeeName)
+      if (result.success) {
+        if (currentEmployeeName === employeeName) {
+          setCurrentEmployeeName(null)
+        }
+        setChatHistories(prev => {
+          const next = { ...prev }
+          delete next[employeeName]
+          return next
+        })
+        setStreamStates(prev => {
+          const next = { ...prev }
+          delete next[employeeName]
+          return next
+        })
+        await loadEmployees()
+        showToast('员工已删除', 'success')
+      } else {
+        showToast(result.error || '删除失败', 'error')
+      }
+    } catch { showToast('删除失败', 'error') }
+  }
+
+  const doSend = useCallback((employeeNameOrText: string, textOrSkip?: string | boolean, skipUserAppend = false) => {
+    let empName: string
+    let text: string
+    let skip: boolean
+    if (typeof textOrSkip === 'string') {
+      empName = employeeNameOrText
+      text = textOrSkip
+      skip = skipUserAppend
+    } else {
+      empName = currentEmployeeName || ''
+      text = employeeNameOrText
+      skip = textOrSkip === true
+    }
+    if (!empName) return
+
+    if (!skip) {
+      const userMsg: ChatMessage = { id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'user', content: text, timestamp: Date.now() }
+      setChatHistories(prev => {
+        const updated = [...(prev[empName] || []), userMsg]
+        return { ...prev, [empName]: updated }
+      })
+    }
+
+    setStreamStates(prev => ({ ...prev, [empName]: { ...DEFAULT_STREAM, isStreaming: true } }))
+
+    setChatHistories(prev => {
+      const historyForApi = (prev[empName] || []).map(m => ({ role: m.role, content: m.content }))
+      window.hermesAPI.sendMessage(empName, text, historyForApi).catch(() => {
+        setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
+        showToast('发送失败', 'error')
+      })
+      return prev
+    })
+  }, [currentEmployeeName])
+
+  const handleSend = useCallback(() => {
+    const text = input.trim()
+    if (!text) return
+
+    if (isStreaming) {
+      if (text) {
+        const empName = currentEmployeeName || ''
+        messageQueueRef.current = { ...messageQueueRef.current, [empName]: [...(messageQueueRef.current[empName] || []), text] }
+        setStreamStates(prev => {
+          const emp = prev[empName] || DEFAULT_STREAM
+          return { ...prev, [empName]: { ...emp, messageQueue: [...emp.messageQueue, text] } }
+        })
+        showToast('消息已加入队列', 'info')
+        if (empName) {
+          const userMsg: ChatMessage = { id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'user', content: text, timestamp: Date.now() }
+          setChatHistories(prev => ({
+            ...prev,
+            [empName]: [...(prev[empName] || []), userMsg]
+          }))
+        }
+        setInput('')
+      } else {
+        window.hermesAPI.abortChat(currentEmployeeName || '')
+      }
+      return
+    }
+
+    if (text.startsWith('/')) {
+      handleSlashCommand(text)
+      setInput('')
+      return
+    }
+
+    setInput('')
+    doSend(text)
+  }, [input, isStreaming, currentEmployeeName, doSend])
+
+  const handleSlashCommand = useCallback((text: string) => {
+    const parts = text.split(/\s+/)
+    const cmd = parts[0].toLowerCase()
+
+    switch (cmd) {
+      case '/new':
+      case '/clear':
+        if (currentEmployeeName) {
+          setChatHistories(prev => ({ ...prev, [currentEmployeeName]: [] }))
+          setCurrentSessionId(null)
+        }
+        break
+      case '/help': {
+        const helpText = SLASH_COMMANDS.map(c => c.cmd + '  —  ' + c.desc).join('\n')
+        if (currentEmployeeName) {
+          setChatHistories(prev => ({
+            ...prev,
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: '可用命令：\n\n' + helpText, timestamp: Date.now() }]
+          }))
+        }
+        break
+      }
+      case '/undo':
+        if (currentEmployeeName) {
+          setChatHistories(prev => {
+            const h = prev[currentEmployeeName] || []
+            if (h.length >= 2) {
+              return { ...prev, [currentEmployeeName]: h.slice(0, -2) }
+            }
+            return prev
+          })
+        }
+        break
+      case '/retry':
+        if (currentEmployeeName) {
+          const h = chatHistories[currentEmployeeName] || []
+          if (h.length >= 2) {
+            const lastUser = h[h.length - 2]
+            setChatHistories(prev => ({ ...prev, [currentEmployeeName!]: h.slice(0, -2) }))
+            setTimeout(() => doSend(lastUser.content), 50)
+          }
+        }
+        break
+      case '/status':
+        if (currentEmployee) {
+          const statusMsg = `员工: ${currentEmployee.name}\n状态: ${statusText(currentEmployee.status || '')}\n模型: ${currentEmployee.model || '--'}`
+          setChatHistories(prev => ({
+            ...prev,
+            [currentEmployeeName!]: [...(prev[currentEmployeeName!] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: statusMsg, timestamp: Date.now() }]
+          }))
+        }
+        break
+      case '/usage':
+        if (currentStream.streamingUsage && currentEmployeeName) {
+          const usageMsg = `Token 用量:\n输入: ${formatNumber(currentStream.streamingUsage.promptTokens)}\n输出: ${formatNumber(currentStream.streamingUsage.completionTokens)}\n总计: ${formatNumber(currentStream.streamingUsage.totalTokens)}`
+          setChatHistories(prev => ({
+            ...prev,
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: usageMsg, timestamp: Date.now() }]
+          }))
+        } else if (currentEmployeeName) {
+          setChatHistories(prev => ({
+            ...prev,
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: '暂无用量数据', timestamp: Date.now() }]
+          }))
+        }
+        break
+      default:
+        if (currentEmployeeName) {
+          setChatHistories(prev => ({
+            ...prev,
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: `未知命令: ${cmd}\n输入 /help 查看可用命令`, timestamp: Date.now() }]
+          }))
+        }
+    }
+  }, [currentEmployeeName, currentEmployee, chatHistories, doSend, currentStream])
+
+  const handleInputChange = (value: string): void => {
+    setInput(value)
+    if (value === '/') {
+      setSlashItems(SLASH_COMMANDS)
+      setSlashActiveIndex(0)
+      setSlashPopupVisible(true)
+    } else if (value.startsWith('/') && value.indexOf(' ') < 0) {
+      const q = value.toLowerCase()
+      const filtered = SLASH_COMMANDS.filter(c => c.cmd.includes(q))
+      setSlashItems(filtered)
+      setSlashActiveIndex(filtered.length > 0 ? 0 : -1)
+      setSlashPopupVisible(filtered.length > 0)
+    } else {
+      setSlashPopupVisible(false)
+    }
+
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 160) + 'px'
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (slashPopupVisible) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashActiveIndex(prev => Math.min(prev + 1, slashItems.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashActiveIndex(prev => Math.max(prev - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        if (slashActiveIndex >= 0 && slashActiveIndex < slashItems.length) {
+          setInput(slashItems[slashActiveIndex].cmd + ' ')
+        }
+        setSlashPopupVisible(false)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashPopupVisible(false)
+        return
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !isComposing) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handleContextMenu = (e: React.MouseEvent, employeeName: string): void => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, employeeName })
+  }
+
+  useEffect(() => {
+    const handleClick = (): void => setContextMenu(null)
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [])
+
+  const handleSearchInput = (q: string): void => {
+    setSearchQuery(q)
+  }
+
+  const empName = currentEmployee?.displayName || currentEmployee?.name || ''
+  const empAvatar = currentEmployee?.avatar || '🧑‍💼'
+
+  return (
+    <div className="flex h-full relative">
+      {/* Left Panel - Employee List */}
+      <div className="w-[var(--sidebar-w)] min-w-[var(--sidebar-w)] glass-medium border-r border-[var(--border)] flex flex-col overflow-hidden z-[2] relative">
+        <div className="drag-region flex items-center justify-between px-4 glass-medium shrink-0" style={{ paddingTop: 44, paddingBottom: 12, paddingLeft: 16, paddingRight: 16, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.3px' }} className="text-accent-gradient">员工列表</h2>
+        </div>
+        <div className="px-3 pt-4 pb-3 shrink-0">
+          <input
+            value={searchQuery}
+            onChange={(e) => handleSearchInput(e.target.value)}
+            placeholder="搜索员工..."
+            className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] py-2 px-3.5 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 py-1">
+          {filteredEmployees.length === 0 ? (
+            <div className="text-center py-12 text-[var(--text-dim)]">
+              <div className="text-5xl mb-4 opacity-30">👥</div>
+              <p className="text-sm">{searchQuery ? '未找到匹配员工' : '暂无员工，点击上方添加'}</p>
+            </div>
+          ) : (
+            filteredEmployees.map(emp => {
+              const isActive = currentEmployeeName === emp.name
+              const lastMsg = (chatHistories[emp.name] || []).slice(-1)[0]
+              const empStreaming = (streamStates[emp.name] || DEFAULT_STREAM).isStreaming
+              return (
+                <div
+                  key={emp.name}
+                  onClick={() => selectEmployee(emp.name)}
+                  onContextMenu={(e) => handleContextMenu(e, emp.name)}
+                  className={`flex items-center gap-3 py-2.5 px-3 rounded-[var(--radius)] cursor-pointer transition-all mb-0.5 relative border ${
+                    isActive ? 'glass-medium border-[rgba(124,106,239,0.15)]' : 'border-transparent hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  {isActive && (
+                    <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-sm bg-[var(--accent)] shadow-[0_0_8px_var(--accent)]" />
+                  )}
+                  <div className="w-10 h-10 rounded-xl glass-medium flex items-center justify-center text-xl shrink-0 relative border border-[var(--border)]">
+                    {emp.avatar || '🧑‍💼'}
+                    <span className={`absolute -bottom-px -right-px w-3 h-3 rounded-full border-2 border-[var(--bg-primary)] ${statusDotClass(emp.status || '')}`} />
+                    {empStreaming && (
+                      <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-[var(--accent)] animate-pulse-custom shadow-[0_0_6px_var(--accent)]" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-[var(--text-primary)] truncate flex items-center gap-1.5">
+                      <span className="truncate">{emp.displayName || emp.name}</span>
+                      {empStreaming && <span className="text-[10px] text-[var(--accent)] animate-pulse-custom shrink-0">typing...</span>}
+                    </div>
+                    <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || '员工'}</div>
+                    {lastMsg && !empStreaming && (
+                      <div className={`text-xs truncate max-w-[150px] mt-0.5 ${isActive ? 'text-[var(--text-primary)]' : 'text-[var(--text-dim)]'}`}>
+                        {lastMsg.content.substring(0, 80)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Right Panel - Content */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-transparent min-w-0 relative z-[2]">
+        {showDetail && currentEmployee ? (
+          <EmployeeDetail employee={currentEmployee} onBack={() => setShowDetail(false)} />
+        ) : currentEmployee ? (
+          <>
+            {/* Chat Header */}
+            <div className="drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 28, paddingBottom: 8, paddingLeft: 24, paddingRight: 24 }}>
+              <div className="flex items-center gap-3.5 no-drag">
+                <div className="w-9 h-9 rounded-[10px] glass-medium flex items-center justify-center text-lg border border-[var(--border)]">{empAvatar}</div>
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>{empName}</span>
+                    <span style={{ fontSize: 11 }} className="text-[var(--text-dim)]">{currentEmployee.model}</span>
+                  </div>
+                  <span className="text-xs" style={{ color: statusColor(currentEmployee.status || '') }}>{statusText(currentEmployee.status || '')}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 no-drag">
+                <button onClick={() => setShowHistory(!showHistory)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title="历史会话">
+                  <History size={14} />
+                </button>
+                {confirmClear ? (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => { setChatHistories(prev => ({ ...prev, [currentEmployeeName!]: [] })); setConfirmClear(false) }} className="w-8 h-8 rounded-[var(--radius)] bg-[var(--danger)] text-white cursor-pointer flex items-center justify-center transition-all text-[11px] font-medium">清</button>
+                    <button onClick={() => setConfirmClear(false)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)]"><X size={12} /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmClear(true)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--danger)]" title="清空会话">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+                <button onClick={() => setShowDetail(true)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title="员工详情">
+                  <UserCircle size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-4 glass-light">
+              {currentMessages.length === 0 && !isStreaming ? (
+                <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
+                  <span className="text-[64px] opacity-60">⚡</span>
+                  <div className="text-[22px] font-bold text-[var(--text-primary)]">开始对话</div>
+                  <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
+                    向 {empName} 发送消息开始对话，或使用 / 命令执行操作
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center max-w-[480px] mt-2">
+                    {['帮我分析一下这个问题', '/help', '/status'].map(hint => (
+                      <button
+                        key={hint}
+                        onClick={() => { setInput(hint); inputRef.current?.focus() }}
+                        className="text-[13px] py-2 px-4 rounded-2xl glass-medium border border-[var(--border)] text-[var(--text-dim)] cursor-pointer transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]"
+                      >
+                        {hint}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {currentMessages.map((msg, idx) => {
+                    const isLastMsg = idx === currentMessages.length - 1
+                    const isStreamingThis = isStreaming && msg.role === 'assistant' && isLastMsg
+                    return (
+                      <MessageBubble
+                        key={msg.id}
+                        msg={msg}
+                        empName={empName}
+                        empAvatar={empAvatar}
+                        isStreaming={isStreamingThis}
+                        thinking={isStreamingThis ? currentStream.streamingThinking : msg.thinking}
+                      />
+                    )
+                  })}
+                  {isStreaming && (currentMessages.length === 0 || currentMessages[currentMessages.length - 1].role !== 'assistant') && (
+                    <MessageBubble
+                      key="streaming-placeholder"
+                      msg={{ id: 'streaming-placeholder', role: 'assistant', content: '', timestamp: Date.now() }}
+                      empName={empName}
+                      empAvatar={empAvatar}
+                      isStreaming={true}
+                      thinking={currentStream.streamingThinking}
+                    />
+                  )}
+                  <div ref={messagesEndRef} />
+                </>
+              )}
+            </div>
+
+            {/* Status Bar */}
+            {(isStreaming || currentStream.streamingCurrentTool || currentStream.streamingUsage || currentStream.messageQueue.length > 0) && (
+              <div className="flex items-center justify-between px-6 py-1.5 text-xs text-[var(--text-dim)] min-h-[28px]">
+                <div className="flex items-center gap-3">
+                  {currentStream.streamingCurrentTool && (
+                    <span className="text-[var(--accent)] animate-pulse-custom">🔧 {currentStream.streamingCurrentTool}</span>
+                  )}
+                  {currentStream.messageQueue.length > 0 && (
+                    <span className="text-[var(--warning)]">📋 队列: {currentStream.messageQueue.length}</span>
+                  )}
+                </div>
+                {currentStream.streamingUsage && (
+                  <span className="text-[var(--text-dim)]">
+                    {currentStream.streamingUsage.promptTokens ? `输入 ${formatNumber(currentStream.streamingUsage.promptTokens)}` : ''}
+                    {currentStream.streamingUsage.completionTokens ? ` · 输出 ${formatNumber(currentStream.streamingUsage.completionTokens)}` : ''}
+                    {currentStream.streamingUsage.totalTokens ? ` · 总计 ${formatNumber(currentStream.streamingUsage.totalTokens)}` : ''}
+                    {currentStream.streamingUsage.cost ? ` · $${Number(currentStream.streamingUsage.cost).toFixed(4)}` : ''}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Input Area */}
+            <div className="relative shrink-0 px-6 pb-6 pt-4 glass-medium border-t border-[var(--border)]">
+              <div className="flex gap-2.5 items-end glass-medium border border-[var(--border)] rounded-2xl py-2 pl-4 pr-2 transition-all focus-within:border-[var(--border-focus)] focus-within:shadow-[0_2px_12px_rgba(0,0,0,0.1)]">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => handleInputChange(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onCompositionStart={() => setIsComposing(true)}
+                  onCompositionEnd={() => setIsComposing(false)}
+                  placeholder="输入消息... (/ 命令)"
+                  rows={1}
+                  className="flex-1 bg-transparent border-none py-2 text-[var(--text-primary)] text-[15px] resize-none outline-none ring-0 ring-transparent max-h-[160px] leading-relaxed placeholder-[var(--text-dim)]"
+                />
+                {isStreaming ? (
+                  <button
+                    onClick={() => window.hermesAPI.abortChat(currentEmployeeName || '')}
+                    className="self-end min-w-[72px] py-2.5 px-5 rounded-xl shrink-0 bg-[var(--danger)] text-white border-none text-sm font-semibold cursor-pointer transition-all hover:shadow-[0_2px_12px_rgba(239,68,68,0.3)]"
+                  >
+                    <Square size={14} className="inline mr-1" />停止
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim() || !currentEmployeeName}
+                    className="self-end min-w-[72px] py-2.5 px-5 rounded-xl shrink-0 bg-accent-gradient text-white border-none text-sm font-semibold cursor-pointer transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Send size={14} className="inline mr-1" />发送
+                  </button>
+                )}
+              </div>
+              {/* Slash Command Popup */}
+              {slashPopupVisible && (
+                <div className="absolute bottom-full left-6 right-6 max-h-[300px] glass-heavy border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden animate-slide-up z-[60] shadow-[0_12px_40px_rgba(0,0,0,0.3)] mb-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-dim)] px-4 pt-3 pb-1.5">命令</div>
+                  <div className="overflow-y-auto max-h-[250px] px-1.5 pb-2">
+                    {slashItems.map((item, i) => (
+                      <div
+                        key={item.cmd}
+                        onClick={() => { setInput(item.cmd + ' '); setSlashPopupVisible(false); inputRef.current?.focus() }}
+                        className={`flex items-center gap-3 py-2 px-3 rounded-lg cursor-pointer transition-all ${i === slashActiveIndex ? 'bg-[var(--accent-glow)]' : 'hover:bg-[var(--accent-glow)]'}`}
+                      >
+                        <span className="text-[13px] font-semibold text-[var(--accent)] min-w-[100px]">{item.cmd}</span>
+                        <span className="text-[13px] text-[var(--text-dim)]">{item.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Model Selector */}
+              <div className="relative model-dropdown-container mt-2">
+                <button
+                  onClick={async () => {
+                    if (!modelDropdownOpen) {
+                      try {
+                        const list = await window.hermesAPI.listSavedModels()
+                        setSavedModels(list || [])
+                      } catch { /* ignore */ }
+                    }
+                    setModelDropdownOpen(!modelDropdownOpen)
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs text-[var(--text-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] border border-transparent hover:border-[var(--border)]"
+                >
+                  <span className="font-medium">{currentEmployee.model || '默认模型'}</span>
+                  <ChevronDown size={12} />
+                </button>
+                {modelDropdownOpen && (
+                  <div className="absolute bottom-full left-0 mb-1 z-50 min-w-[220px] max-h-[240px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] shadow-lg py-1">
+                    {savedModels.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-[var(--text-dim)]">暂无模型，请在设置中添加</div>
+                    ) : (
+                      savedModels.map(m => (
+                        <button
+                          key={m.id}
+                          onClick={async () => {
+                            setModelDropdownOpen(false)
+                            const result = await window.hermesAPI.applySavedModel(m.id, currentEmployeeName || undefined)
+                            if (result.success) {
+                              setEmployees(prev => prev.map(e => e.name === currentEmployeeName ? { ...e, model: m.model, provider: m.provider } : e))
+                              showToast(`已切换到 ${m.name || m.model}，正在重启...`)
+                              if (currentEmployeeName) {
+                                try {
+                                  await window.hermesAPI.sleepEmployee(currentEmployeeName)
+                                  await new Promise(r => setTimeout(r, 1500))
+                                  await window.hermesAPI.wakeUpEmployee(currentEmployeeName)
+                                  setTimeout(loadEmployees, 3000)
+                                } catch { /* ignore */ }
+                              }
+                            } else {
+                              showToast(result.error || '切换失败', 'error')
+                            }
+                          }}
+                          className={`flex items-center justify-between w-full px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--bg-hover)] ${
+                            currentEmployee.model === m.model ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'
+                          }`}
+                        >
+                          <span className="truncate">{m.name || m.model}</span>
+                          <span className="shrink-0 ml-2 text-[var(--text-dim)]">{m.provider}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          /* No employee selected */
+          <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
+            <span className="text-[64px] opacity-60">⚡</span>
+            <div className="text-[22px] font-bold text-[var(--text-primary)]">欢迎使用 Hermes</div>
+            <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
+              选择左侧的员工开始对话
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* History Panel */}
+      {showHistory && currentEmployeeName && (
+        <HistoryPanel employeeName={currentEmployeeName} onClose={() => setShowHistory(false)} onRestore={(sessionId, messages) => {
+          setChatHistories(prev => ({ ...prev, [currentEmployeeName]: messages }))
+          setCurrentSessionId(sessionId)
+        }} />
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] glass-heavy border border-[var(--border)] rounded-[var(--radius)] py-1 min-w-[160px] shadow-[0_8px_32px_rgba(0,0,0,0.3)] animate-scale-in"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {[
+            { label: '☀️ 唤醒', action: () => wakeUpEmployee(contextMenu.employeeName) },
+            { label: '😴 休眠', action: () => sleepEmployee(contextMenu.employeeName) },
+            { label: '🔄 重启', action: () => { wakeUpEmployee(contextMenu.employeeName) } },
+            { label: '✏️ 编辑灵魂', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+            { label: '⚙️ 编辑配置', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+            { label: '🗑️ 删除', action: () => deleteEmployee(contextMenu.employeeName), danger: true },
+          ].map((item, i) => (
+            <button
+              key={i}
+              onClick={() => { item.action(); setContextMenu(null) }}
+              className={`block w-full text-left px-4 py-2 text-sm transition-colors ${item.danger ? 'text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'}`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Approval Modal */}
+      {approvalRequest && (
+        <ApprovalModal
+          request={approvalRequest}
+          onApprove={async () => {
+            try { await window.hermesAPI.sendApproval(approvalRequest.employeeId, approvalRequest.id, true) } catch { /* ignore */ }
+            setApprovalRequest(null)
+          }}
+          onDeny={async () => {
+            try { await window.hermesAPI.sendApproval(approvalRequest.employeeId, approvalRequest.id, false) } catch { /* ignore */ }
+            setApprovalRequest(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
