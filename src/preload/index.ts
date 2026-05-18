@@ -15,6 +15,7 @@ export interface EmployeeInfo {
   avatar: string
   color: string
   tags: string[]
+  petSlug: string
   model: string
   provider: string
   isActive: boolean
@@ -149,6 +150,18 @@ export interface SavedModel {
   createdAt: number
 }
 
+export interface PetInfo {
+  slug: string
+  name: string
+  spritesheetUrl: string
+  tags?: string[]
+  vibes?: string[]
+  kind?: string
+  frameWidth?: number
+  frameHeight?: number
+  states?: string[]
+}
+
 export interface AvailableModel {
   id: string
   name: string
@@ -170,21 +183,16 @@ export interface UsageStats {
   daily: Array<Record<string, unknown>>
 }
 
-export type ThemeName =
-  | 'dark'
-  | 'light'
-  | 'ocean'
-  | 'ocean-light'
-  | 'forest'
-  | 'forest-light'
-  | 'sunset'
-  | 'sunset-light'
-  | 'lavender'
-  | 'lavender-light'
-  | 'midnight'
-  | 'rose'
-  | 'rose-light'
-  | 'slate'
+export interface TokenStats {
+  totals: Record<string, unknown>
+  byModel: Array<Record<string, unknown>>
+  byAgent: Array<Record<string, unknown>>
+  daily: Array<Record<string, unknown>>
+  agents: string[]
+}
+
+export type ThemeMode = 'dark' | 'light' | 'auto'
+export type AccentColor = 'violet' | 'indigo' | 'blue' | 'green' | 'orange' | 'lavender' | 'rose' | 'slate'
 
 const hermesAPI = {
   authLogin: (password: string): Promise<{ success: boolean; error?: string; user?: { id: string; username: string; displayName: string } }> =>
@@ -225,6 +233,7 @@ const hermesAPI = {
       base_url?: string
       api_key?: string
       soul?: string
+      petSlug?: string
       wakeUp?: boolean
     }
   ): Promise<{ success: boolean; name?: string; error?: string }> =>
@@ -253,6 +262,9 @@ const hermesAPI = {
 
   renameEmployee: (oldName: string, newName: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('employee:rename', oldName, newName),
+
+  setEmployeePet: (name: string, petSlug: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('employee:set-pet', name, petSlug),
 
   exportEmployee: (name: string): Promise<{ success: boolean; output?: string; error?: string }> =>
     ipcRenderer.invoke('employee:export', name),
@@ -350,6 +362,9 @@ const hermesAPI = {
 
   getUsageStats: (days?: number): Promise<UsageStats> =>
     ipcRenderer.invoke('get-usage-stats', days ?? 30),
+
+  getTokenStats: (days?: number): Promise<TokenStats> =>
+    ipcRenderer.invoke('get-token-stats', days ?? 30),
 
   getCronJobs: (profile?: string): Promise<unknown[]> =>
     ipcRenderer.invoke('get-cron-jobs', profile),
@@ -456,11 +471,17 @@ const hermesAPI = {
   getPluginInfo: (name: string): Promise<Record<string, unknown>> =>
     ipcRenderer.invoke('get-plugin-info', name),
 
-  getTheme: (): Promise<string> =>
-    ipcRenderer.invoke('get-theme'),
+  getThemeMode: (): Promise<string> =>
+    ipcRenderer.invoke('get-theme-mode'),
 
-  setTheme: (theme: string): Promise<{ success: boolean }> =>
-    ipcRenderer.invoke('set-theme', theme),
+  setThemeMode: (mode: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('set-theme-mode', mode),
+
+  getAccentColor: (): Promise<string> =>
+    ipcRenderer.invoke('get-accent-color'),
+
+  setAccentColor: (accent: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('set-accent-color', accent),
 
   getAppConfig: (): Promise<Record<string, unknown>> =>
     ipcRenderer.invoke('get-app-config'),
@@ -611,6 +632,15 @@ const hermesAPI = {
 
   windowIsMaximized: (): Promise<boolean> =>
     ipcRenderer.invoke('window-is-maximized'),
+
+  listPets: (): Promise<PetInfo[]> =>
+    ipcRenderer.invoke('pets:list'),
+
+  getPetSpritesheet: (slug: string): Promise<string | null> =>
+    ipcRenderer.invoke('pets:get-spritesheet', slug),
+
+  refreshPetManifest: (): Promise<PetInfo[]> =>
+    ipcRenderer.invoke('pets:refresh-manifest'),
 }
 
 if (process.contextIsolated) {

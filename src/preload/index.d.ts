@@ -1,20 +1,7 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
 
-export type ThemeName =
-  | 'dark'
-  | 'light'
-  | 'ocean'
-  | 'ocean-light'
-  | 'forest'
-  | 'forest-light'
-  | 'sunset'
-  | 'sunset-light'
-  | 'lavender'
-  | 'lavender-light'
-  | 'midnight'
-  | 'rose'
-  | 'rose-light'
-  | 'slate'
+export type ThemeMode = 'dark' | 'light' | 'auto'
+export type AccentColor = 'violet' | 'indigo' | 'blue' | 'green' | 'orange' | 'lavender' | 'rose' | 'slate'
 
 export interface ChatUsage {
   promptTokens: number
@@ -30,6 +17,7 @@ export interface EmployeeInfo {
   avatar: string
   color: string
   tags: string[]
+  petSlug: string
   model: string
   provider: string
   isActive: boolean
@@ -164,6 +152,18 @@ export interface SavedModel {
   createdAt: number
 }
 
+export interface PetInfo {
+  slug: string
+  name: string
+  spritesheetUrl: string
+  tags?: string[]
+  vibes?: string[]
+  kind?: string
+  frameWidth?: number
+  frameHeight?: number
+  states?: string[]
+}
+
 export interface AvailableModel {
   id: string
   name: string
@@ -185,6 +185,14 @@ export interface UsageStats {
   daily: Array<Record<string, unknown>>
 }
 
+export interface TokenStats {
+  totals: Record<string, unknown>
+  byModel: Array<Record<string, unknown>>
+  byAgent: Array<Record<string, unknown>>
+  daily: Array<Record<string, unknown>>
+  agents: string[]
+}
+
 interface HermesAPI {
   authLogin: (password: string) => Promise<{ success: boolean; error?: string; user?: { id: string; username: string; displayName: string } }>
   authLogout: () => Promise<{ success: boolean }>
@@ -204,6 +212,7 @@ interface HermesAPI {
     base_url?: string
     api_key?: string
     soul?: string
+    petSlug?: string
     wakeUp?: boolean
   }) => Promise<{ success: boolean; name?: string; error?: string }>
   updateEmployee: (name: string, changes: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
@@ -213,6 +222,7 @@ interface HermesAPI {
   restartEmployee: (name: string) => Promise<{ success: boolean; status?: string; error?: string }>
   getEmployeeStatus: (name: string) => Promise<string>
   renameEmployee: (oldName: string, newName: string) => Promise<{ success: boolean; error?: string }>
+  setEmployeePet: (name: string, petSlug: string) => Promise<{ success: boolean; error?: string }>
   exportEmployee: (name: string) => Promise<{ success: boolean; output?: string; error?: string }>
 
   getEmployeeSoul: (name: string) => Promise<string>
@@ -254,6 +264,8 @@ interface HermesAPI {
   searchSessions: (query: string) => Promise<Array<Record<string, unknown>>>
   getUsageStats: (days?: number) => Promise<UsageStats>
 
+  getTokenStats: (days?: number) => Promise<TokenStats>
+
   getCronJobs: (profile?: string) => Promise<unknown[]>
   createCronJob: (job: { name?: string; schedule: string; prompt: string; deliver?: string; profile?: string }) => Promise<{ success: boolean; output?: string }>
   pauseCronJob: (jobId: string, profile?: string) => Promise<{ success: boolean }>
@@ -287,8 +299,10 @@ interface HermesAPI {
   applySavedModel: (id: string, profileName?: string) => Promise<{ success: boolean; error?: string }>
   getPlugins: () => Promise<Array<{ name: string; path: string }>>
   getPluginInfo: (name: string) => Promise<Record<string, unknown>>
-  getTheme: () => Promise<string>
-  setTheme: (theme: string) => Promise<{ success: boolean }>
+  getThemeMode: () => Promise<ThemeMode>
+  setThemeMode: (mode: ThemeMode) => Promise<{ success: boolean }>
+  getAccentColor: () => Promise<AccentColor>
+  setAccentColor: (accent: AccentColor) => Promise<{ success: boolean }>
   getAppConfig: () => Promise<Record<string, unknown>>
   setAppConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
@@ -321,6 +335,10 @@ interface HermesAPI {
   windowMaximize: () => Promise<void>
   windowClose: () => Promise<void>
   windowIsMaximized: () => Promise<boolean>
+
+  listPets: () => Promise<PetInfo[]>
+  getPetSpritesheet: (slug: string) => Promise<string | null>
+  refreshPetManifest: () => Promise<PetInfo[]>
 }
 
 declare global {

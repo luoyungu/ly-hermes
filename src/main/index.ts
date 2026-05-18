@@ -19,6 +19,7 @@ import { registerConfigIpcHandlers } from "./config";
 import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
 import { registerSessionIpcHandlers } from "./sessions";
+import { registerPetsIpc } from "./pets";
 import { initUpdater } from "./updater";
 import { autoUpdater } from "electron-updater";
 import {
@@ -279,6 +280,7 @@ app.whenReady().then(() => {
   registerEmployeeIpcHandlers(getMainWindow);
   registerChatIpcHandlers(getMainWindow);
   registerSessionIpcHandlers();
+  registerPetsIpc();
 
   initUpdater(getMainWindow);
 

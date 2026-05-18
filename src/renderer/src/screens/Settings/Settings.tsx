@@ -24,6 +24,7 @@ import {
   Lock as LockIcon
 } from 'lucide-react'
 import { PROVIDER_PRESETS } from '../../shared/employee-shared'
+import Popconfirm from '../../components/Popconfirm'
 
 type Section = 'basic' | 'models' | 'engine' | 'data'
 
@@ -73,7 +74,6 @@ export default function SettingsScreen(): React.ReactElement {
   const [modelFormApiKey, setModelFormApiKey] = useState('')
   const [modelFormSaving, setModelFormSaving] = useState(false)
   const [modelFormError, setModelFormError] = useState<string | null>(null)
-  const [confirmDeleteModel, setConfirmDeleteModel] = useState<string | null>(null)
 
   const loadSavedModels = useCallback(async () => {
     try {
@@ -389,7 +389,6 @@ export default function SettingsScreen(): React.ReactElement {
   const handleDeleteModel = async (id: string): Promise<void> => {
     try {
       await window.hermesAPI.removeSavedModel(id)
-      setConfirmDeleteModel(null)
       loadSavedModels()
     } catch { /* ignore */ }
   }
@@ -758,30 +757,14 @@ export default function SettingsScreen(): React.ReactElement {
                             >
                               <Pencil size={14} />
                             </button>
-                            {confirmDeleteModel === m.id ? (
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => handleDeleteModel(m.id)}
-                                  className="rounded-lg px-2 py-1 text-xs text-[var(--danger)] bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.2)]"
-                                >
-                                  确认
-                                </button>
-                                <button
-                                  onClick={() => setConfirmDeleteModel(null)}
-                                  className="rounded-lg px-2 py-1 text-xs text-[var(--text-dim)] hover:bg-[var(--bg-hover)]"
-                                >
-                                  取消
-                                </button>
-                              </div>
-                            ) : (
+                            <Popconfirm title="确认删除此模型配置？" onConfirm={() => handleDeleteModel(m.id)}>
                               <button
-                                onClick={() => setConfirmDeleteModel(m.id)}
                                 className="rounded-lg p-1.5 text-[var(--text-dim)] transition-colors hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)]"
                                 title="删除"
                               >
                                 <Trash2 size={14} />
                               </button>
-                            )}
+                            </Popconfirm>
                           </div>
                         </div>
                       </div>

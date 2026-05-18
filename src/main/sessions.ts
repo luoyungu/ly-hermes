@@ -87,6 +87,90 @@ export function execStateDb(sql: string, params?: unknown[]): boolean {
   }
 }
 
+export function execProfileStateDb(profileName: string, sql: string, params?: unknown[]): boolean {
+  if (!validateProfileName(profileName)) return false;
+  const dbPath = path.join(HERMES_HOME, "profiles", profileName, "state.db");
+  if (!fs.existsSync(dbPath)) return execStateDb(sql, params);
+  try {
+    let finalSql = sql;
+    if (params && Array.isArray(params)) {
+      for (let i = 0; i < params.length; i++) {
+        finalSql = finalSql.replace("?", "'" + escapeSql(params[i]) + "'");
+      }
+    }
+    execFileSync("sqlite3", [dbPath, finalSql], { encoding: "utf-8", timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function saveMessage(profileName: string, sessionId: string, role: string, content: string): boolean {
+  const now = Date.now() / 1000;
+  const sql = "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)";
+  if (profileName && profileName !== "default") {
+    return execProfileStateDb(profileName, sql, [sessionId, role, content, now]);
+  }
+  return execStateDb(sql, [sessionId, role, content, now]);
+}
+
+export function getSessionCount(): number {
+  const stats = queryStateDb("SELECT COUNT(*) as cnt FROM sessions");
+  return (stats[0] && (stats[0].cnt as number)) || 0;
+}
+
+export function getEmployeeSessions(profileName: string, limit: number = 20): Array<Record<string, unknown>> {
+  if (!validateProfileName(profileName)) return [];
+  const sessions = queryProfileStateDb(
+    profileName,
+    "SELECT id, source, model, started_at, ended_at, message_count, title " +
+      "FROM sessions ORDER BY started_at DESC LIMIT ?",
+    [limit],
+  );
+  fillSessionTitles(sessions, (sql, params) => queryProfileStateDb(profileName, sql, params));
+  return sessions;
+}
+
+export function getAgentStats(profileName: string, days: number): {
+  totals: Record<string, unknown>
+  byModel: Array<Record<string, unknown>>
+  daily: Array<Record<string, unknown>>
+} {
+  const cutoff = Date.now() / 1000 - days * 86400;
+
+  const totals = queryProfileStateDb(
+    profileName,
+    "SELECT COUNT(*) as total_sessions, " +
+      "SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, " +
+      "SUM(cache_read_tokens) as total_cache_read, " +
+      "SUM(estimated_cost_usd) as total_estimated_cost, SUM(actual_cost_usd) as total_actual_cost " +
+      "FROM sessions WHERE started_at > ?",
+    [cutoff],
+  );
+
+  const byModel = queryProfileStateDb(
+    profileName,
+    "SELECT model, COUNT(*) as count, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens " +
+      "FROM sessions WHERE started_at > ? GROUP BY model ORDER BY count DESC",
+    [cutoff],
+  );
+
+  const daily = queryProfileStateDb(
+    profileName,
+    "SELECT date(started_at, 'unixepoch', 'localtime') as date, COUNT(*) as sessions, " +
+      "SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, " +
+      "SUM(estimated_cost_usd) as estimated_cost_usd " +
+      "FROM sessions WHERE started_at > ? GROUP BY date ORDER BY date ASC",
+    [cutoff],
+  );
+
+  return {
+    totals: totals[0] || {},
+    byModel: byModel,
+    daily: daily,
+  };
+}
+
 export function generateSessionTitle(message: string): string {
   if (!message || !message.trim()) return "未命名会话";
   let text = message.trim();
@@ -149,19 +233,12 @@ export function registerSessionIpcHandlers(): void {
     "get-session-messages",
     async (_, sessionId: string, profileName?: string) => {
       if (!validateSessionId(sessionId)) return [];
+      const sql = "SELECT id, session_id, role, content, tool_name, tool_calls, tool_call_id, timestamp, token_count, finish_reason " +
+        "FROM messages WHERE session_id = ? ORDER BY timestamp ASC";
       if (profileName) {
-        return queryProfileStateDb(
-          profileName,
-          "SELECT id, session_id, role, content, tool_name, timestamp, token_count, finish_reason " +
-            "FROM messages WHERE session_id = ? ORDER BY timestamp ASC",
-          [sessionId],
-        );
+        return queryProfileStateDb(profileName, sql, [sessionId]);
       }
-      return queryStateDb(
-        "SELECT id, session_id, role, content, tool_name, timestamp, token_count, finish_reason " +
-          "FROM messages WHERE session_id = ? ORDER BY timestamp ASC",
-        [sessionId],
-      );
+      return queryStateDb(sql, [sessionId]);
     },
   );
 
@@ -247,9 +324,45 @@ export function registerSessionIpcHandlers(): void {
   });
 
   ipcMain.handle("get-cron-jobs", async (_, profile?: string) => {
-    const output = runHermesCli(["cron", "list", "--json"], profile || "default");
     try {
-      return JSON.parse(output);
+      const effectiveProfile = profile || "default";
+      const output = runHermesCli(["cron", "list", "--all"], effectiveProfile);
+      if (output.includes("No scheduled jobs")) return [];
+      const jobs: Record<string, unknown>[] = [];
+      const blocks = output.split(/\n\s*\n/).filter(b => b.trim());
+      for (const block of blocks) {
+        const idMatch = block.match(/^\s*(\w+)\s+\[(active|paused)\]/m);
+        if (!idMatch) continue;
+        const job: Record<string, unknown> = {
+          id: idMatch[1],
+          enabled: idMatch[2] === "active",
+        };
+        const nameMatch = block.match(/Name:\s*(.+)/);
+        if (nameMatch) job.name = nameMatch[1].trim();
+        const schedMatch = block.match(/Schedule:\s*(.+)/);
+        if (schedMatch) {
+          job.schedule = schedMatch[1].trim();
+          job.schedule_display = schedMatch[1].trim();
+        }
+        const promptMatch = block.match(/Prompt:\s*(.+)/);
+        if (promptMatch) job.prompt = promptMatch[1].trim();
+        const nextMatch = block.match(/Next run:\s*(\S+)/);
+        if (nextMatch) job.next_run_at = nextMatch[1].trim();
+        const lastMatch = block.match(/Last run:\s*(\S+)/);
+        if (lastMatch) job.last_run_at = lastMatch[1].trim();
+        const deliverMatch = block.match(/Deliver:\s*(.+)/);
+        if (deliverMatch) job.deliver = deliverMatch[1].trim();
+        const repeatMatch = block.match(/Repeat:\s*(.+)/);
+        if (repeatMatch) job.repeat = repeatMatch[1].trim();
+        const warnMatch = block.match(/⚠\s*(.+)/);
+        if (warnMatch) job.last_error = warnMatch[1].trim();
+        const errMatch = block.match(/Last error:\s*(.+)/);
+        if (errMatch) job.last_error = errMatch[1].trim();
+        const skillsMatch = block.match(/Skills:\s*(.+)/);
+        if (skillsMatch) job.skills = skillsMatch[1].trim();
+        jobs.push(job);
+      }
+      return jobs;
     } catch {
       return [];
     }
@@ -258,20 +371,14 @@ export function registerSessionIpcHandlers(): void {
   ipcMain.handle(
     "create-cron-job",
     async (_, job: Record<string, unknown>) => {
-      const args = [
-        "cron",
-        "create",
-        "--name",
-        JSON.stringify(job.name || "untitled"),
-        "--schedule",
-        JSON.stringify(job.schedule || ""),
-        "--prompt",
-        JSON.stringify(job.prompt || ""),
-      ];
+      const args: string[] = ["cron", "create"];
+      if (job.name) args.push("--name", String(job.name));
       if (job.deliver) args.push("--deliver", String(job.deliver));
+      args.push(String(job.schedule || ""));
+      args.push(String(job.prompt || ""));
       const profile = (job.profile as string) || "default";
       const output = runHermesCli(args, profile);
-      return { success: !output.includes("Error"), output: output };
+      return { success: !output.includes("Error") && !output.includes("error"), output: output };
     },
   );
 
@@ -343,5 +450,92 @@ export function registerSessionIpcHandlers(): void {
     } catch (e) {
       return { success: false, output: String(e) };
     }
+  });
+
+  ipcMain.handle("get-token-stats", async (_, days: string | number) => {
+    const d = Math.min(Math.max(parseInt(String(days), 10) || 30, 1), 365);
+    const cutoff = Date.now() / 1000 - d * 86400;
+
+    const totals = queryStateDb(
+      "SELECT COUNT(*) as total_sessions, " +
+        "SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, " +
+        "SUM(cache_read_tokens) as total_cache_read, " +
+        "SUM(estimated_cost_usd) as total_estimated_cost, SUM(actual_cost_usd) as total_actual_cost " +
+        "FROM sessions WHERE started_at > ?",
+      [cutoff],
+    );
+
+    const byModel = queryStateDb(
+      "SELECT model, COUNT(*) as count, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens " +
+        "FROM sessions WHERE started_at > ? GROUP BY model ORDER BY count DESC",
+      [cutoff],
+    );
+
+    const daily = queryStateDb(
+      "SELECT date(started_at, 'unixepoch', 'localtime') as date, COUNT(*) as sessions, " +
+        "SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, " +
+        "SUM(estimated_cost_usd) as estimated_cost_usd " +
+        "FROM sessions WHERE started_at > ? GROUP BY date ORDER BY date ASC",
+      [cutoff],
+    );
+
+    const profileDirs = path.join(HERMES_HOME, "profiles");
+    const agents: string[] = [];
+    const byAgent: Array<Record<string, unknown>> = [];
+    let totalAgentTokens = 0;
+
+    if (fs.existsSync(profileDirs)) {
+      const entries = fs.readdirSync(profileDirs, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && validateProfileName(entry.name)) {
+          const dbPath = path.join(profileDirs, entry.name, "state.db");
+          if (fs.existsSync(dbPath)) {
+            const agentTotals = queryProfileStateDb(
+              entry.name,
+              "SELECT COUNT(*) as sessions, " +
+                "COALESCE(SUM(input_tokens), 0) as input_tokens, " +
+                "COALESCE(SUM(output_tokens), 0) as output_tokens " +
+                "FROM sessions WHERE started_at > ?",
+              [cutoff],
+            );
+            const sessions = (agentTotals[0]?.sessions as number) || 0;
+            const inputTokens = (agentTotals[0]?.input_tokens as number) || 0;
+            const outputTokens = (agentTotals[0]?.output_tokens as number) || 0;
+            const agentTotal = inputTokens + outputTokens;
+            if (sessions > 0) {
+              agents.push(entry.name);
+              totalAgentTokens += agentTotal;
+              byAgent.push({
+                agent: entry.name,
+                sessions,
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    byAgent.sort((a, b) => {
+      const aTotal = ((a.input_tokens as number) || 0) + ((a.output_tokens as number) || 0);
+      const bTotal = ((b.input_tokens as number) || 0) + ((b.output_tokens as number) || 0);
+      return bTotal - aTotal;
+    });
+
+    for (const agent of byAgent) {
+      const agentTotal = ((agent.input_tokens as number) || 0) + ((agent.output_tokens as number) || 0);
+      (agent as Record<string, unknown>).percentage = totalAgentTokens > 0
+        ? Math.round((agentTotal / totalAgentTokens) * 100)
+        : 0;
+    }
+
+    return {
+      totals: totals[0] || {},
+      byModel: byModel,
+      byAgent: byAgent,
+      daily: daily,
+      agents: agents,
+    };
   });
 }

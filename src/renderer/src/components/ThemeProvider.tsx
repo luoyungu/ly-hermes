@@ -1,46 +1,91 @@
-import { useState, useEffect, createContext, useContext, useCallback } from 'react'
-import type { ThemeName } from '../../../preload/index'
+import { useState, useEffect, useCallback, createContext, useContext } from 'react'
+import type { ThemeMode, AccentColor } from '../../../preload/index'
+
+type ResolvedMode = 'dark' | 'light'
 
 interface ThemeContextValue {
-  theme: ThemeName
-  setTheme: (theme: ThemeName) => void
+  mode: ThemeMode
+  accent: AccentColor
+  resolvedMode: ResolvedMode
+  setMode: (mode: ThemeMode) => void
+  setAccent: (accent: AccentColor) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'light',
-  setTheme: () => {}
+  mode: 'dark',
+  accent: 'violet',
+  resolvedMode: 'dark',
+  setMode: () => {},
+  setAccent: () => {}
 })
 
 export function useTheme(): ThemeContextValue {
   return useContext(ThemeContext)
 }
 
-const ALL_THEMES: ThemeName[] = ['dark', 'light', 'ocean', 'ocean-light', 'forest', 'forest-light', 'sunset', 'sunset-light', 'lavender', 'lavender-light', 'midnight', 'rose', 'rose-light', 'slate']
+function getSystemMode(): ResolvedMode {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
 
-export { ALL_THEMES }
+function resolveMode(mode: ThemeMode): ResolvedMode {
+  return mode === 'auto' ? getSystemMode() : mode
+}
+
+function applyToDOM(resolvedMode: ResolvedMode, accent: AccentColor): void {
+  document.documentElement.setAttribute('data-mode', resolvedMode)
+  document.documentElement.setAttribute('data-accent', accent)
+}
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const [theme, setThemeState] = useState<ThemeName>('light')
+  const [mode, setModeState] = useState<ThemeMode>('dark')
+  const [accent, setAccentState] = useState<AccentColor>('violet')
+  const [resolvedMode, setResolvedMode] = useState<ResolvedMode>('dark')
 
   useEffect(() => {
-    window.hermesAPI.getTheme().then((savedTheme) => {
-      if (ALL_THEMES.includes(savedTheme as ThemeName)) {
-        setThemeState(savedTheme as ThemeName)
-        document.documentElement.setAttribute('data-theme', savedTheme)
-      }
+    Promise.all([
+      window.hermesAPI.getThemeMode(),
+      window.hermesAPI.getAccentColor()
+    ]).then(([savedMode, savedAccent]) => {
+      const m = (savedMode || 'dark') as ThemeMode
+      const a = (savedAccent || 'violet') as AccentColor
+      setModeState(m)
+      setAccentState(a)
+      const r = resolveMode(m)
+      setResolvedMode(r)
+      applyToDOM(r, a)
     }).catch(() => {
-      document.documentElement.setAttribute('data-theme', 'light')
+      applyToDOM('dark', 'violet')
     })
   }, [])
 
-  const setTheme = useCallback((newTheme: ThemeName) => {
-    setThemeState(newTheme)
-    document.documentElement.setAttribute('data-theme', newTheme)
-    window.hermesAPI.setTheme(newTheme).catch(() => {})
-  }, [])
+  useEffect(() => {
+    if (mode !== 'auto') return
+    const mql = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (): void => {
+      const r = getSystemMode()
+      setResolvedMode(r)
+      applyToDOM(r, accent)
+    }
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [mode, accent])
+
+  const setMode = useCallback((newMode: ThemeMode) => {
+    setModeState(newMode)
+    const r = resolveMode(newMode)
+    setResolvedMode(r)
+    applyToDOM(r, accent)
+    window.hermesAPI.setThemeMode(newMode).catch(() => {})
+  }, [accent])
+
+  const setAccent = useCallback((newAccent: AccentColor) => {
+    setAccentState(newAccent)
+    applyToDOM(resolvedMode, newAccent)
+    window.hermesAPI.setAccentColor(newAccent).catch(() => {})
+  }, [resolvedMode])
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
+    <ThemeContext.Provider value={{ mode, accent, resolvedMode, setMode, setAccent }}>
       {children}
     </ThemeContext.Provider>
   )

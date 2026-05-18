@@ -23,6 +23,7 @@ import {
   resetIdleTimer,
 } from "./employees";
 import { showChatNotification } from "./utils";
+import { saveMessage } from "./sessions";
 import type { BrowserWindow } from "electron";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
@@ -301,6 +302,7 @@ export function sendMessageViaApi(
       const sid = res.headers["x-hermes-session-id"];
       if (sid && typeof sid === "string") {
         sessionId = sid;
+        saveMessage(profileName, sessionId, "user", message);
       }
 
       if (res.statusCode !== 200) {

@@ -10,6 +10,8 @@ import type { EmployeeInfo, SkillInfo, ChatUsage, ApprovalRequest, MemoryData, S
 import { showToast } from '../../App'
 import logoImg from '../../assets/logo.png'
 import { mapStatus, TOOL_META, ALL_TOOLS } from '../../shared/employee-shared'
+import InteractivePet from '../../components/InteractivePet'
+import Popconfirm from '../../components/Popconfirm'
 
 interface ChatMessage {
   id: string
@@ -40,6 +42,7 @@ interface ContextMenu {
   x: number
   y: number
   employeeName: string
+  confirmDelete?: boolean
 }
 
 interface SessionDisplay {
@@ -652,10 +655,11 @@ function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: stri
                   }}
                   className="bg-accent-gradient text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-90"
                 >恢复</button>
-                <button
-                  onClick={() => handleDelete(s.id)}
-                  className="bg-[var(--danger)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
-                >删除</button>
+                <Popconfirm title="确认删除此会话？" onConfirm={() => handleDelete(s.id)}>
+                  <button
+                    className="bg-[var(--danger)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
+                  >删除</button>
+                </Popconfirm>
               </div>
             </div>
           ))
@@ -671,6 +675,7 @@ export default function Chat(): React.ReactElement {
   const [chatHistories, setChatHistories] = useState<Record<string, ChatMessage[]>>({})
   const [, setCurrentSessionId] = useState<string | null>(null)
   const [streamStates, setStreamStates] = useState<Record<string, EmployeeStreamState>>({})
+  const [petHidden, setPetHidden] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [input, setInput] = useState('')
   const [showDetail, setShowDetail] = useState(false)
@@ -1003,6 +1008,7 @@ export default function Chat(): React.ReactElement {
     try {
       const list = await window.hermesAPI.listEmployees()
       const mapped = (list || []).map(e => ({ ...e, status: mapStatus(e.status || '') }))
+      console.log('[Chat] loaded employees:', mapped.map(e => ({ name: e.name, petSlug: e.petSlug })))
       setEmployees(mapped)
       if (mapped.length > 0 && !currentEmployeeName) {
         const firstAwake = mapped.find((e: EmployeeInfo) => e.status === 'awake')
@@ -1015,6 +1021,7 @@ export default function Chat(): React.ReactElement {
 
   const selectEmployee = useCallback(async (employeeName: string) => {
     setCurrentEmployeeName(employeeName)
+    setPetHidden(false)
     setShowDetail(false)
     setShowHistory(false)
 
@@ -1369,6 +1376,9 @@ export default function Chat(): React.ReactElement {
                     {empStreaming && (
                       <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-[var(--accent)] animate-pulse-custom shadow-[0_0_6px_var(--accent)]" />
                     )}
+                    {emp.petSlug && (
+                      <span className="absolute -top-1.5 -right-1.5 text-[10px] leading-none">🐾</span>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-[var(--text-primary)] truncate flex items-center gap-1.5">
@@ -1499,6 +1509,27 @@ export default function Chat(): React.ReactElement {
                   </span>
                 )}
               </div>
+            )}
+
+            {/* Pet Sprite */}
+            {currentEmployee?.petSlug && !petHidden && (
+              <div className="absolute right-10 bottom-[140px] z-[5]">
+                <InteractivePet
+                  slug={currentEmployee.petSlug}
+                  status={isStreaming ? 'streaming' : (currentEmployee.status || 'awake')}
+                  scale={0.5}
+                  onToggleHide={() => setPetHidden(true)}
+                />
+              </div>
+            )}
+            {currentEmployee?.petSlug && petHidden && (
+              <button
+                onClick={() => setPetHidden(false)}
+                className="absolute right-4 bottom-[140px] z-[5] w-8 h-8 rounded-full glass-medium border border-[var(--border)] flex items-center justify-center text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
+                title="显示宠物"
+              >
+                🐾
+              </button>
             )}
 
             {/* Input Area */}
@@ -1633,22 +1664,40 @@ export default function Chat(): React.ReactElement {
           className="fixed z-[100] glass-heavy border border-[var(--border)] rounded-[var(--radius)] py-1 min-w-[160px] shadow-[0_8px_32px_rgba(0,0,0,0.3)] animate-scale-in"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          {[
-            { label: '☀️ 唤醒', action: () => wakeUpEmployee(contextMenu.employeeName) },
-            { label: '😴 休眠', action: () => sleepEmployee(contextMenu.employeeName) },
-            { label: '🔄 重启', action: () => { wakeUpEmployee(contextMenu.employeeName) } },
-            { label: '✏️ 编辑灵魂', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
-            { label: '⚙️ 编辑配置', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
-            { label: '🗑️ 删除', action: () => deleteEmployee(contextMenu.employeeName), danger: true },
-          ].map((item, i) => (
-            <button
-              key={i}
-              onClick={() => { item.action(); setContextMenu(null) }}
-              className={`block w-full text-left px-4 py-2 text-sm transition-colors ${item.danger ? 'text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'}`}
-            >
-              {item.label}
-            </button>
-          ))}
+          {contextMenu.confirmDelete ? (
+            <>
+              <div className="px-4 py-2 text-xs text-[var(--danger)] font-medium">确认删除此员工？</div>
+              <button
+                onClick={() => { deleteEmployee(contextMenu.employeeName); setContextMenu(null) }}
+                className="block w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] transition-colors"
+              >
+                确认删除
+              </button>
+              <button
+                onClick={() => setContextMenu({ ...contextMenu, confirmDelete: false })}
+                className="block w-full text-left px-4 py-2 text-sm text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            [
+              { label: '☀️ 唤醒', action: () => wakeUpEmployee(contextMenu.employeeName) },
+              { label: '😴 休眠', action: () => sleepEmployee(contextMenu.employeeName) },
+              { label: '🔄 重启', action: () => { wakeUpEmployee(contextMenu.employeeName) } },
+              { label: '✏️ 编辑灵魂', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+              { label: '⚙️ 编辑配置', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+              { label: '🗑️ 删除', action: () => setContextMenu({ ...contextMenu, confirmDelete: true }), danger: true },
+            ].map((item, i) => (
+              <button
+                key={i}
+                onClick={() => { item.action(); if (!item.danger) setContextMenu(null) }}
+                className={`block w-full text-left px-4 py-2 text-sm transition-colors ${item.danger ? 'text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)]' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'}`}
+              >
+                {item.label}
+              </button>
+            ))
+          )}
         </div>
       )}
 

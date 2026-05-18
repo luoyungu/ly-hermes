@@ -1,4 +1,4 @@
-import type { ThemeName } from '../../preload/index'
+import type { ThemeMode, AccentColor } from '../../preload/index'
 
 interface ImportMetaEnvVite {
   readonly MAIN_WINDOW_VITE_DEV_SERVER_URL: string
@@ -81,8 +81,10 @@ declare global {
     deleteSession: (sessionId: string) => Promise<boolean>
     getAppConfig: () => Promise<Record<string, string>>
     setAppConfig: (key: string, value: string) => Promise<boolean>
-    getTheme: () => Promise<ThemeName>
-    setTheme: (theme: ThemeName) => Promise<boolean>
+    getThemeMode: () => Promise<ThemeMode>
+    setThemeMode: (mode: ThemeMode) => Promise<boolean>
+    getAccentColor: () => Promise<AccentColor>
+    setAccentColor: (accent: AccentColor) => Promise<boolean>
     startGateway: (employeeId?: string) => Promise<boolean>
     stopGateway: (employeeId?: string) => Promise<boolean>
     gatewayStatus: (employeeId?: string) => Promise<boolean>

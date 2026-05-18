@@ -17,6 +17,7 @@ import {
 import type { EmployeeInfo } from '../../../../preload/index'
 import { showToast } from '../../App'
 import { mapStatus } from '../../shared/employee-shared'
+import Popconfirm from '../../components/Popconfirm'
 
 interface CronJobDisplay {
   id: string
@@ -243,8 +244,6 @@ function JobCard({
   onDelete: () => void
   onFilterByEmployee: () => void
 }): React.ReactElement {
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
   const formatDate = (d: string | null | undefined): string => {
     if (!d) return '-'
     try { return new Date(d).toLocaleString('zh-CN') } catch { return d }
@@ -302,16 +301,11 @@ function JobCard({
           <button onClick={onTrigger} title="立即执行" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] cursor-pointer transition-all">
             <RefreshCw size={14} />
           </button>
-          {confirmDelete ? (
-            <div className="flex items-center gap-1.5">
-              <button onClick={onDelete} className="text-[11px] text-[var(--danger)] hover:underline cursor-pointer">确认</button>
-              <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-[var(--text-dim)] hover:underline cursor-pointer">取消</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmDelete(true)} title="删除" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] cursor-pointer transition-all">
+          <Popconfirm title="确认删除此日程？" onConfirm={onDelete}>
+            <button title="删除" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] cursor-pointer transition-all">
               <Trash2 size={14} />
             </button>
-          )}
+          </Popconfirm>
         </div>
       </div>
     </div>

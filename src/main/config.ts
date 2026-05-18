@@ -21,7 +21,7 @@ const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
 
 export const HERMES_HOME: string =
   process.env.HERMES_HOME || path.join(os.homedir(), ".hermes");
-export const APP_DATA_DIR: string = path.join(os.homedir(), ".hermes-desktop");
+export const APP_DATA_DIR: string = path.join(os.homedir(), ".lyhermes");
 export const DEFAULT_HERMES_BIN: string =
   process.platform === "win32"
     ? path.join(HERMES_HOME, "hermes-agent", "venv", "Scripts", "hermes.exe")
@@ -187,16 +187,20 @@ export function runHermesCli(
   const appConfig = loadAppConfig();
   const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
   const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+  const effectiveProfile = profileName || "default";
+  const hermesHomeForProfile = effectiveProfile === "default"
+    ? HERMES_HOME
+    : getProfilePath(effectiveProfile);
   const spawnOpts: Record<string, unknown> = {
     encoding: "utf-8",
     timeout: timeoutMs,
     env: Object.assign({}, process.env, {
       HOME: os.homedir(),
-      HERMES_HOME: HERMES_HOME,
+      HERMES_HOME: hermesHomeForProfile,
     }),
     shell: process.platform === "win32",
   };
-  const hermesEnv = readHermesEnv(profileName || "default");
+  const hermesEnv = readHermesEnv(effectiveProfile);
   for (const [key, value] of Object.entries(hermesEnv)) {
     if (value && !(spawnOpts.env as Record<string, string>)[key]) {
       (spawnOpts.env as Record<string, string>)[key] = value;
@@ -552,7 +556,6 @@ export function registerConfigIpcHandlers(): void {
           const defaults = (appConfig.defaults as Record<string, unknown>) || {};
           apiKey = (defaults.api_key as string) || "";
         }
-        console.log("[applySavedModel] provider:", entry.provider, "model:", entry.model, "hasApiKey:", !!apiKey, "savedModelId:", id);
         if (apiKey) {
           const envPath = path.join(profilePath, ".env");
           let envContent = "";
@@ -561,7 +564,6 @@ export function registerConfigIpcHandlers(): void {
           }
           const providerInfo = PROVIDER_KEY_MAP[entry.provider as string];
           const envKey = providerInfo?.envKey || "OPENAI_API_KEY";
-          console.log("[applySavedModel] envKey:", envKey, "isBuiltin:", !!providerInfo);
           const keysToRemove = new Set([envKey]);
           if (providerInfo) {
             keysToRemove.add("OPENAI_API_KEY");
@@ -577,9 +579,6 @@ export function registerConfigIpcHandlers(): void {
             });
           lines.push(`${envKey}=${apiKey}`);
           safeWriteFile(envPath, lines.join("\n") + "\n");
-          console.log("[applySavedModel] .env written to:", envPath);
-        } else {
-          console.log("[applySavedModel] WARNING: no apiKey found (not in saved model nor global defaults)");
         }
 
         return { success: true };
@@ -624,14 +623,43 @@ export function registerConfigIpcHandlers(): void {
     return { name: pluginName, error: "未找到元数据文件" };
   });
 
-  ipcMain.handle("get-theme", async () => {
+  ipcMain.handle("get-theme-mode", async () => {
     const prefs = loadPreferences();
-    return (prefs.theme as string) || "dark";
+    if (prefs.theme_mode) return prefs.theme_mode as string;
+    const oldTheme = (prefs.theme as string) || "dark";
+    if (oldTheme.endsWith("-light") || oldTheme === "light") return "light";
+    return "dark";
   });
 
-  ipcMain.handle("set-theme", async (_, theme: string) => {
+  ipcMain.handle("set-theme-mode", async (_, mode: string) => {
     const prefs = loadPreferences();
-    prefs.theme = theme;
+    prefs.theme_mode = mode;
+    delete prefs.theme;
+    savePreferences(prefs);
+    return { success: true };
+  });
+
+  ipcMain.handle("get-accent-color", async () => {
+    const prefs = loadPreferences();
+    if (prefs.accent_color) return prefs.accent_color as string;
+    const oldTheme = (prefs.theme as string) || "dark";
+    const mapping: Record<string, string> = {
+      dark: "violet", light: "violet",
+      ocean: "blue", "ocean-light": "blue",
+      forest: "green", "forest-light": "green",
+      sunset: "orange", "sunset-light": "orange",
+      lavender: "lavender", "lavender-light": "lavender",
+      midnight: "indigo",
+      rose: "rose", "rose-light": "rose",
+      slate: "slate",
+    };
+    return mapping[oldTheme] || "violet";
+  });
+
+  ipcMain.handle("set-accent-color", async (_, accent: string) => {
+    const prefs = loadPreferences();
+    prefs.accent_color = accent;
+    delete prefs.theme;
     savePreferences(prefs);
     return { success: true };
   });

@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import type { EmployeeInfo, InstalledSkill, BundledSkill } from '../../../../preload/index'
 import { showToast } from '../../App'
+import PetPicker from '../../components/PetPicker'
+import Popconfirm from '../../components/Popconfirm'
 import {
   mapStatus,
   statusText,
@@ -43,7 +45,6 @@ export default function Manage(): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [editingEmployee, setEditingEmployee] = useState<EmployeeInfo | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const loadEmployees = useCallback(async () => {
     setLoading(true)
@@ -91,7 +92,6 @@ export default function Manage(): React.ReactElement {
       const result = await window.hermesAPI.deleteEmployee(name)
       if (result.success) {
         showToast('已删除')
-        setConfirmDelete(null)
         setEditingEmployee(null)
         setSection('list')
         loadEmployees()
@@ -187,8 +187,6 @@ export default function Manage(): React.ReactElement {
               onWakeUp={() => handleWakeUp(editingEmployee.name)}
               onSleep={() => handleSleep(editingEmployee.name)}
               onRestart={() => handleRestart(editingEmployee.name)}
-              confirmDelete={confirmDelete}
-              setConfirmDelete={setConfirmDelete}
             />
           )}
         </div>
@@ -203,9 +201,12 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
   const [role, setRole] = useState('')
   const [avatar, setAvatar] = useState('🧑‍💼')
   const [soul, setSoul] = useState('')
+  const [petSlug, setPetSlug] = useState('')
   const [creating, setCreating] = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
+  const [showPetPicker, setShowPetPicker] = useState(false)
   const avatarPickerRef = useRef<HTMLDivElement>(null)
+  const petPickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!showAvatarPicker) return
@@ -228,6 +229,7 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
         role: role.trim() || undefined,
         avatar: avatar || undefined,
         soul: soul.trim() || undefined,
+        petSlug: petSlug || undefined,
         wakeUp: true
       })
       if (result.success) {
@@ -257,12 +259,12 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
               {avatar}
             </button>
             {showAvatarPicker && (
-              <div className="absolute top-full left-0 mt-2 p-2 rounded-xl glass-heavy border border-[var(--border)] grid grid-cols-4 gap-1 z-10 shadow-lg">
+              <div className="absolute top-full left-0 mt-2 p-3 rounded-xl glass-heavy border border-[var(--border)] grid grid-cols-4 gap-2 z-10 shadow-lg max-w-[240px]">
                 {AVATARS.map(a => (
                   <button
                     key={a}
                     onClick={() => { setAvatar(a); setShowAvatarPicker(false) }}
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl cursor-pointer transition-colors ${avatar === a ? 'bg-[var(--accent-glow)] border border-[var(--accent)]' : 'hover:bg-[var(--bg-hover)]'}`}
+                    className={`w-11 h-11 rounded-lg flex items-center justify-center text-[22px] cursor-pointer transition-colors border ${avatar === a ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'border-transparent hover:bg-[var(--bg-hover)]'}`}
                   >
                     {a}
                   </button>
@@ -311,6 +313,31 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
             className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none resize-none min-h-[120px] focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
           />
         </div>
+
+        <div className="relative" ref={petPickerRef}>
+          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 伙伴宠物</label>
+          <button
+            type="button"
+            onClick={() => setShowPetPicker(!showPetPicker)}
+            className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] bg-[var(--bg-surface)] flex items-center gap-2 cursor-pointer text-left"
+          >
+            {petSlug ? (
+              <span className="flex items-center gap-2">
+                <span>🐾</span>
+                {petSlug}
+              </span>
+            ) : (
+              <span className="text-[var(--text-dim)]">点击选择宠物...</span>
+            )}
+          </button>
+          {showPetPicker && (
+            <PetPicker
+              value={petSlug}
+              onChange={setPetSlug}
+              onClose={() => setShowPetPicker(false)}
+            />
+          )}
+        </div>
       </div>
 
       <div className="mt-6 flex items-center gap-3">
@@ -341,9 +368,7 @@ function EditEmployee({
   onDelete,
   onWakeUp,
   onSleep,
-  onRestart,
-  confirmDelete,
-  setConfirmDelete
+  onRestart
 }: {
   employee: EmployeeInfo
   onRefresh: () => void
@@ -351,8 +376,6 @@ function EditEmployee({
   onSleep: () => void
   onWakeUp: () => void
   onRestart: () => void
-  confirmDelete: string | null
-  setConfirmDelete: (v: string | null) => void
 }): React.ReactElement {
   const [tab, setTab] = useState<EditTab>('basic')
   const [saving, setSaving] = useState(false)
@@ -360,8 +383,11 @@ function EditEmployee({
   const [displayName, setDisplayName] = useState(employee.displayName || '')
   const [role, setRole] = useState(employee.role || '')
   const [avatar, setAvatar] = useState(employee.avatar || '🧑‍💼')
+  const [petSlug, setPetSlug] = useState(employee.petSlug || '')
+  const [showPetPicker, setShowPetPicker] = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const avatarPickerRef = useRef<HTMLDivElement>(null)
+  const petPickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!showAvatarPicker) return
@@ -423,6 +449,9 @@ function EditEmployee({
         role: role || undefined,
         avatar: avatar || undefined
       })
+      if (petSlug !== employee.petSlug) {
+        await window.hermesAPI.setEmployeePet(employee.name, petSlug)
+      }
       showToast('基本信息已保存')
       onRefresh()
     } catch { showToast('保存失败', 'error') }
@@ -548,14 +577,9 @@ function EditEmployee({
             <button onClick={onWakeUp} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.08)] px-3 py-1.5 text-sm text-[var(--success)] hover:bg-[rgba(34,197,94,0.15)] cursor-pointer transition-all"><Power size={14} /> 唤醒</button>
           )}
           <button onClick={onRestart} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"><RefreshCw size={14} /> 重启</button>
-          {confirmDelete === employee.name ? (
-            <div className="flex items-center gap-1.5">
-              <button onClick={onDelete} className="flex items-center gap-1.5 rounded-[var(--radius)] bg-[var(--danger)] px-3 py-1.5 text-sm text-white cursor-pointer hover:opacity-90 transition-all"><Trash2 size={14} /> 确认</button>
-              <button onClick={() => setConfirmDelete(null)} className="rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg-hover)] transition-all">取消</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmDelete(employee.name)} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-3 py-1.5 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] cursor-pointer transition-all"><Trash2 size={14} /> 删除</button>
-          )}
+          <Popconfirm title="确认删除此员工？" onConfirm={onDelete}>
+            <button className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-3 py-1.5 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] cursor-pointer transition-all"><Trash2 size={14} /> 删除</button>
+          </Popconfirm>
         </div>
       </div>
 
@@ -588,12 +612,12 @@ function EditEmployee({
                     {avatar}
                   </button>
                   {showAvatarPicker && (
-                    <div className="absolute top-full left-0 mt-2 p-2 rounded-xl glass-heavy border border-[var(--border)] grid grid-cols-4 gap-1 z-10 shadow-lg">
+                    <div className="absolute top-full left-0 mt-2 p-3 rounded-xl glass-heavy border border-[var(--border)] grid grid-cols-4 gap-2 z-10 shadow-lg max-w-[240px]">
                       {AVATARS.map(a => (
                         <button
                           key={a}
                           onClick={() => { setAvatar(a); setShowAvatarPicker(false) }}
-                          className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl cursor-pointer transition-colors ${avatar === a ? 'bg-[var(--accent-glow)] border border-[var(--accent)]' : 'hover:bg-[var(--bg-hover)]'}`}
+                          className={`w-11 h-11 rounded-lg flex items-center justify-center text-[22px] cursor-pointer transition-colors border ${avatar === a ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'border-transparent hover:bg-[var(--bg-hover)]'}`}
                         >
                           {a}
                         </button>
@@ -609,6 +633,30 @@ function EditEmployee({
                   <div>
                     <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">角色</label>
                     <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="例如: AI助手、数据分析师" className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
+                  </div>
+                  <div className="relative" ref={petPickerRef}>
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 伙伴宠物</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPetPicker(!showPetPicker)}
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] bg-[var(--bg-surface)] flex items-center gap-2 cursor-pointer text-left"
+                    >
+                      {petSlug ? (
+                        <span className="flex items-center gap-2">
+                          <span>🐾</span>
+                          {petSlug}
+                        </span>
+                      ) : (
+                        <span className="text-[var(--text-dim)]">点击选择宠物...</span>
+                      )}
+                    </button>
+                    {showPetPicker && (
+                      <PetPicker
+                        value={petSlug}
+                        onChange={setPetSlug}
+                        onClose={() => setShowPetPicker(false)}
+                      />
+                    )}
                   </div>
                 </div>
               </div>

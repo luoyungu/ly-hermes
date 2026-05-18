@@ -17,6 +17,7 @@ import {
   DEFAULT_HERMES_BIN,
 } from "./config";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
+import { getSessionCount, getEmployeeSessions } from "./sessions";
 import type { BrowserWindow } from "electron";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
@@ -41,6 +42,7 @@ export interface EmployeeInfo {
   avatar: string;
   color: string;
   tags: string[];
+  petSlug: string;
   model: string;
   provider: string;
   isActive: boolean;
@@ -142,6 +144,7 @@ export function listEmployees(): EmployeeInfo[] {
     avatar: (defaultMeta?.avatar as string) || "🤖",
     color: (defaultMeta?.color as string) || "#4A90D9",
     tags: (defaultMeta?.tags as string[]) || [],
+    petSlug: (defaultMeta?.petSlug as string) || "",
     model: defaultModel,
     provider: defaultProvider,
     isActive: activeName === "default",
@@ -183,6 +186,7 @@ export function listEmployees(): EmployeeInfo[] {
           avatar: (meta?.avatar as string) || "🧑‍💼",
           color: (meta?.color as string) || "#6C5CE7",
           tags: (meta?.tags as string[]) || [],
+          petSlug: (meta?.petSlug as string) || "",
           model: model,
           provider: provider,
           isActive: activeName === dir,
@@ -666,6 +670,7 @@ export function registerEmployeeIpcHandlers(
         avatar: (config.avatar as string) || "🧑‍💼",
         color: (config.color as string) || "#6C5CE7",
         tags: (config.tags as string[]) || [],
+        petSlug: (config.petSlug as string) || "",
         gateway_port: port,
         idle_timeout:
           (config.idle_timeout as number) ||
@@ -1027,12 +1032,7 @@ export function registerEmployeeIpcHandlers(
         result.userCharCount = (result.user as string).length;
         result.userCharLimit = 1375;
       }
-      const dbPath = path.join(HERMES_HOME, "state.db");
-      if (fs.existsSync(dbPath)) {
-        const { queryStateDb } = await import("./sessions");
-        const stats = queryStateDb("SELECT COUNT(*) as cnt FROM sessions");
-        result.stats = { totalSessions: (stats[0] && stats[0].cnt) || 0 };
-      }
+      result.stats = { totalSessions: getSessionCount() };
       return result;
     } catch {
       return { memory: [], user: "", stats: {} };
@@ -1126,6 +1126,19 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
+  ipcMain.handle("employee:set-pet", async (_, name: string, petSlug: string) => {
+    if (!validateProfileName(name)) return { error: "无效的员工名称" };
+    const meta = readEmployeeMeta(name);
+    if (!meta) return { error: "员工不存在" };
+    meta.petSlug = petSlug;
+    writeEmployeeMeta(name, meta);
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("employee-list-changed", { action: "updated", name });
+    }
+    return { success: true };
+  });
+
   ipcMain.handle("employee:export", async (_, name: string) => {
     if (!validateProfileName(name)) return { error: "无效的员工名称" };
     const output = runHermesCli(["profile", "export", name], "default");
@@ -1137,17 +1150,6 @@ export function registerEmployeeIpcHandlers(
 
   ipcMain.handle("employee:get-sessions", async (_, name: string) => {
     if (!validateProfileName(name)) return [];
-    try {
-      const { queryProfileStateDb, fillSessionTitles } = await import("./sessions");
-      const sessions = queryProfileStateDb(
-        name,
-        "SELECT id, source, model, started_at, ended_at, message_count, title " +
-          "FROM sessions ORDER BY started_at DESC LIMIT 20",
-      );
-      fillSessionTitles(sessions, (sql, params) => queryProfileStateDb(name, sql, params));
-      return sessions;
-    } catch {
-      return [];
-    }
+    return getEmployeeSessions(name, 20);
   });
 }
