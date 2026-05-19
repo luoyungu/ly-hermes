@@ -2,6 +2,7 @@ import type { ElectronAPI } from '@electron-toolkit/preload'
 
 export type ThemeMode = 'dark' | 'light' | 'auto'
 export type AccentColor = 'violet' | 'indigo' | 'blue' | 'green' | 'orange' | 'lavender' | 'rose' | 'slate'
+export type UiTheme = 'classic' | 'cultivation'
 
 export interface ChatUsage {
   promptTokens: number
@@ -64,13 +65,6 @@ export interface SessionInfo {
   messageCount: number
   model: string
   preview: string
-}
-
-export interface SessionMessage {
-  id: number
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: number
 }
 
 export interface SearchResult {
@@ -253,15 +247,15 @@ interface HermesAPI {
 
   getEmployeeSessions: (name: string) => Promise<Array<Record<string, unknown>>>
 
-  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>) => Promise<void>
+  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>, resumeSessionId?: string) => Promise<void>
   abortChat: (profileName: string) => Promise<{ success: boolean }>
   sendApproval: (profileName: string, approvalId: string, approved: boolean) => Promise<{ success: boolean; error?: string }>
   healthCheck: (profileName: string) => Promise<{ online: boolean }>
 
   getSessions: (limit?: number, offset?: number) => Promise<Array<Record<string, unknown>>>
-  getSessionMessages: (sessionId: string, profileName?: string) => Promise<Array<Record<string, unknown>>>
   deleteSession: (sessionId: string, profileName?: string) => Promise<{ success: boolean; error?: string }>
-  searchSessions: (query: string) => Promise<Array<Record<string, unknown>>>
+  getSessionMessages: (sessionId: string, profileName?: string) => Promise<Array<Record<string, unknown>>>
+  searchSessions: (query: string, profileName?: string) => Promise<Array<Record<string, unknown>>>
   getUsageStats: (days?: number) => Promise<UsageStats>
 
   getTokenStats: (days?: number) => Promise<TokenStats>
@@ -303,6 +297,9 @@ interface HermesAPI {
   setThemeMode: (mode: ThemeMode) => Promise<{ success: boolean }>
   getAccentColor: () => Promise<AccentColor>
   setAccentColor: (accent: AccentColor) => Promise<{ success: boolean }>
+  getUiTheme: () => Promise<UiTheme>
+  setUiTheme: (theme: UiTheme) => Promise<{ success: boolean }>
+  readLogs: (logFile?: string, lines?: number) => Promise<{ content: string; path: string }>
   getAppConfig: () => Promise<Record<string, unknown>>
   setAppConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
@@ -339,6 +336,10 @@ interface HermesAPI {
   listPets: () => Promise<PetInfo[]>
   getPetSpritesheet: (slug: string) => Promise<string | null>
   refreshPetManifest: () => Promise<PetInfo[]>
+
+  getAppLogs: (options?: { level?: string; lines?: number }) => Promise<Array<{ timestamp: string; level: string; module: string; message: string; data?: unknown }>>
+  clearAppLogs: () => Promise<{ success: boolean }>
+  getLogFilePath: () => Promise<string>
 }
 
 declare global {

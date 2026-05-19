@@ -129,6 +129,73 @@
   --border-focus: rgba(122,138,158,0.4);
 }
 
+[data-ui-theme="cultivation"][data-mode="dark"] {
+  --bg-primary: #14120d;
+  --bg-secondary: rgba(239,226,196,0.055);
+  --bg-glass: rgba(37,31,22,0.44);
+  --bg-glass-heavy: rgba(22,18,12,0.86);
+  --bg-glass-medium: rgba(28,23,16,0.68);
+  --bg-glass-light: rgba(50,42,29,0.34);
+  --bg-hover: rgba(221,188,123,0.10);
+  --bg-surface: rgba(221,188,123,0.065);
+  --text-primary: #efe4cc;
+  --text-secondary: #c8b996;
+  --text-dim: #8f8068;
+  --border: rgba(219,190,137,0.16);
+  --user-bubble: #60421f;
+  --user-bubble-text: #fff4da;
+  --agent-bubble: rgba(239,226,196,0.06);
+  --agent-bubble-text: var(--text-primary);
+}
+
+[data-ui-theme="cultivation"][data-mode="light"] {
+  --bg-primary: #f7f2e7;
+  --bg-secondary: rgba(83,62,31,0.045);
+  --bg-glass: rgba(255,250,238,0.82);
+  --bg-glass-heavy: rgba(255,250,238,0.94);
+  --bg-glass-medium: rgba(255,250,238,0.78);
+  --bg-glass-light: rgba(255,250,238,0.54);
+  --bg-hover: rgba(125,94,45,0.08);
+  --bg-surface: rgba(125,94,45,0.05);
+  --text-primary: #2d261d;
+  --text-secondary: #6f604b;
+  --text-dim: #a0947e;
+  --border: rgba(96,66,31,0.14);
+  --user-bubble: #ead9b6;
+  --user-bubble-text: #2d261d;
+  --agent-bubble: rgba(96,66,31,0.055);
+  --agent-bubble-text: var(--text-primary);
+}
+
+[data-ui-theme="cultivation"] {
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 18px;
+}
+
+[data-ui-theme="cultivation"] body {
+  font-family: "Songti SC", "STSong", "Noto Serif CJK SC", -apple-system, BlinkMacSystemFont, "SF Pro Text", serif;
+}
+
+.theme-atmosphere {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+[data-ui-theme="cultivation"] .theme-atmosphere {
+  opacity: 1;
+  background:
+    linear-gradient(110deg, transparent 0 22%, rgba(184,138,61,0.055) 22.2% 22.6%, transparent 22.8% 100%),
+    linear-gradient(170deg, transparent 0 46%, rgba(111,143,117,0.055) 46.2% 46.7%, transparent 47% 100%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 7px);
+}
+
+[data-ui-theme="cultivation"] .glass-heavy,
+[data-ui-theme="cultivation"] .glass-medium,
+[data-ui-theme="cultivation"] .glass-light {
+  box-shadow: inset 0 1px 0 rgba(255,244,218,0.05);
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   background: var(--bg-primary);
@@ -270,6 +337,21 @@ select {
   background: var(--bg-glass-light);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+}
+
+.screen-header {
+  min-height: 52px;
+  padding: 0 24px 12px;
+}
+
+.screen-header-compact {
+  min-height: 52px;
+  padding: 0 16px 12px;
+}
+
+.screen-header-title {
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .tools-toggle {

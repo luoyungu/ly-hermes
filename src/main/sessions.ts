@@ -105,15 +105,6 @@ export function execProfileStateDb(profileName: string, sql: string, params?: un
   }
 }
 
-export function saveMessage(profileName: string, sessionId: string, role: string, content: string): boolean {
-  const now = Date.now() / 1000;
-  const sql = "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)";
-  if (profileName && profileName !== "default") {
-    return execProfileStateDb(profileName, sql, [sessionId, role, content, now]);
-  }
-  return execStateDb(sql, [sessionId, role, content, now]);
-}
-
 export function getSessionCount(): number {
   const stats = queryStateDb("SELECT COUNT(*) as cnt FROM sessions");
   return (stats[0] && (stats[0].cnt as number)) || 0;
@@ -209,7 +200,48 @@ export function fillSessionTitles(
   }
 }
 
+export function readLogs(
+  logFile = "agent.log",
+  lines = 200,
+): { content: string; path: string } {
+  const logsDir = path.join(HERMES_HOME, "logs");
+  const allowed = ["agent.log", "errors.log", "gateway.log"];
+  const file = allowed.includes(logFile) ? logFile : "agent.log";
+  const fullPath = path.join(logsDir, file);
+
+  if (!fs.existsSync(fullPath)) {
+    return { content: "", path: fullPath };
+  }
+  try {
+    const content = fs.readFileSync(fullPath, "utf-8");
+    const allLines = content.split("\n");
+    const tail = allLines.slice(-lines).join("\n");
+    return { content: tail, path: fullPath };
+  } catch {
+    return { content: "", path: fullPath };
+  }
+}
+
+export function getSessionMessages(
+  sessionId: string,
+  profileName?: string,
+): Array<Record<string, unknown>> {
+  if (!validateSessionId(sessionId)) return [];
+  const queryFn = profileName && validateProfileName(profileName)
+    ? (sql: string, params?: unknown[]) => queryProfileStateDb(profileName, sql, params)
+    : queryStateDb;
+  return queryFn(
+    "SELECT id, role, content, tool_calls, tool_call_id, tool_name, timestamp, reasoning_content " +
+      "FROM messages WHERE session_id = ? ORDER BY timestamp ASC",
+    [sessionId],
+  );
+}
+
 export function registerSessionIpcHandlers(): void {
+  ipcMain.handle("get-session-messages", async (_, sessionId: string, profileName?: string) => {
+    return getSessionMessages(sessionId, profileName);
+  });
+
   ipcMain.handle(
     "get-sessions",
     async (_, limit: string | number, offset: string | number) => {
@@ -230,19 +262,6 @@ export function registerSessionIpcHandlers(): void {
   );
 
   ipcMain.handle(
-    "get-session-messages",
-    async (_, sessionId: string, profileName?: string) => {
-      if (!validateSessionId(sessionId)) return [];
-      const sql = "SELECT id, session_id, role, content, tool_name, tool_calls, tool_call_id, timestamp, token_count, finish_reason " +
-        "FROM messages WHERE session_id = ? ORDER BY timestamp ASC";
-      if (profileName) {
-        return queryProfileStateDb(profileName, sql, [sessionId]);
-      }
-      return queryStateDb(sql, [sessionId]);
-    },
-  );
-
-  ipcMain.handle(
     "delete-session",
     async (_, sessionId: string, profileName?: string) => {
       if (!validateSessionId(sessionId))
@@ -256,12 +275,12 @@ export function registerSessionIpcHandlers(): void {
             "state.db",
           );
           if (fs.existsSync(dbPath)) {
-            queryProfileStateDb(
+            execProfileStateDb(
               profileName,
               "DELETE FROM messages WHERE session_id = ?",
               [sessionId],
             );
-            queryProfileStateDb(
+            execProfileStateDb(
               profileName,
               "DELETE FROM sessions WHERE id = ?",
               [sessionId],
@@ -269,8 +288,8 @@ export function registerSessionIpcHandlers(): void {
             return { success: true };
           }
         }
-        queryStateDb("DELETE FROM messages WHERE session_id = ?", [sessionId]);
-        queryStateDb("DELETE FROM sessions WHERE id = ?", [sessionId]);
+        execStateDb("DELETE FROM messages WHERE session_id = ?", [sessionId]);
+        execStateDb("DELETE FROM sessions WHERE id = ?", [sessionId]);
         return { success: true };
       } catch (e: unknown) {
         return { success: false, error: (e as Error).message };
@@ -278,10 +297,13 @@ export function registerSessionIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle("search-sessions", async (_, query: string) => {
+  ipcMain.handle("search-sessions", async (_, query: string, profileName?: string) => {
     if (!query) return [];
     const like = "%" + String(query).slice(0, 200) + "%";
-    return queryStateDb(
+    const queryFn = profileName && validateProfileName(profileName)
+      ? (sql: string, params?: unknown[]) => queryProfileStateDb(profileName, sql, params)
+      : queryStateDb;
+    return queryFn(
       "SELECT id, source, model, started_at, ended_at, message_count, title " +
         "FROM sessions WHERE title LIKE ? " +
         "OR id IN (SELECT session_id FROM messages WHERE content LIKE ?) " +

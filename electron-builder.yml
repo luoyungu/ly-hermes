@@ -9,6 +9,16 @@ directories:
 files:
   - out/**/*
   - package.json
+  - '!**/._*'
+  - '!**/.DS_Store'
+
+extraResources:
+  - from: build/runtime
+    to: runtime
+    filter:
+        - '**/*'
+        - '!**/._*'
+        - '!**/.DS_Store'
 
 win:
   icon: build/icon.ico

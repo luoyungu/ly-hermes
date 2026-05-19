@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { usePlatform } from '../../hooks/usePlatform'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -22,6 +23,7 @@ import type { EmployeeInfo, InstalledSkill, BundledSkill } from '../../../../pre
 import { showToast } from '../../App'
 import PetPicker from '../../components/PetPicker'
 import Popconfirm from '../../components/Popconfirm'
+import { useTheme } from '../../components/ThemeProvider'
 import {
   mapStatus,
   statusText,
@@ -40,6 +42,8 @@ import {
 type Section = 'list' | 'create' | 'edit'
 
 export default function Manage(): React.ReactElement {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   const [section, setSection] = useState<Section>('list')
   const [employees, setEmployees] = useState<EmployeeInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -107,8 +111,8 @@ export default function Manage(): React.ReactElement {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 36, paddingBottom: 12, paddingLeft: 24 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 600 }}>管理</h2>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+        <h2 className="screen-header-title">{lexicon.nav.manage}</h2>
       </div>
       <div className="flex flex-1 overflow-hidden">
         <div className="w-[260px] shrink-0 border-r border-[var(--border)] glass-medium flex flex-col">
@@ -118,7 +122,7 @@ export default function Manage(): React.ReactElement {
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索员工..."
+                placeholder={lexicon.entities.searchEmployee}
                 className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] pl-9 pr-3 py-2.5 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
               />
             </div>
@@ -127,7 +131,7 @@ export default function Manage(): React.ReactElement {
             {filteredEmployees.length === 0 && !loading && (
               <div className="text-center py-12 text-[var(--text-dim)]">
                 <div className="text-4xl mb-3 opacity-30">👥</div>
-                <p className="text-sm">{searchQuery ? '未找到匹配员工' : '暂无员工'}</p>
+                <p className="text-sm">{searchQuery ? lexicon.entities.noEmployeeMatches : lexicon.entities.noEmployees}</p>
               </div>
             )}
             {filteredEmployees.map(emp => {
@@ -149,7 +153,7 @@ export default function Manage(): React.ReactElement {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-[var(--text-primary)] truncate">{emp.displayName || emp.name}</div>
-                    <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || '员工'}</div>
+                    <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || lexicon.entities.defaultRole}</div>
                   </div>
                 </div>
               )
@@ -160,7 +164,7 @@ export default function Manage(): React.ReactElement {
               onClick={() => { setEditingEmployee(null); setSection('create') }}
               className="flex items-center justify-center gap-2 w-full rounded-[var(--radius)] bg-accent-gradient px-3 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 cursor-pointer"
             >
-              <UserPlus size={16} /> 创建员工
+              <UserPlus size={16} /> {lexicon.entities.createEmployee}
             </button>
           </div>
         </div>
@@ -169,17 +173,19 @@ export default function Manage(): React.ReactElement {
           {section === 'list' && (
             <div className="flex flex-col items-center justify-center h-full text-[var(--text-dim)] gap-3">
               <span className="text-5xl opacity-30">👥</span>
-              <p className="text-sm">选择左侧员工查看详情，或创建新员工</p>
+              <p className="text-sm">{lexicon.entities.selectEmployee}查看详情，或{lexicon.entities.createEmployee}</p>
             </div>
           )}
           {section === 'create' && (
             <CreateEmployee
+              lexicon={lexicon}
               onCreated={() => { setSection('list'); loadEmployees() }}
               onCancel={() => setSection('list')}
             />
           )}
           {section === 'edit' && editingEmployee && (
             <EditEmployee
+              lexicon={lexicon}
               key={editingEmployee.name}
               employee={editingEmployee}
               onRefresh={loadEmployees}
@@ -195,7 +201,7 @@ export default function Manage(): React.ReactElement {
   )
 }
 
-function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }): React.ReactElement {
+function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<typeof useTheme>['lexicon']; onCreated: () => void; onCancel: () => void }): React.ReactElement {
   const [name, setName] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [role, setRole] = useState('')
@@ -220,8 +226,8 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
   }, [showAvatarPicker])
 
   const handleCreate = async (): Promise<void> => {
-    if (!name.trim()) { showToast('请输入员工名称', 'error'); return }
-    if (!EMPLOYEE_NAME_RE.test(name.trim())) { showToast('员工名称只能包含小写字母、数字、下划线和连字符', 'error'); return }
+    if (!name.trim()) { showToast(`请输入${lexicon.entities.employee}名称`, 'error'); return }
+    if (!EMPLOYEE_NAME_RE.test(name.trim())) { showToast(`${lexicon.entities.employee}名称只能包含小写字母、数字、下划线和连字符`, 'error'); return }
     setCreating(true)
     try {
       const result = await window.hermesAPI.createEmployee(name.trim(), {
@@ -244,11 +250,11 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
 
   return (
     <div className="mx-auto max-w-2xl p-6">
-      <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">创建虚拟员工</h3>
+      <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{lexicon.entities.createEmployee}</h3>
       <div className="space-y-5 glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
         <div className="flex items-center gap-2 mb-2">
           <UserPlus size={16} className="text-[var(--accent)]" />
-          <span className="text-sm font-semibold text-[var(--text-primary)]">员工信息</span>
+          <span className="text-sm font-semibold text-[var(--text-primary)]">{lexicon.entities.employeeInfo}</span>
         </div>
         <div className="flex items-start gap-4">
           <div className="relative" ref={avatarPickerRef}>
@@ -305,11 +311,11 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
         </div>
 
         <div>
-          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Sparkles size={14} /> 灵魂设定</label>
+          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Sparkles size={14} /> {lexicon.concepts.soulSetting}</label>
           <textarea
             value={soul}
             onChange={(e) => setSoul(e.target.value)}
-            placeholder="描述这个虚拟员工的性格、能力和行为准则..."
+            placeholder={`描述这个${lexicon.entities.virtualEmployee}的性格、能力和行为准则...`}
             className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none resize-none min-h-[120px] focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
           />
         </div>
@@ -347,7 +353,7 @@ function CreateEmployee({ onCreated, onCancel }: { onCreated: () => void; onCanc
           className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
         >
           {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          {creating ? '创建中...' : '创建员工'}
+          {creating ? '创建中...' : lexicon.entities.createEmployee}
         </button>
         <button
           onClick={onCancel}
@@ -368,9 +374,11 @@ function EditEmployee({
   onDelete,
   onWakeUp,
   onSleep,
+  lexicon,
   onRestart
 }: {
   employee: EmployeeInfo
+  lexicon: ReturnType<typeof useTheme>['lexicon']
   onRefresh: () => void
   onDelete: () => void
   onSleep: () => void
@@ -463,7 +471,7 @@ function EditEmployee({
     try {
       await window.hermesAPI.setEmployeeSoul(employee.name, soulContent)
       setSoulOriginal(soulContent)
-      showToast('灵魂设定已保存')
+      showToast(`${lexicon.concepts.soulSetting}已保存`)
     } catch { showToast('保存失败', 'error') }
     finally { setSaving(false) }
   }
@@ -483,7 +491,7 @@ function EditEmployee({
       await window.hermesAPI.toggleTool(employee.name, toolKey, !enabled)
       setTools(prev => enabled ? prev.filter(t => t !== toolKey) : [...prev, toolKey])
       showToast(enabled ? `已禁用 ${TOOL_META[toolKey]?.label || toolKey}，新会话生效` : `已启用 ${TOOL_META[toolKey]?.label || toolKey}，新会话生效`, 'info')
-    } catch { showToast('切换工具失败', 'error') }
+    } catch { showToast(`切换${lexicon.concepts.tools}失败`, 'error') }
   }
 
   const handleViewSkillDetail = async (skill: InstalledSkill | BundledSkill, isBundled?: boolean): Promise<void> => {
@@ -506,7 +514,7 @@ function EditEmployee({
     try {
       const result = await window.hermesAPI.installSkill(identifier, employee.name)
       if (result.success) {
-        showToast('🎉 技能安装成功')
+        showToast(`${lexicon.concepts.skills}安装成功`)
         setSkillInstallUrl('')
         await loadSkills()
       } else {
@@ -532,7 +540,7 @@ function EditEmployee({
         setDetailSkill(null)
       }
       await loadSkills()
-      showToast('技能已移除')
+      showToast(`${lexicon.concepts.skills}已移除`)
     } catch { showToast('移除失败', 'error') }
     finally {
       setActionInProgress(null)
@@ -545,10 +553,10 @@ function EditEmployee({
 
   const tabs: { id: EditTab; label: string; icon: React.ReactElement }[] = [
     { id: 'basic', label: '基本信息', icon: <UserPlus size={14} /> },
-    { id: 'soul', label: '灵魂', icon: <Sparkles size={14} /> },
-    { id: 'config', label: '配置', icon: <Wrench size={14} /> },
-    { id: 'tools', label: '工具', icon: <Zap size={14} /> },
-    { id: 'skills', label: '技能', icon: <Puzzle size={14} /> },
+    { id: 'soul', label: lexicon.concepts.soul, icon: <Sparkles size={14} /> },
+    { id: 'config', label: lexicon.concepts.config, icon: <Wrench size={14} /> },
+    { id: 'tools', label: lexicon.concepts.tools, icon: <Zap size={14} /> },
+    { id: 'skills', label: lexicon.concepts.skills, icon: <Puzzle size={14} /> },
   ]
 
   const empStatus = employee.status || 'unknown'
@@ -577,7 +585,7 @@ function EditEmployee({
             <button onClick={onWakeUp} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.08)] px-3 py-1.5 text-sm text-[var(--success)] hover:bg-[rgba(34,197,94,0.15)] cursor-pointer transition-all"><Power size={14} /> 唤醒</button>
           )}
           <button onClick={onRestart} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"><RefreshCw size={14} /> 重启</button>
-          <Popconfirm title="确认删除此员工？" onConfirm={onDelete}>
+          <Popconfirm title={lexicon.entities.deleteEmployeeConfirm} onConfirm={onDelete}>
             <button className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-3 py-1.5 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] cursor-pointer transition-all"><Trash2 size={14} /> 删除</button>
           </Popconfirm>
         </div>
@@ -672,8 +680,8 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Sparkles size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                灵魂设定定义了这个员工的<strong className="text-[var(--text-primary)]">性格、能力和行为准则</strong>。
-                它就像一个人的内心世界，决定了员工如何思考和回应。
+                {lexicon.concepts.soulSetting}定义了这个{lexicon.entities.employee}的<strong className="text-[var(--text-primary)]">性格、能力和行为准则</strong>。
+                它就像一个人的内心世界，决定了{lexicon.entities.employee}如何思考和回应。
               </div>
             </div>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden">
@@ -681,7 +689,7 @@ function EditEmployee({
                 value={soulContent}
                 onChange={(e) => setSoulContent(e.target.value)}
                 className="w-full bg-transparent p-4 text-sm text-[var(--text-primary)] outline-none resize-none min-h-[300px] font-mono leading-relaxed"
-                placeholder="描述这个员工的灵魂..."
+                placeholder={`描述这个${lexicon.entities.employee}的${lexicon.concepts.soul}...`}
               />
             </div>
             <div className="flex gap-2 justify-end">
@@ -695,7 +703,7 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Wrench size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                配置项控制员工的<strong className="text-[var(--text-primary)]">运行参数</strong>，调整对话行为、记忆、压缩等策略。
+                配置项控制{lexicon.entities.employee}的<strong className="text-[var(--text-primary)]">运行参数</strong>，调整对话行为、{lexicon.concepts.memory}、压缩等策略。
               </div>
             </div>
             {(() => {

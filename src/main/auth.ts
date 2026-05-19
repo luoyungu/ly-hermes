@@ -84,11 +84,10 @@ export function createUserWithPassword(password: string): void {
 
 export function registerAuthIpcHandlers(): void {
   ipcMain.handle("auth-login", async (_, password: string) => {
-    ensureDefaultUser();
     if (!password) return { error: "请输入密码" };
     const users = readUsers();
     const user = users.find((u) => u.username === DEFAULT_USERNAME);
-    if (!user) return { error: "用户不存在" };
+    if (!user) return { error: "尚未初始化，请先完成初始设置" };
     const hash = hashPassword(password, user.salt);
     if (hash !== user.passwordHash) return { error: "密码错误" };
     user.lastLogin = new Date().toISOString();

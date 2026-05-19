@@ -1,11 +1,15 @@
 import { ExternalLink, Server, Database, Code2 } from 'lucide-react'
+import { usePlatform } from '../../hooks/usePlatform'
 import logoImg from '../../assets/logo.png'
+import { useTheme } from '../../components/ThemeProvider'
 
 export default function About(): React.ReactElement {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   return (
     <div className="flex h-full flex-col">
-      <div className="drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 36, paddingBottom: 12, paddingLeft: 24 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 600 }}>关于</h2>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+        <h2 className="screen-header-title">{lexicon.nav.about}</h2>
       </div>
       <div className="flex flex-1 items-center justify-center">
       <div className="animate-fade-in text-center">
@@ -13,7 +17,7 @@ export default function About(): React.ReactElement {
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">落云.Hermes</h1>
         <p className="mt-1 text-sm text-[var(--text-dim)]">v1.0.0</p>
         <p className="mt-4 max-w-md text-sm leading-relaxed text-[var(--text-secondary)]">
-          知识型个人 AI 员工的桌面工作站
+          {lexicon.appSubtitle}
         </p>
 
         <div className="mt-8 mx-auto max-w-sm space-y-3">

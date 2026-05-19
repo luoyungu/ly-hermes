@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { usePlatform } from '../../hooks/usePlatform'
 import type { SavedModel } from '../../../../preload/index'
 import {
   Save,
@@ -25,10 +26,13 @@ import {
 } from 'lucide-react'
 import { PROVIDER_PRESETS } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
+import { useTheme } from '../../components/ThemeProvider'
 
 type Section = 'basic' | 'models' | 'engine' | 'data'
 
 export default function SettingsScreen(): React.ReactElement {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   const [section, setSection] = useState<Section>('basic')
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<'idle' | 'success' | 'error'>('idle')
@@ -402,12 +406,12 @@ export default function SettingsScreen(): React.ReactElement {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 36, paddingBottom: 12, paddingLeft: 24 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 600 }}>设置</h2>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+        <h2 className="screen-header-title">{lexicon.nav.settings}</h2>
       </div>
       <div className="flex flex-1 overflow-hidden">
         <div className="w-[180px] shrink-0 border-r border-[var(--border)] bg-[var(--bg-glass-light)] p-3">
-          <h2 className="mb-4 px-2 text-sm font-semibold text-[var(--text-primary)]">设置</h2>
+          <h2 className="mb-4 px-2 text-sm font-semibold text-[var(--text-primary)]">{lexicon.nav.settings}</h2>
           <nav className="space-y-1">
             {sectionItems.map(s => (
               <button

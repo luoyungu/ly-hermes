@@ -18,7 +18,7 @@ import { registerAuthIpcHandlers } from "./auth";
 import { registerConfigIpcHandlers } from "./config";
 import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
-import { registerSessionIpcHandlers } from "./sessions";
+import { registerSessionIpcHandlers, readLogs as readHermesLogs } from "./sessions";
 import { registerPetsIpc } from "./pets";
 import { initUpdater } from "./updater";
 import { autoUpdater } from "electron-updater";
@@ -28,13 +28,14 @@ import {
   runInstall,
   getHermesVersion,
 } from "./installer";
+import { logInfo, logError, readLogs as readAppLogs, clearLogs, getLogFilePath } from "./logger";
 
 process.on("uncaughtException", (err) => {
-  console.error("[MAIN UNCAUGHT]", err);
+  logError("main", "Uncaught exception", err);
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("[MAIN UNHANDLED REJECTION]", reason);
+  logError("main", "Unhandled rejection", reason);
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -225,6 +226,7 @@ function createTray(): void {
 }
 
 app.whenReady().then(() => {
+  logInfo("main", "Application starting", { version: app.getVersion(), platform: process.platform });
   Menu.setApplicationMenu(null);
 
   protocol.handle("wallpaper", (request) => {
@@ -284,8 +286,37 @@ app.whenReady().then(() => {
 
   initUpdater(getMainWindow);
 
+  ipcMain.handle("get-app-logs", (_, options?: { level?: string; lines?: number }) => {
+    switch (options?.level) {
+      case "debug":
+      case "info":
+      case "warn":
+      case "error":
+        return readAppLogs({ level: options.level, lines: options.lines });
+      default:
+        return readAppLogs({ lines: options?.lines });
+    }
+  });
+
+  ipcMain.handle("clear-app-logs", () => {
+    clearLogs();
+    return { success: true };
+  });
+
+  ipcMain.handle("get-log-file-path", () => {
+    return getLogFilePath();
+  });
+
+  ipcMain.handle("read-logs", (_, logFile?: string, lines?: number) => {
+    const result = readHermesLogs(logFile, lines);
+    console.log('[read-logs] result:', { path: result.path, contentLength: result.content.length });
+    return result;
+  });
+
   createWindow();
   createTray();
+
+  logInfo("main", "Application ready");
 
   if (app.isPackaged) {
     setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);

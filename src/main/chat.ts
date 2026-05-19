@@ -23,7 +23,6 @@ import {
   resetIdleTimer,
 } from "./employees";
 import { showChatNotification } from "./utils";
-import { saveMessage } from "./sessions";
 import type { BrowserWindow } from "electron";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
@@ -55,6 +54,7 @@ export function sendMessageViaApi(
   event: IpcMainInvokeEvent,
   history: Array<{ role: string; content: string }> | undefined,
   mainWindow: BrowserWindow | null,
+  resumeSessionId?: string,
 ): void {
   const port = getApiPortForProfile(profileName);
   if (!port) {
@@ -70,7 +70,16 @@ export function sendMessageViaApi(
 
   const messages: Array<{ role: string; content: string }> = [];
   if (history && history.length > 0) {
-    for (const msg of history) {
+    const historyToSend = [...history];
+    const lastHistoryMessage = historyToSend[historyToSend.length - 1];
+    if (
+      lastHistoryMessage &&
+      lastHistoryMessage.role === "user" &&
+      lastHistoryMessage.content === message
+    ) {
+      historyToSend.pop();
+    }
+    for (const msg of historyToSend) {
       messages.push({
         role: msg.role === "agent" ? "assistant" : msg.role,
         content: msg.content,
@@ -83,6 +92,7 @@ export function sendMessageViaApi(
     model: model || "hermes-agent",
     messages,
     stream: true,
+    ...(resumeSessionId ? { session_id: resumeSessionId } : {}),
   });
 
   let sessionId = "";
@@ -302,7 +312,6 @@ export function sendMessageViaApi(
       const sid = res.headers["x-hermes-session-id"];
       if (sid && typeof sid === "string") {
         sessionId = sid;
-        saveMessage(profileName, sessionId, "user", message);
       }
 
       if (res.statusCode !== 200) {
@@ -531,6 +540,7 @@ export function registerChatIpcHandlers(
       profileName: string,
       message: string,
       history: Array<{ role: string; content: string }>,
+      resumeSessionId?: string,
     ) => {
       if (!validateProfileName(profileName) && profileName !== "default") {
         event.sender.send("chat-error", {
@@ -563,6 +573,7 @@ export function registerChatIpcHandlers(
           event,
           history,
           getMainWindow(),
+          resumeSessionId,
         );
         return;
       }

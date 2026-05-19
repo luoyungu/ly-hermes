@@ -664,6 +664,18 @@ export function registerConfigIpcHandlers(): void {
     return { success: true };
   });
 
+  ipcMain.handle("get-ui-theme", async () => {
+    const prefs = loadPreferences();
+    return (prefs.ui_theme as string) || "classic";
+  });
+
+  ipcMain.handle("set-ui-theme", async (_, theme: string) => {
+    const prefs = loadPreferences();
+    prefs.ui_theme = theme;
+    savePreferences(prefs);
+    return { success: true };
+  });
+
   ipcMain.handle("get-app-config", async () => {
     return loadAppConfig();
   });

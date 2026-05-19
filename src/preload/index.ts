@@ -64,13 +64,6 @@ export interface SessionInfo {
   preview: string
 }
 
-export interface SessionMessage {
-  id: number
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: number
-}
-
 export interface SearchResult {
   sessionId: string
   title: string | null
@@ -193,6 +186,7 @@ export interface TokenStats {
 
 export type ThemeMode = 'dark' | 'light' | 'auto'
 export type AccentColor = 'violet' | 'indigo' | 'blue' | 'green' | 'orange' | 'lavender' | 'rose' | 'slate'
+export type UiTheme = 'classic' | 'cultivation'
 
 const hermesAPI = {
   authLogin: (password: string): Promise<{ success: boolean; error?: string; user?: { id: string; username: string; displayName: string } }> =>
@@ -332,12 +326,8 @@ const hermesAPI = {
   getEmployeeSessions: (name: string): Promise<Array<Record<string, unknown>>> =>
     ipcRenderer.invoke('employee:get-sessions', name),
 
-  sendMessage: (
-    profileName: string,
-    message: string,
-    history?: Array<{ role: string; content: string }>
-  ): Promise<void> =>
-    ipcRenderer.invoke('send-message', profileName, message, history),
+  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>, resumeSessionId?: string): Promise<void> =>
+    ipcRenderer.invoke('send-message', profileName, message, history, resumeSessionId),
 
   abortChat: (profileName: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('abort-chat', profileName),
@@ -351,14 +341,14 @@ const hermesAPI = {
   getSessions: (limit?: number, offset?: number): Promise<Array<Record<string, unknown>>> =>
     ipcRenderer.invoke('get-sessions', limit ?? 50, offset ?? 0),
 
-  getSessionMessages: (sessionId: string, profileName?: string): Promise<Array<Record<string, unknown>>> =>
-    ipcRenderer.invoke('get-session-messages', sessionId, profileName),
-
   deleteSession: (sessionId: string, profileName?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('delete-session', sessionId, profileName),
 
-  searchSessions: (query: string): Promise<Array<Record<string, unknown>>> =>
-    ipcRenderer.invoke('search-sessions', query),
+  getSessionMessages: (sessionId: string, profileName?: string): Promise<Array<Record<string, unknown>>> =>
+    ipcRenderer.invoke('get-session-messages', sessionId, profileName),
+
+  searchSessions: (query: string, profileName?: string): Promise<Array<Record<string, unknown>>> =>
+    ipcRenderer.invoke('search-sessions', query, profileName),
 
   getUsageStats: (days?: number): Promise<UsageStats> =>
     ipcRenderer.invoke('get-usage-stats', days ?? 30),
@@ -482,6 +472,15 @@ const hermesAPI = {
 
   setAccentColor: (accent: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('set-accent-color', accent),
+
+  getUiTheme: (): Promise<string> =>
+    ipcRenderer.invoke('get-ui-theme'),
+
+  setUiTheme: (theme: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('set-ui-theme', theme),
+
+  readLogs: (logFile?: string, lines?: number): Promise<{ content: string; path: string }> =>
+    ipcRenderer.invoke('read-logs', logFile, lines ?? 300),
 
   getAppConfig: (): Promise<Record<string, unknown>> =>
     ipcRenderer.invoke('get-app-config'),
@@ -641,6 +640,15 @@ const hermesAPI = {
 
   refreshPetManifest: (): Promise<PetInfo[]> =>
     ipcRenderer.invoke('pets:refresh-manifest'),
+
+  getAppLogs: (options?: { level?: string; lines?: number }): Promise<Array<{ timestamp: string; level: string; module: string; message: string; data?: unknown }>> =>
+    ipcRenderer.invoke('get-app-logs', options),
+
+  clearAppLogs: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('clear-app-logs'),
+
+  getLogFilePath: (): Promise<string> =>
+    ipcRenderer.invoke('get-log-file-path'),
 }
 
 if (process.contextIsolated) {

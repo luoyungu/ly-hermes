@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { usePlatform } from '../../hooks/usePlatform'
 import {
   Plus,
   Trash2,
@@ -18,6 +19,7 @@ import type { EmployeeInfo } from '../../../../preload/index'
 import { showToast } from '../../App'
 import { mapStatus } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
+import { useTheme } from '../../components/ThemeProvider'
 
 interface CronJobDisplay {
   id: string
@@ -51,6 +53,8 @@ const SCHEDULE_PRESETS = [
 ]
 
 export default function Schedule(): React.ReactElement {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   const [employees, setEmployees] = useState<EmployeeInfo[]>([])
   const [allJobs, setAllJobs] = useState<JobWithProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -147,13 +151,13 @@ export default function Schedule(): React.ReactElement {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 36, paddingBottom: 12, paddingLeft: 24, paddingRight: 24 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 600 }}>日程</h2>
+      <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+        <h2 className="screen-header-title">{lexicon.schedule.title}</h2>
         <button
           onClick={() => setShowCreate(true)}
           className="no-drag flex items-center gap-1.5 rounded-[var(--radius)] bg-accent-gradient px-3.5 py-1.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all"
         >
-          <Plus size={15} /> 新建日程
+          <Plus size={15} /> {lexicon.schedule.newSchedule}
         </button>
       </div>
 
@@ -188,14 +192,14 @@ export default function Schedule(): React.ReactElement {
           <div className="flex flex-col items-center justify-center py-16 text-[var(--text-dim)]">
             <Calendar size={56} className="mb-4 opacity-20" />
             <p className="text-base font-medium text-[var(--text-secondary)] mb-1">
-              {filterEmployee ? '该员工暂无日程' : '暂无日程任务'}
+              {filterEmployee ? lexicon.schedule.emptyForEmployee : lexicon.schedule.empty}
             </p>
-            <p className="text-sm mb-5">创建日程让虚拟员工自动执行定时任务</p>
+            <p className="text-sm mb-5">{lexicon.schedule.emptyHint}</p>
             <button
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 cursor-pointer transition-all"
             >
-              <Plus size={16} /> 创建日程
+              <Plus size={16} /> {lexicon.schedule.createSchedule}
             </button>
           </div>
         ) : (
@@ -204,6 +208,7 @@ export default function Schedule(): React.ReactElement {
               <JobCard
                 key={job.profileName + ':' + job.id}
                 job={job}
+                lexicon={lexicon}
                 showEmployee={!filterEmployee}
                 onPause={() => handlePause(job.id, job.profileName)}
                 onResume={() => handleResume(job.id, job.profileName)}
@@ -219,6 +224,7 @@ export default function Schedule(): React.ReactElement {
       {showCreate && (
         <CreateJob
           employees={employees}
+          lexicon={lexicon}
           onCreated={() => { setShowCreate(false); refreshJobs() }}
           onCancel={() => setShowCreate(false)}
         />
@@ -229,6 +235,7 @@ export default function Schedule(): React.ReactElement {
 
 function JobCard({
   job,
+  lexicon,
   showEmployee,
   onPause,
   onResume,
@@ -237,6 +244,7 @@ function JobCard({
   onFilterByEmployee
 }: {
   job: JobWithProfile
+  lexicon: ReturnType<typeof useTheme>['lexicon']
   showEmployee: boolean
   onPause: () => void
   onResume: () => void
@@ -258,7 +266,7 @@ function JobCard({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-[var(--text-primary)]">{job.name || '未命名日程'}</span>
+              <span className="font-medium text-[var(--text-primary)]">{job.name || lexicon.schedule.unnamed}</span>
               {showEmployee && (
                 <button
                   onClick={onFilterByEmployee}
@@ -301,7 +309,7 @@ function JobCard({
           <button onClick={onTrigger} title="立即执行" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] cursor-pointer transition-all">
             <RefreshCw size={14} />
           </button>
-          <Popconfirm title="确认删除此日程？" onConfirm={onDelete}>
+          <Popconfirm title={lexicon.schedule.deleteConfirm} onConfirm={onDelete}>
             <button title="删除" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] cursor-pointer transition-all">
               <Trash2 size={14} />
             </button>
@@ -314,10 +322,12 @@ function JobCard({
 
 function CreateJob({
   employees,
+  lexicon,
   onCreated,
   onCancel
 }: {
   employees: EmployeeInfo[]
+  lexicon: ReturnType<typeof useTheme>['lexicon']
   onCreated: () => void
   onCancel: () => void
 }): React.ReactElement {
@@ -344,7 +354,7 @@ function CreateJob({
   const currentEmployee = employees.find(e => e.name === selectedEmployee)
 
   const handleCreate = async (): Promise<void> => {
-    if (!selectedEmployee) { showToast('请选择员工', 'error'); return }
+    if (!selectedEmployee) { showToast(`请选择${lexicon.entities.employee}`, 'error'); return }
     if (!schedule.trim()) { showToast('请输入调度规则', 'error'); return }
     if (!prompt.trim()) { showToast('请输入提示词', 'error'); return }
     setCreating(true)
@@ -357,7 +367,7 @@ function CreateJob({
         profile: selectedEmployee
       })
       if (result.success) {
-        showToast('日程创建成功')
+        showToast(lexicon.schedule.success)
         onCreated()
       } else {
         showToast(result.output || '创建失败', 'error')
@@ -371,12 +381,12 @@ function CreateJob({
       <div className="absolute inset-0 bg-[rgba(0,0,0,0.5)] backdrop-blur-sm" onClick={onCancel} />
       <div className="relative glass-heavy border border-[var(--border)] rounded-[var(--radius-xl)] w-[90%] max-w-[560px] animate-scale-in shadow-[0_24px_80px_rgba(0,0,0,0.4)] max-h-[85vh] overflow-y-auto">
         <div className="flex justify-between items-center px-6 border-b border-[var(--border)] h-14">
-          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">创建日程</h3>
+          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">{lexicon.schedule.createSchedule}</h3>
           <button onClick={onCancel} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"><X size={18} /></button>
         </div>
         <div className="p-6 space-y-5">
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><UserPlus size={14} /> 选择员工</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><UserPlus size={14} /> {lexicon.entities.selectEmployee}</label>
             <div className="relative" ref={pickerRef}>
               <button
                 onClick={() => setShowEmployeePicker(!showEmployeePicker)}
@@ -384,7 +394,7 @@ function CreateJob({
               >
                 <span className="flex items-center gap-2">
                   <span>{currentEmployee?.avatar || '🧑‍💼'}</span>
-                  <span>{currentEmployee?.displayName || '选择员工'}</span>
+                  <span>{currentEmployee?.displayName || lexicon.entities.selectEmployee}</span>
                 </span>
                 <ChevronDown size={14} className="text-[var(--text-dim)]" />
               </button>
@@ -411,11 +421,11 @@ function CreateJob({
           </div>
 
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">日程名称</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{lexicon.schedule.scheduleName}</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="例如: 每日新闻摘要"
+              placeholder={lexicon.schedule.title === '法旨' ? '例如: 每日巡山札记' : '例如: 每日新闻摘要'}
               className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
             />
           </div>
@@ -460,7 +470,7 @@ function CreateJob({
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="描述虚拟员工需要执行的任务..."
+              placeholder={lexicon.schedule.promptPlaceholder}
               className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none resize-none min-h-[100px] transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
             />
           </div>
@@ -485,7 +495,7 @@ function CreateJob({
             className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
           >
             {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            {creating ? '创建中...' : '创建日程'}
+            {creating ? '创建中...' : lexicon.schedule.createSchedule}
           </button>
           <button
             onClick={onCancel}

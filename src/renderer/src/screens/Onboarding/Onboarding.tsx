@@ -20,11 +20,9 @@ interface OnboardingProps {
 type Step = 'install' | 'apikey' | 'password'
 
 const STAGE_LABELS = [
-  '检查前置依赖',
-  '设置包管理器',
-  '设置 Python 环境',
-  '下载 Hermes Agent',
-  '创建 Python 虚拟环境',
+  '检查环境',
+  '准备 Agent',
+  '创建虚拟环境',
   '安装依赖',
   '完成设置',
 ]
@@ -142,6 +140,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   }, [password, confirmPassword, onComplete])
 
   const currentStepIndex = step === 'install' ? 0 : step === 'apikey' ? 1 : 2
+  const installTotalSteps = installProgress?.totalSteps || STAGE_LABELS.length
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
@@ -200,10 +199,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="mb-3">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-sm font-medium text-[var(--text-primary)]">{installProgress?.title || '准备中...'}</span>
-                      <span className="text-xs text-[var(--text-dim)]">{installProgress?.step || 0}/{installProgress?.totalSteps || 7}</span>
+                      <span className="text-xs text-[var(--text-dim)]">{installProgress?.step || 0}/{installTotalSteps}</span>
                     </div>
                     <div className="w-full h-1.5 rounded-full bg-[var(--bg-surface)] overflow-hidden">
-                      <div className="h-full rounded-full bg-accent-gradient transition-all duration-300" style={{ width: `${((installProgress?.step || 0) / (installProgress?.totalSteps || 7)) * 100}%` }} />
+                      <div className="h-full rounded-full bg-accent-gradient transition-all duration-300" style={{ width: `${((installProgress?.step || 0) / installTotalSteps) * 100}%` }} />
                     </div>
                   </div>
                   <div className="flex gap-1.5 mb-3">
@@ -246,9 +245,9 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     <Download size={16} /> 重试安装
                   </button>
                   <div className="mt-2 w-full">
-                    <p className="text-xs text-[var(--text-dim)] mb-2 text-center">也可以手动安装：</p>
+                    <p className="text-xs text-[var(--text-dim)] mb-2 text-center">安装器已记录错误信息，可重试或到设置中查看日志：</p>
                     <div className="rounded-lg bg-[rgba(0,0,0,0.3)] p-3 font-mono text-[11px] text-[var(--text-dim)] overflow-x-auto whitespace-pre-wrap">
-                      git clone https://gitee.com/YanPro/ly-hermes-agent ~/.hermes/hermes-agent
+                      {installError || '请检查网络环境后重试安装'}
                     </div>
                   </div>
                 </div>

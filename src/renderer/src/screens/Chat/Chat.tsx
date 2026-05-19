@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { usePlatform } from '../../hooks/usePlatform'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -12,6 +13,7 @@ import logoImg from '../../assets/logo.png'
 import { mapStatus, TOOL_META, ALL_TOOLS } from '../../shared/employee-shared'
 import InteractivePet from '../../components/InteractivePet'
 import Popconfirm from '../../components/Popconfirm'
+import { useTheme } from '../../components/ThemeProvider'
 
 interface ChatMessage {
   id: string
@@ -52,6 +54,165 @@ interface SessionDisplay {
   messageCount: number
 }
 
+function getMessageKey(m: Record<string, unknown>): string {
+  if (m.id !== undefined && m.id !== null && String(m.id) !== '') {
+    return String(m.id)
+  }
+  return [
+    String(m.role || ''),
+    String(m.timestamp || ''),
+    String(m.content || ''),
+    String(m.tool_call_id || ''),
+    String(m.tool_calls || '')
+  ].join('\u001f')
+}
+
+function extractToolResultSnippet(raw: string): string {
+  if (!raw) return '已完成'
+  try {
+    const p = JSON.parse(raw)
+    if (p.success === true) {
+      if (p.result) return typeof p.result === 'string' ? p.result : JSON.stringify(p.result, null, 2)
+      if (p.url) return p.title ? `${p.title} (${p.url})` : p.url
+      if (p.output !== undefined) {
+        const out = typeof p.output === 'string' ? p.output : JSON.stringify(p.output)
+        return out.length > 300 ? out.substring(0, 300) + '...' : out || '(no output)'
+      }
+      if (p.clicked) return `Clicked: ${p.clicked}`
+      if (p.scrolled) return `Scrolled: ${p.scrolled}`
+      if (p.snapshot) {
+        const snap = typeof p.snapshot === 'string' ? p.snapshot : JSON.stringify(p.snapshot)
+        return snap.length > 300 ? snap.substring(0, 300) + '...' : snap
+      }
+    }
+    if (p.output !== undefined) {
+      const out = typeof p.output === 'string' ? p.output : JSON.stringify(p.output)
+      if (p.error) return `❌ ${p.error}\n${out.substring(0, 200)}`
+      return out.length > 300 ? out.substring(0, 300) + '...' : out || '(no output)'
+    }
+    if (p.error) return `❌ ${p.error}`
+    if (p.success === false) return `❌ ${p.error || p.message || 'Failed'}`
+    if (p.message) return String(p.message)
+    if (p.job_id) return `${p.name || p.job_id}: ${p.message || 'created'}`
+    return raw.length > 500 ? raw.substring(0, 500) + '...' : raw
+  } catch {
+    return raw.length > 300 ? raw.substring(0, 300) + '...' : raw
+  }
+}
+
+function extractThinkingFromContent(content: string): { thinking: string | undefined; content: string } {
+  if (!content || typeof content !== 'string') return { thinking: undefined, content }
+  const thinkMatch = content.match(/^\s*<think[^>]*>([\s\S]*?)<\/think[^>]*>\s*/)
+  if (thinkMatch) {
+    const thinking = thinkMatch[1].trim()
+    const cleaned = content.replace(/^\s*<think[^>]*>[\s\S]*?<\/think[^>]*>\s*/, '').trimStart()
+    return { thinking: thinking || undefined, content: cleaned || '' }
+  }
+  const mmMatch = content.match(/^\s*<\|channel\|>thought\n?([\s\S]*?)<\|channel\|>\s*/)
+  if (mmMatch) {
+    const thinking = mmMatch[1].trim()
+    const cleaned = content.replace(/^\s*<\|channel\|>thought[\s\S]*?<\|channel\|>\s*/, '').trimStart()
+    return { thinking: thinking || undefined, content: cleaned || '' }
+  }
+  return { thinking: undefined, content }
+}
+
+function parseSessionMessages(messages: Array<Record<string, unknown>>): ChatMessage[] {
+  const uniqueMessages: Record<string, unknown>[] = []
+  const seenMessages = new Set<string>()
+  for (const m of messages) {
+    const key = getMessageKey(m)
+    if (seenMessages.has(key)) continue
+    seenMessages.add(key)
+    uniqueMessages.push(m)
+  }
+
+  const toolResultMap = new Map<string, string>()
+  for (const m of uniqueMessages) {
+    if (m.role === 'tool' && m.tool_call_id) {
+      toolResultMap.set(String(m.tool_call_id), String(m.content || ''))
+    }
+  }
+
+  const parsedMessages = uniqueMessages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => {
+      const rawContent = String(m.content || '')
+      let thinking = m.reasoning_content ? String(m.reasoning_content) : undefined
+      const { thinking: contentThinking, content: cleanedContent } = extractThinkingFromContent(rawContent)
+      if (!thinking && contentThinking) thinking = contentThinking
+
+      const toolCallsStr = m.tool_calls as string | null
+      let toolCalls: ToolCallInfo[] | undefined
+      if (toolCallsStr) {
+        try {
+          const parsed = JSON.parse(toolCallsStr)
+          if (Array.isArray(parsed)) {
+            toolCalls = parsed.map((tc: Record<string, unknown>) => {
+              const fn = tc.function && typeof tc.function === 'object'
+                ? tc.function as Record<string, unknown>
+                : {}
+              const callId = String(tc.id || tc.call_id || '')
+              const rawResult = callId ? toolResultMap.get(callId) : undefined
+              return {
+                name: String(fn.name || tc.name || 'unknown'),
+                args: fn.arguments ? String(fn.arguments) : undefined,
+                status: 'done' as const,
+                result: rawResult ? extractToolResultSnippet(rawResult) : '已完成',
+              }
+            })
+          }
+        } catch { /* ignore */ }
+      }
+
+      return {
+        id: `history-${m.id ?? getMessageKey(m)}`,
+        role: m.role as 'user' | 'assistant',
+        content: cleanedContent,
+        timestamp: Number(m.timestamp) * 1000,
+        toolCalls,
+        thinking,
+      }
+    })
+
+  const mergedMessages: ChatMessage[] = []
+  for (const msg of parsedMessages) {
+    if (msg.role === 'user') {
+      mergedMessages.push(msg)
+      continue
+    }
+    const last = mergedMessages[mergedMessages.length - 1]
+    if (last && last.role === 'assistant') {
+      const prevHasToolCalls = last.toolCalls && last.toolCalls.length > 0
+      const prevHasContent = !!last.content
+      const curHasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
+      const curHasContent = !!msg.content
+      if (prevHasToolCalls && !prevHasContent && curHasContent && !curHasToolCalls) {
+        last.content = msg.content
+        if (msg.thinking && !last.thinking) last.thinking = msg.thinking
+        continue
+      }
+      if (!prevHasContent && !prevHasToolCalls && curHasToolCalls) {
+        last.toolCalls = msg.toolCalls
+        last.content = msg.content || last.content
+        last.thinking = msg.thinking || last.thinking
+        continue
+      }
+      if (!prevHasContent && !prevHasToolCalls && curHasContent) {
+        last.content = msg.content
+        if (msg.toolCalls) last.toolCalls = msg.toolCalls
+        if (msg.thinking && !last.thinking) last.thinking = msg.thinking
+        continue
+      }
+    }
+    mergedMessages.push(msg)
+  }
+
+  return mergedMessages.filter(m =>
+    m.role === 'user' || m.content || (m.toolCalls && m.toolCalls.length > 0) || m.thinking
+  )
+}
+
 const DEFAULT_STREAM: EmployeeStreamState = {
   isStreaming: false,
   streamingThinking: '',
@@ -86,76 +247,6 @@ function mapSession(r: Record<string, unknown>): SessionDisplay {
     startedAt: Number(r.started_at || r.startedAt || 0),
     messageCount: Number(r.message_count || r.messageCount || 0)
   }
-}
-
-function buildChatHistory(messages: Record<string, unknown>[]): ChatMessage[] {
-  const result: ChatMessage[] = []
-  const toolResults = new Map<string, { content: string; error?: string }>()
-
-  for (const m of messages) {
-    const role = m.role as string
-    const content = m.content as string | null
-    const toolCallId = m.tool_call_id as string | null
-    const timestamp = Number(m.timestamp) || Date.now()
-
-    if (role === 'tool') {
-      if (toolCallId && content) {
-        let parsed: Record<string, unknown> | null = null
-        try { parsed = JSON.parse(content) } catch { /* not json */ }
-        const errorMsg = parsed?.error ? String(parsed.error) : undefined
-        const output = parsed?.output ? String(parsed.output) : (parsed ? content : content)
-        toolResults.set(toolCallId, { content: output || content, error: errorMsg })
-      }
-      continue
-    }
-
-    if (role === 'user' && content) {
-      result.push({ id: String(m.id), role: 'user', content, timestamp })
-    } else if (role === 'assistant') {
-      const toolCallsRaw = m.tool_calls as string | null
-      let parsedToolCalls: ToolCallInfo[] = []
-
-      if (toolCallsRaw) {
-        try {
-          const calls = JSON.parse(toolCallsRaw) as Array<Record<string, unknown>>
-          for (const call of calls) {
-            const fn = call.function as Record<string, unknown> | undefined
-            const callId = (call.id || call.call_id) as string | undefined
-            const toolResult = callId ? toolResults.get(callId) : undefined
-            parsedToolCalls.push({
-              name: (fn?.name as string) || String(call.name || ''),
-              args: fn?.arguments ? String(fn.arguments) : undefined,
-              result: toolResult?.content || '已完成',
-              error: toolResult?.error || undefined,
-              status: toolResult?.error ? 'error' : 'done' as const
-            })
-          }
-        } catch { /* skip */ }
-      }
-
-      const toolName = m.tool_name as string | null
-      if (toolName) {
-        parsedToolCalls.push({
-          name: toolName,
-          result: '已完成',
-          status: 'done' as const
-        })
-      }
-
-      if (content || parsedToolCalls.length > 0) {
-        const msg: ChatMessage = {
-          id: String(m.id),
-          role: 'assistant',
-          content: content || '',
-          timestamp,
-          toolCalls: parsedToolCalls.length > 0 ? parsedToolCalls : undefined
-        }
-        result.push(msg)
-      }
-    }
-  }
-
-  return result
 }
 
 function formatMessageTime(date: number | Date): string {
@@ -373,6 +464,8 @@ function ApprovalModal({ request, onApprove, onDeny }: {
 type DetailTab = 'soul' | 'tools' | 'skills' | 'memory'
 
 function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: () => void }): React.ReactElement {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   const [tab, setTab] = useState<DetailTab>('soul')
   const [soulContent, setSoulContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
@@ -388,15 +481,15 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
   }, [employee.name])
 
   const tabs: { id: DetailTab; label: string }[] = [
-    { id: 'soul', label: '灵魂' },
-    { id: 'tools', label: '工具' },
-    { id: 'skills', label: '技能' },
-    { id: 'memory', label: '记忆' },
+    { id: 'soul', label: lexicon.concepts.soul },
+    { id: 'tools', label: lexicon.concepts.tools },
+    { id: 'skills', label: lexicon.concepts.skills },
+    { id: 'memory', label: lexicon.concepts.memory },
   ]
 
   return (
     <div className="flex flex-col h-full">
-      <div className="drag-region flex items-center gap-3 border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 28, paddingBottom: 8, paddingLeft: 24, paddingRight: 24 }}>
+      <div className="screen-header drag-region flex items-center gap-3 border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
         <button onClick={onBack} className="no-drag text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors"><ArrowLeft size={20} /></button>
         <span style={{ fontSize: 17, fontWeight: 600 }}>{employee.displayName || employee.name}</span>
       </div>
@@ -418,7 +511,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
       </div>
       <div className="flex-1 overflow-y-auto p-5">
         {tab === 'soul' && (
-          <pre className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5 text-[13px] text-[var(--text-primary)] min-h-[300px] font-mono leading-relaxed whitespace-pre-wrap">{soulContent || '暂无灵魂设定'}</pre>
+          <pre className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5 text-[13px] text-[var(--text-primary)] min-h-[300px] font-mono leading-relaxed whitespace-pre-wrap">{soulContent || lexicon.concepts.soulEmpty}</pre>
         )}
         {tab === 'tools' && (
           <div className="grid grid-cols-2 gap-3">
@@ -441,7 +534,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
             })}
             {tools.filter(t => !ALL_TOOLS.includes(t)).length > 0 && (
               <div className="col-span-2 glass-medium border border-[var(--border)] rounded-[var(--radius)] p-4">
-                <div className="text-sm font-medium text-[var(--text-primary)] mb-2">其他已启用工具</div>
+                <div className="text-sm font-medium text-[var(--text-primary)] mb-2">{lexicon.concepts.otherEnabledTools}</div>
                 <div className="flex flex-wrap gap-2">
                   {tools.filter(t => !ALL_TOOLS.includes(t)).map(t => (
                     <span key={t} className="inline-flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-xl text-[13px] text-[var(--text-primary)] border border-[var(--border)]">
@@ -452,7 +545,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
               </div>
             )}
             {tools.length === 0 && (
-              <span className="text-[13px] text-[var(--text-dim)] col-span-2">暂无已启用工具</span>
+              <span className="text-[13px] text-[var(--text-dim)] col-span-2">{lexicon.concepts.noTools}</span>
             )}
           </div>
         )}
@@ -470,7 +563,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                   <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium">已安装</span>
                 </div>
               </div>
-            )) : <span className="text-[13px] text-[var(--text-dim)] col-span-2">暂无技能</span>}
+            )) : <span className="text-[13px] text-[var(--text-dim)] col-span-2">{lexicon.concepts.noSkills}</span>}
           </div>
         )}
         {tab === 'memory' && (
@@ -481,7 +574,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                   <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
                     <span className="text-[var(--accent)]">📝</span>
                     <span className="text-[var(--text-primary)] font-medium">{memoryData.memory.length}</span>
-                    <span className="text-[var(--text-dim)]">条记忆</span>
+                    <span className="text-[var(--text-dim)]">条{lexicon.concepts.memory}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
                     <span className="text-[var(--accent)]">👤</span>
@@ -500,7 +593,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                 {(memoryData.memoryCharCount != null && memoryData.memoryCharLimit != null) && (
                   <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
                     <div className="flex items-center justify-between text-[12px] mb-2">
-                      <span className="text-[var(--text-secondary)]">记忆容量</span>
+                      <span className="text-[var(--text-secondary)]">{lexicon.concepts.memoryCapacity}</span>
                       <span className="text-[var(--text-dim)]">{memoryData.memoryCharCount} / {memoryData.memoryCharLimit}</span>
                     </div>
                     <div className="w-full h-1 bg-[var(--bg-surface)] rounded-full overflow-hidden">
@@ -535,7 +628,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
 
                 {memoryData.memory.length > 0 && (
                   <div>
-                    <div className="text-[13px] font-medium text-[var(--accent)] mb-2.5">系统记忆</div>
+                    <div className="text-[13px] font-medium text-[var(--accent)] mb-2.5">{lexicon.concepts.systemMemory}</div>
                     <div className="flex flex-col gap-2">
                       {memoryData.memory.map((entry, i) => (
                         <div key={i} className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
@@ -549,7 +642,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
 
                 {memoryData.user && (
                   <div>
-                    <div className="text-[13px] font-medium text-[var(--accent)] mb-2.5">用户档案</div>
+                    <div className="text-[13px] font-medium text-[var(--accent)] mb-2.5">{lexicon.concepts.userProfile}</div>
                     <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
                       <pre className="text-[var(--text-secondary)] whitespace-pre-wrap text-[13px] leading-relaxed max-h-[200px] overflow-y-auto">{memoryData.user}</pre>
                     </div>
@@ -559,7 +652,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                 {memoryData.memory.length === 0 && !memoryData.user && (
                   <div className="text-center py-12 text-[var(--text-dim)]">
                     <div className="text-4xl mb-3 opacity-30">🧠</div>
-                    <p className="text-sm">暂无记忆</p>
+                    <p className="text-sm">{lexicon.concepts.noMemory}</p>
                   </div>
                 )}
               </>
@@ -576,7 +669,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
   )
 }
 
-function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: string; onClose: () => void; onRestore: (sessionId: string, messages: ChatMessage[]) => void }): React.ReactElement {
+function HistoryPanel({ employeeName, onClose, onViewSession }: { employeeName: string; onClose: () => void; onViewSession: (sessionId: string, messages: ChatMessage[]) => void }): React.ReactElement {
   const [sessions, setSessions] = useState<SessionDisplay[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -589,7 +682,7 @@ function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: stri
     setLoading(true)
     try {
       if (query) {
-        const results = await window.hermesAPI.searchSessions(query)
+        const results = await window.hermesAPI.searchSessions(query, employeeName)
         const mapped = (results || []).map(mapSession)
         setSessions(mapped)
       } else {
@@ -618,6 +711,27 @@ function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: stri
     } catch { showToast('删除失败', 'error') }
   }
 
+  const handleViewSession = async (sessionId: string): Promise<void> => {
+    try {
+      const messages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
+      if (!messages || messages.length === 0) {
+        showToast('此会话暂无消息', 'info')
+        return
+      }
+
+      const finalMessages = parseSessionMessages(messages as Record<string, unknown>[])
+
+      if (finalMessages.length === 0) {
+        showToast('此会话暂无消息', 'info')
+        return
+      }
+
+      onViewSession(sessionId, finalMessages)
+    } catch {
+      showToast('加载会话失败', 'error')
+    }
+  }
+
   return (
     <div className="no-drag absolute right-0 top-0 bottom-0 w-[340px] glass-heavy border-l border-[var(--border)] z-50 flex flex-col animate-slide-in-right shadow-[-8px_0_40px_rgba(0,0,0,0.2)]">
       <div className="flex items-center justify-between px-4 h-[52px] border-b border-[var(--border)] text-[15px] font-semibold">
@@ -639,22 +753,18 @@ function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: stri
           <div className="text-center py-12 text-[var(--text-dim)] text-sm">暂无历史会话</div>
         ) : (
           sessions.map(s => (
-            <div key={s.id} className="px-3.5 py-3 rounded-[var(--radius)] cursor-pointer transition-all hover:bg-[var(--bg-hover)] mb-0.5">
+            <div
+              key={s.id}
+              onClick={() => handleViewSession(s.id)}
+              className="px-3.5 py-3 rounded-[var(--radius)] transition-all hover:bg-[var(--bg-hover)] mb-0.5 cursor-pointer"
+            >
               <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || '未命名会话'}</div>
               <div className="text-xs text-[var(--text-dim)] mt-0.5">{formatDate(s.startedAt)} · {s.messageCount} 条消息</div>
               <div className="flex gap-1.5 mt-2">
                 <button
-                  onClick={async () => {
-                    try {
-                      const messages = await window.hermesAPI.getSessionMessages(s.id, employeeName)
-                      const history = buildChatHistory(messages || [])
-                      onRestore(s.id, history)
-                      showToast('会话已加载', 'success')
-                      onClose()
-                    } catch { showToast('加载失败', 'error') }
-                  }}
-                  className="bg-accent-gradient text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-90"
-                >恢复</button>
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleViewSession(s.id) }}
+                  className="bg-[var(--accent)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
+                >查看</button>
                 <Popconfirm title="确认删除此会话？" onConfirm={() => handleDelete(s.id)}>
                   <button
                     className="bg-[var(--danger)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
@@ -670,17 +780,18 @@ function HistoryPanel({ employeeName, onClose, onRestore }: { employeeName: stri
 }
 
 export default function Chat(): React.ReactElement {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   const [employees, setEmployees] = useState<EmployeeInfo[]>([])
   const [currentEmployeeName, setCurrentEmployeeName] = useState<string | null>(null)
   const [chatHistories, setChatHistories] = useState<Record<string, ChatMessage[]>>({})
-  const [, setCurrentSessionId] = useState<string | null>(null)
+  const [sessionIds, setSessionIds] = useState<Record<string, string | null>>({})
   const [streamStates, setStreamStates] = useState<Record<string, EmployeeStreamState>>({})
   const [petHidden, setPetHidden] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [input, setInput] = useState('')
   const [showDetail, setShowDetail] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const [confirmClear, setConfirmClear] = useState(false)
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
   const [slashPopupVisible, setSlashPopupVisible] = useState(false)
   const [slashItems, setSlashItems] = useState(SLASH_COMMANDS)
@@ -720,6 +831,7 @@ export default function Chat(): React.ReactElement {
 
   const currentEmployeeNameRef = useRef(currentEmployeeName)
   currentEmployeeNameRef.current = currentEmployeeName
+  const loadingLatestSessionRef = useRef<Record<string, boolean>>({})
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -789,7 +901,7 @@ export default function Chat(): React.ReactElement {
 
     const unsubDone = window.hermesAPI.onChatDone((data) => {
       const empName = data.profileName
-      if (data.sessionId) setCurrentSessionId(data.sessionId)
+      if (data.sessionId) setSessionIds(prev => ({ ...prev, [data.profileName]: data.sessionId || null }))
 
       flushChunks(empName)
 
@@ -955,7 +1067,7 @@ export default function Chat(): React.ReactElement {
       const empName = currentEmployeeNameRef.current
       if (empName) {
         setChatHistories(prev => ({ ...prev, [empName]: [] }))
-        setCurrentSessionId(null)
+        setSessionIds(prev => ({ ...prev, [empName]: null }))
         setStreamStates(prev => ({ ...prev, [empName]: DEFAULT_STREAM }))
         inputRef.current?.focus()
       }
@@ -1019,6 +1131,36 @@ export default function Chat(): React.ReactElement {
     }
   }
 
+  const loadSessionIntoChat = useCallback(async (employeeName: string, sessionId: string): Promise<boolean> => {
+    try {
+      const rawMessages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
+      const parsedMessages = parseSessionMessages(rawMessages as Record<string, unknown>[])
+      setChatHistories(prev => ({ ...prev, [employeeName]: parsedMessages }))
+      setSessionIds(prev => ({ ...prev, [employeeName]: sessionId }))
+      return true
+    } catch {
+      showToast('加载会话失败', 'error')
+      return false
+    }
+  }, [])
+
+  const loadLatestSession = useCallback(async (employeeName: string): Promise<void> => {
+    if (loadingLatestSessionRef.current[employeeName]) return
+    loadingLatestSessionRef.current = { ...loadingLatestSessionRef.current, [employeeName]: true }
+    try {
+      const sessions = await window.hermesAPI.getEmployeeSessions(employeeName)
+      const latest = (sessions || []).map(mapSession)[0]
+      if (!latest?.id) {
+        setChatHistories(prev => ({ ...prev, [employeeName]: [] }))
+        setSessionIds(prev => ({ ...prev, [employeeName]: null }))
+        return
+      }
+      await loadSessionIntoChat(employeeName, latest.id)
+    } finally {
+      loadingLatestSessionRef.current = { ...loadingLatestSessionRef.current, [employeeName]: false }
+    }
+  }, [loadSessionIntoChat])
+
   const selectEmployee = useCallback(async (employeeName: string) => {
     setCurrentEmployeeName(employeeName)
     setPetHidden(false)
@@ -1030,24 +1172,32 @@ export default function Chat(): React.ReactElement {
       wakeUpEmployee(employeeName)
     }
 
-    if (!chatHistories[employeeName] || chatHistories[employeeName].length === 0) {
-      try {
-        const sessions = await window.hermesAPI.getEmployeeSessions(employeeName)
-        if (sessions && sessions.length > 0 && sessions[0].id) {
-          const messages = await window.hermesAPI.getSessionMessages(String(sessions[0].id), employeeName)
-          if (messages && messages.length > 0) {
-            const history = buildChatHistory(messages)
-            setChatHistories(prev => ({ ...prev, [employeeName]: history }))
-            setCurrentSessionId(String(sessions[0].id))
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
+    loadLatestSession(employeeName)
     inputRef.current?.focus()
-  }, [employees, chatHistories])
+  }, [employees, loadLatestSession])
+
+  const deleteCurrentSession = useCallback(async (): Promise<void> => {
+    if (!currentEmployeeName) return
+    const sid = sessionIds[currentEmployeeName]
+    if (!sid) {
+      setChatHistories(prev => ({ ...prev, [currentEmployeeName]: [] }))
+      showToast('当前没有可删除的历史会话', 'info')
+      return
+    }
+    try {
+      const result = await window.hermesAPI.deleteSession(sid, currentEmployeeName)
+      if (result.success) {
+        setChatHistories(prev => ({ ...prev, [currentEmployeeName]: [] }))
+        setSessionIds(prev => ({ ...prev, [currentEmployeeName]: null }))
+        setShowHistory(false)
+        showToast('会话已彻底删除', 'success')
+      } else {
+        showToast(result.error || '删除失败', 'error')
+      }
+    } catch {
+      showToast('删除失败', 'error')
+    }
+  }, [currentEmployeeName, sessionIds])
 
   const wakeUpEmployee = async (employeeName: string): Promise<void> => {
     setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'busy' as const } : e))
@@ -1137,14 +1287,22 @@ export default function Chat(): React.ReactElement {
     setStreamStates(prev => ({ ...prev, [empName]: { ...DEFAULT_STREAM, isStreaming: true } }))
 
     setChatHistories(prev => {
-      const historyForApi = (prev[empName] || []).map(m => ({ role: m.role, content: m.content }))
-      window.hermesAPI.sendMessage(empName, text, historyForApi).catch(() => {
+      const currentHistory = prev[empName] || []
+      const historyForApiSource =
+        !skip &&
+        currentHistory.length > 0 &&
+        currentHistory[currentHistory.length - 1].role === 'user' &&
+        currentHistory[currentHistory.length - 1].content === text
+          ? currentHistory.slice(0, -1)
+          : currentHistory
+      const historyForApi = historyForApiSource.map(m => ({ role: m.role, content: m.content }))
+      window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIds[empName] || undefined).catch(() => {
         setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
         showToast('发送失败', 'error')
       })
       return prev
     })
-  }, [currentEmployeeName])
+  }, [currentEmployeeName, sessionIds])
 
   const handleSend = useCallback(() => {
     const text = input.trim()
@@ -1192,7 +1350,7 @@ export default function Chat(): React.ReactElement {
       case '/clear':
         if (currentEmployeeName) {
           setChatHistories(prev => ({ ...prev, [currentEmployeeName]: [] }))
-          setCurrentSessionId(null)
+          setSessionIds(prev => ({ ...prev, [currentEmployeeName]: null }))
         }
         break
       case '/help': {
@@ -1228,7 +1386,7 @@ export default function Chat(): React.ReactElement {
         break
       case '/status':
         if (currentEmployee) {
-          const statusMsg = `员工: ${currentEmployee.name}\n状态: ${statusText(currentEmployee.status || '')}\n模型: ${currentEmployee.model || '--'}`
+          const statusMsg = `${lexicon.chat.statusLabel}: ${currentEmployee.name}\n状态: ${statusText(currentEmployee.status || '')}\n模型: ${currentEmployee.model || '--'}`
           setChatHistories(prev => ({
             ...prev,
             [currentEmployeeName!]: [...(prev[currentEmployeeName!] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: statusMsg, timestamp: Date.now() }]
@@ -1237,7 +1395,7 @@ export default function Chat(): React.ReactElement {
         break
       case '/usage':
         if (currentStream.streamingUsage && currentEmployeeName) {
-          const usageMsg = `Token 用量:\n输入: ${formatNumber(currentStream.streamingUsage.promptTokens)}\n输出: ${formatNumber(currentStream.streamingUsage.completionTokens)}\n总计: ${formatNumber(currentStream.streamingUsage.totalTokens)}`
+          const usageMsg = `${lexicon.chat.usageTitle}:\n输入: ${formatNumber(currentStream.streamingUsage.promptTokens)}\n输出: ${formatNumber(currentStream.streamingUsage.completionTokens)}\n总计: ${formatNumber(currentStream.streamingUsage.totalTokens)}`
           setChatHistories(prev => ({
             ...prev,
             [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: usageMsg, timestamp: Date.now() }]
@@ -1245,7 +1403,7 @@ export default function Chat(): React.ReactElement {
         } else if (currentEmployeeName) {
           setChatHistories(prev => ({
             ...prev,
-            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: '暂无用量数据', timestamp: Date.now() }]
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: lexicon.chat.noUsage, timestamp: Date.now() }]
           }))
         }
         break
@@ -1257,7 +1415,7 @@ export default function Chat(): React.ReactElement {
           }))
         }
     }
-  }, [currentEmployeeName, currentEmployee, chatHistories, doSend, currentStream])
+  }, [currentEmployeeName, currentEmployee, chatHistories, doSend, currentStream, lexicon])
 
   const handleInputChange = (value: string): void => {
     setInput(value)
@@ -1336,14 +1494,14 @@ export default function Chat(): React.ReactElement {
     <div className="flex h-full relative">
       {/* Left Panel - Employee List */}
       <div className="w-[var(--sidebar-w)] min-w-[var(--sidebar-w)] glass-medium border-r border-[var(--border)] flex flex-col overflow-hidden z-[2] relative">
-        <div className="drag-region flex items-center justify-between px-4 glass-medium shrink-0" style={{ paddingTop: 44, paddingBottom: 12, paddingLeft: 16, paddingRight: 16, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.3px' }} className="text-accent-gradient">员工列表</h2>
+        <div className="screen-header-compact drag-region flex items-center justify-between glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.3px' }} className="text-accent-gradient">{lexicon.entities.employeeList}</h2>
         </div>
         <div className="px-3 pt-4 pb-3 shrink-0">
           <input
             value={searchQuery}
             onChange={(e) => handleSearchInput(e.target.value)}
-            placeholder="搜索员工..."
+            placeholder={lexicon.entities.searchEmployee}
             className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] py-2 px-3.5 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
           />
         </div>
@@ -1351,7 +1509,7 @@ export default function Chat(): React.ReactElement {
           {filteredEmployees.length === 0 ? (
             <div className="text-center py-12 text-[var(--text-dim)]">
               <div className="text-5xl mb-4 opacity-30">👥</div>
-              <p className="text-sm">{searchQuery ? '未找到匹配员工' : '暂无员工，点击上方添加'}</p>
+              <p className="text-sm">{searchQuery ? lexicon.entities.noEmployeeMatches : `${lexicon.entities.noEmployees}，点击上方添加`}</p>
             </div>
           ) : (
             filteredEmployees.map(emp => {
@@ -1385,7 +1543,7 @@ export default function Chat(): React.ReactElement {
                       <span className="truncate">{emp.displayName || emp.name}</span>
                       {empStreaming && <span className="text-[10px] text-[var(--accent)] animate-pulse-custom shrink-0">typing...</span>}
                     </div>
-                    <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || '员工'}</div>
+                    <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || lexicon.entities.defaultRole}</div>
                     {lastMsg && !empStreaming && (
                       <div className={`text-xs truncate max-w-[150px] mt-0.5 ${isActive ? 'text-[var(--text-primary)]' : 'text-[var(--text-dim)]'}`}>
                         {lastMsg.content.substring(0, 80)}
@@ -1406,7 +1564,7 @@ export default function Chat(): React.ReactElement {
         ) : currentEmployee ? (
           <>
             {/* Chat Header */}
-            <div className="drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: 28, paddingBottom: 8, paddingLeft: 24, paddingRight: 24 }}>
+            <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
               <div className="flex items-center gap-3.5 no-drag">
                 <div className="w-9 h-9 rounded-[10px] glass-medium flex items-center justify-center text-lg border border-[var(--border)]">{empAvatar}</div>
                 <div className="flex flex-col gap-0.5">
@@ -1421,17 +1579,12 @@ export default function Chat(): React.ReactElement {
                 <button onClick={() => setShowHistory(!showHistory)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title="历史会话">
                   <History size={14} />
                 </button>
-                {confirmClear ? (
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => { setChatHistories(prev => ({ ...prev, [currentEmployeeName!]: [] })); setConfirmClear(false) }} className="w-8 h-8 rounded-[var(--radius)] bg-[var(--danger)] text-white cursor-pointer flex items-center justify-center transition-all text-[11px] font-medium">清</button>
-                    <button onClick={() => setConfirmClear(false)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)]"><X size={12} /></button>
-                  </div>
-                ) : (
-                  <button onClick={() => setConfirmClear(true)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--danger)]" title="清空会话">
+                <Popconfirm title="确认彻底删除当前会话？" confirmText="删除" onConfirm={deleteCurrentSession}>
+                  <button className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--danger)]" title="删除当前会话">
                     <Trash2 size={14} />
                   </button>
-                )}
-                <button onClick={() => setShowDetail(true)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title="员工详情">
+                </Popconfirm>
+                <button onClick={() => setShowDetail(true)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title={lexicon.entities.employeeDetail}>
                   <UserCircle size={14} />
                 </button>
               </div>
@@ -1442,9 +1595,9 @@ export default function Chat(): React.ReactElement {
               {currentMessages.length === 0 && !isStreaming ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
                   <img src={logoImg} alt="" className="w-24 h-24 opacity-60" />
-                  <div className="text-[22px] font-bold text-[var(--text-primary)]">开始对话</div>
+                  <div className="text-[22px] font-bold text-[var(--text-primary)]">{lexicon.chat.startTitle}</div>
                   <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
-                    向 {empName} 发送消息开始对话，或使用 / 命令执行操作
+                    {lexicon.chat.startHint(empName)}
                   </div>
                   <div className="flex flex-wrap gap-2 justify-center max-w-[480px] mt-2">
                     {['帮我分析一下这个问题', '/help', '/status'].map(hint => (
@@ -1644,7 +1797,7 @@ export default function Chat(): React.ReactElement {
             <img src={logoImg} alt="" className="w-24 h-24 opacity-60" />
             <div className="text-[22px] font-bold text-[var(--text-primary)]">欢迎使用 落云.Hermes</div>
             <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
-              选择左侧的员工开始对话
+              {lexicon.chat.chooseEmployee}
             </div>
           </div>
         )}
@@ -1652,10 +1805,15 @@ export default function Chat(): React.ReactElement {
 
       {/* History Panel */}
       {showHistory && currentEmployeeName && (
-        <HistoryPanel employeeName={currentEmployeeName} onClose={() => setShowHistory(false)} onRestore={(sessionId, messages) => {
-          setChatHistories(prev => ({ ...prev, [currentEmployeeName]: messages }))
-          setCurrentSessionId(sessionId)
-        }} />
+        <HistoryPanel
+          employeeName={currentEmployeeName}
+          onClose={() => setShowHistory(false)}
+          onViewSession={(sessionId, messages) => {
+            setChatHistories(prev => ({ ...prev, [currentEmployeeName]: messages }))
+            setSessionIds(prev => ({ ...prev, [currentEmployeeName]: sessionId }))
+            setShowHistory(false)
+          }}
+        />
       )}
 
       {/* Context Menu */}
@@ -1666,7 +1824,7 @@ export default function Chat(): React.ReactElement {
         >
           {contextMenu.confirmDelete ? (
             <>
-              <div className="px-4 py-2 text-xs text-[var(--danger)] font-medium">确认删除此员工？</div>
+              <div className="px-4 py-2 text-xs text-[var(--danger)] font-medium">{lexicon.entities.deleteEmployeeConfirm}</div>
               <button
                 onClick={() => { deleteEmployee(contextMenu.employeeName); setContextMenu(null) }}
                 className="block w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] transition-colors"
@@ -1685,7 +1843,7 @@ export default function Chat(): React.ReactElement {
               { label: '☀️ 唤醒', action: () => wakeUpEmployee(contextMenu.employeeName) },
               { label: '😴 休眠', action: () => sleepEmployee(contextMenu.employeeName) },
               { label: '🔄 重启', action: () => { wakeUpEmployee(contextMenu.employeeName) } },
-              { label: '✏️ 编辑灵魂', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+              { label: `✏️ 编辑${lexicon.concepts.soul}`, action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
               { label: '⚙️ 编辑配置', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
               { label: '🗑️ 删除', action: () => setContextMenu({ ...contextMenu, confirmDelete: true }), danger: true },
             ].map((item, i) => (

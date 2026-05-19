@@ -81,7 +81,9 @@ export default function Popconfirm({
     setStyle(computeStyle(p, rect))
   }, [])
 
-  const handleOpen = useCallback(() => {
+  const handleOpen = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
     if (!triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
     const p = computePlacement(rect)
@@ -150,7 +152,7 @@ export default function Popconfirm({
 
   return (
     <div className="inline-flex" ref={triggerRef}>
-      <div onClick={handleOpen} className="inline-flex">
+      <div onClick={handleOpen} className="inline-flex shrink-0">
         {children}
       </div>
       {popover}

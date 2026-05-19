@@ -27,6 +27,11 @@ export default function App(): React.ReactElement {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!window.hermesAPI) {
+      setScreen('onboarding')
+      setLoading(false)
+      return
+    }
     window.hermesAPI.checkInitialized().then((initialized) => {
       if (initialized) {
         window.hermesAPI.authGetCurrent().then((result) => {

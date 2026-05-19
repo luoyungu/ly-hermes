@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { usePlatform } from '../../hooks/usePlatform';
 import type { TokenStats as TokenStatsType } from '../../../../preload/index';
+import { useTheme } from '../../components/ThemeProvider';
 
 const DAYS_OPTIONS = [
   { label: '7天', value: 7 },
@@ -83,6 +85,8 @@ function ChartBar({ date, value, maxValue }: { date: string; value: number; maxV
 }
 
 export function TokenStats() {
+  const { isMac } = usePlatform()
+  const { lexicon } = useTheme()
   const [days, setDays] = useState(30);
   const [stats, setStats] = useState<TokenStatsType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,13 +130,13 @@ export function TokenStats() {
   return (
     <div className="h-full flex flex-col bg-transparent overflow-hidden">
       {/* Header */}
-      <div className="drag-region flex items-center justify-between px-4 glass-medium shrink-0 border-b border-[var(--border)]"
-        style={{ paddingTop: 44, paddingBottom: 12 }}>
+      <div className="screen-header drag-region flex items-center justify-between glass-medium shrink-0 border-b border-[var(--border)]"
+        style={{ paddingTop: isMac ? 20 : 0 }}>
         <div>
           <h2 className="text-base font-bold text-accent-gradient" style={{ letterSpacing: '-0.3px' }}>
-            📊 Token 使用统计
+            📊 {lexicon.usage.title}
           </h2>
-          <p className="text-xs text-[var(--text-dim)]">查看 Token 消耗分布</p>
+          <p className="text-xs text-[var(--text-dim)]">{lexicon.usage.subtitle}</p>
         </div>
         <div className="flex gap-1">
           {DAYS_OPTIONS.map(opt => (
@@ -162,24 +166,24 @@ export function TokenStats() {
             {/* Overview Cards */}
             <div className="grid grid-cols-2 gap-3">
               <StatsCard
-                title="输入 Token"
+                title={lexicon.usage.input}
                 value={formatNumber(inputTokens)}
                 subtitle={`${((inputTokens / (totalTokens || 1)) * 100).toFixed(1)}%`}
                 icon="📥"
               />
               <StatsCard
-                title="输出 Token"
+                title={lexicon.usage.output}
                 value={formatNumber(outputTokens)}
                 subtitle={`${((outputTokens / (totalTokens || 1)) * 100).toFixed(1)}%`}
                 icon="📤"
               />
               <StatsCard
-                title="缓存读取"
+                title={lexicon.usage.cache}
                 value={formatNumber(cacheTokens)}
                 icon="💾"
               />
               <StatsCard
-                title="预估费用"
+                title={lexicon.usage.cost}
                 value={formatCost(estimatedCost)}
                 icon="💰"
               />
@@ -194,7 +198,7 @@ export function TokenStats() {
                 </h3>
                 <div className="space-y-1 max-h-[200px] overflow-y-auto">
                   {byModel.length === 0 ? (
-                    <div className="text-center py-4 text-[var(--text-dim)] text-sm">暂无数据</div>
+                    <div className="text-center py-4 text-[var(--text-dim)] text-sm">{lexicon.usage.noData}</div>
                   ) : (
                     byModel.map((model, idx) => {
                       const modelTokens = ((model.input_tokens as number) || 0) + ((model.output_tokens as number) || 0);
@@ -216,11 +220,11 @@ export function TokenStats() {
               {/* By Agent */}
               <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
                 <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
-                  <span>👤</span> 按 Agent
+                  <span>👤</span> {lexicon.usage.byAgent}
                 </h3>
                 <div className="space-y-1 max-h-[200px] overflow-y-auto">
                   {byAgent.length === 0 ? (
-                    <div className="text-center py-4 text-[var(--text-dim)] text-sm">暂无数据</div>
+                    <div className="text-center py-4 text-[var(--text-dim)] text-sm">{lexicon.usage.noData}</div>
                   ) : (
                     byAgent.map((agent, idx) => {
                       const agentTokens = ((agent.input_tokens as number) || 0) + ((agent.output_tokens as number) || 0);
@@ -245,7 +249,7 @@ export function TokenStats() {
                 <span>📈</span> 每日趋势
               </h3>
               {daily.length === 0 ? (
-                <div className="text-center py-8 text-[var(--text-dim)] text-sm">暂无数据</div>
+                <div className="text-center py-8 text-[var(--text-dim)] text-sm">{lexicon.usage.noData}</div>
               ) : (
                 <div className="flex items-end gap-1 overflow-x-auto pb-2">
                   {daily.slice(-14).map((day, idx) => {

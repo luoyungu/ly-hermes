@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { MessageSquare, Settings, Info, LogOut, Palette, Users, Calendar, BarChart3 } from 'lucide-react'
+import { MessageSquare, Settings, Info, LogOut, Palette, Users, Calendar, BarChart3, FileText } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import Chat from '../Chat/Chat'
 import SettingsScreen from '../Settings/Settings'
@@ -8,9 +8,11 @@ import Appearance from '../Appearance/Appearance'
 import Manage from '../Manage/Manage'
 import Schedule from '../Schedule/Schedule'
 import { TokenStats } from '../Chat/TokenStats'
+import LogsScreen from '../Logs/Logs'
 import WindowControls from '../../components/WindowControls'
+import { useTheme } from '../../components/ThemeProvider'
 
-type ViewId = 'chat' | 'manage' | 'schedule' | 'appearance' | 'settings' | 'about' | 'token-stats'
+type ViewId = 'chat' | 'manage' | 'schedule' | 'appearance' | 'settings' | 'about' | 'token-stats' | 'logs'
 
 interface NavItem {
   id: ViewId
@@ -19,13 +21,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'chat', icon: <MessageSquare size={22} />, label: '对话' },
-  { id: 'manage', icon: <Users size={22} />, label: '管理' },
-  { id: 'schedule', icon: <Calendar size={22} />, label: '日程' },
-  { id: 'token-stats', icon: <BarChart3 size={22} />, label: '用量' },
-  { id: 'appearance', icon: <Palette size={22} />, label: '外观' },
-  { id: 'settings', icon: <Settings size={22} />, label: '设置' },
-  { id: 'about', icon: <Info size={22} />, label: '关于' }
+  { id: 'chat', icon: <MessageSquare size={22} />, label: 'chat' },
+  { id: 'manage', icon: <Users size={22} />, label: 'manage' },
+  { id: 'schedule', icon: <Calendar size={22} />, label: 'schedule' },
+  { id: 'token-stats', icon: <BarChart3 size={22} />, label: 'tokenStats' },
+  { id: 'appearance', icon: <Palette size={22} />, label: 'appearance' },
+  { id: 'settings', icon: <Settings size={22} />, label: 'settings' },
+  { id: 'logs', icon: <FileText size={22} />, label: 'logs' },
+  { id: 'about', icon: <Info size={22} />, label: 'about' }
 ]
 
 interface LayoutProps {
@@ -33,6 +36,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
+  const { lexicon } = useTheme()
   const [currentView, setCurrentView] = useState<ViewId>('chat')
   const [visitedViews, setVisitedViews] = useState(() => new Set<ViewId>(['chat']))
 
@@ -52,6 +56,7 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
 
   return (
     <div className="flex h-screen bg-[var(--bg-primary)] relative">
+      <div className="theme-atmosphere fixed inset-0 z-0 pointer-events-none" />
       <div id="wallpaperLayer" className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500 pointer-events-none" style={{ opacity: 0 }} />
       <div id="wallpaperOverlay" className="fixed inset-0 z-0 bg-[var(--bg-primary)] pointer-events-none" style={{ opacity: 0 }} />
       <aside className="flex w-[80px] min-w-[80px] flex-col items-center glass-medium border-r border-[var(--border)] z-10 relative" style={{ paddingTop: 40, paddingBottom: 16 }}>
@@ -72,7 +77,7 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
                 <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-sm bg-[var(--accent)] shadow-[0_0_8px_var(--accent)]" />
               )}
               {item.icon}
-              <span style={{ fontSize: 11, fontWeight: 500, lineHeight: 1 }}>{item.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 500, lineHeight: 1 }}>{lexicon.nav[item.label as keyof typeof lexicon.nav]}</span>
             </button>
           ))}
         </nav>
@@ -91,9 +96,11 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
       </aside>
 
       <main className="flex-1 overflow-hidden relative z-10 glass-medium flex flex-col">
-        <div className="drag-region flex items-center justify-end shrink-0 h-9 border-b border-[var(--border)] bg-[var(--bg-surface)]">
-          <WindowControls />
-        </div>
+        {navigator.userAgent.includes('Windows') && (
+          <div className="drag-region flex items-center justify-end shrink-0 h-9 border-b border-[var(--border)] bg-[var(--bg-surface)]">
+            <WindowControls />
+          </div>
+        )}
         <div className="flex-1 overflow-hidden relative">
         {visitedViews.has('chat') && (
           <div className={`h-full ${currentView === 'chat' ? '' : 'hidden'}`}>
@@ -128,6 +135,11 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
         {visitedViews.has('about') && (
           <div className={`h-full ${currentView === 'about' ? '' : 'hidden'}`}>
             <About />
+          </div>
+        )}
+        {visitedViews.has('logs') && (
+          <div className={`h-full ${currentView === 'logs' ? '' : 'hidden'}`}>
+            <LogsScreen />
           </div>
         )}
         </div>

@@ -3,12 +3,14 @@ import { Lock, Eye, EyeOff, Loader2 } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import loginBg from '../../assets/login-bg.jpg'
 import WindowControls from '../../components/WindowControls'
+import { useTheme } from '../../components/ThemeProvider'
 
 interface LoginProps {
   onSuccess: () => void
 }
 
 export default function Login({ onSuccess }: LoginProps): React.ReactElement {
+  const { lexicon } = useTheme()
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -71,7 +73,7 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
           落云.Hermes
         </h1>
         <p className="text-[var(--text-dim)] mb-10" style={{ fontSize: 14 }}>
-          多智能体 AI 工作站
+          {lexicon.appSubtitle}
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col" style={{ gap: 16 }}>
