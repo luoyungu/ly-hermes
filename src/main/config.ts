@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import { execFileSync, spawn, execFile } from "child_process";
 import http from "http";
+import https from "https";
 import * as yaml from "./lib/yaml-simple";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 
@@ -47,6 +48,40 @@ export const WALLPAPERS_DIR: string = path.join(
   APP_DATA_DIR,
   "wallpapers",
 );
+
+export const RUNTIME_DEFAULTS: Record<string, unknown> = {
+  memory: { memory_enabled: true, memory_char_limit: 2200, user_char_limit: 1375, flush_min_turns: 6 },
+  compression: { enabled: true, target_ratio: 0.2, threshold: 0.5, protect_last_n: 20 },
+  terminal: { timeout: 180, lifetime_seconds: 300 },
+  code_execution: { max_tool_calls: 50, timeout: 300 },
+  browser: { inactivity_timeout: 120 },
+  session_reset: { idle_minutes: 1440, at_hour: 4 },
+};
+
+function deepMergeDefaults(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...source };
+  for (const [key, val] of Object.entries(target)) {
+    if (
+      val !== null &&
+      typeof val === "object" &&
+      !Array.isArray(val) &&
+      (result[key] as unknown) !== null &&
+      typeof result[key] === "object" &&
+      !Array.isArray(result[key])
+    ) {
+      result[key] = deepMergeDefaults(
+        val as Record<string, unknown>,
+        result[key] as Record<string, unknown>,
+      );
+    } else {
+      result[key] = val;
+    }
+  }
+  return result;
+}
 
 const _configCache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL = 5000;
@@ -104,6 +139,7 @@ export function loadAppConfig(): Record<string, unknown> {
       max_online: 5,
       startup_timeout: 30,
     },
+    runtime: RUNTIME_DEFAULTS,
     ui: { theme: "dark", language: "zh-CN", font_size: 14 },
     hermes: {
       home: HERMES_HOME,
@@ -688,6 +724,22 @@ export function registerConfigIpcHandlers(): void {
     },
   );
 
+  ipcMain.handle("get-runtime-config", async () => {
+    const appConfig = loadAppConfig();
+    const userRuntime = (appConfig.runtime || {}) as Record<string, unknown>;
+    return deepMergeDefaults(userRuntime, RUNTIME_DEFAULTS);
+  });
+
+  ipcMain.handle(
+    "set-runtime-config",
+    async (_, runtime: Record<string, unknown>) => {
+      const appConfig = loadAppConfig();
+      appConfig.runtime = runtime;
+      saveAppConfig(appConfig);
+      return { success: true };
+    },
+  );
+
   ipcMain.handle(
     "save-wallpaper-file",
     async (_, dataUrl: string) => {
@@ -720,7 +772,7 @@ export function registerConfigIpcHandlers(): void {
         HOME: os.homedir(),
         HERMES_HOME,
       });
-      execFile(hermesBin, ["--version"], { env, timeout: 15000 }, (error, stdout) => {
+      execFile(hermesBin, ["--version"], { env, timeout: 15000, windowsHide: true }, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
@@ -742,25 +794,57 @@ export function registerConfigIpcHandlers(): void {
       HERMES_HOME,
     });
     const versionText = await new Promise<string | null>((resolve) => {
-      execFile(hermesBin, ["--version"], { env, timeout: 15000 }, (error, stdout) => {
+      execFile(hermesBin, ["--version"], { env, timeout: 15000, windowsHide: true }, (error, stdout) => {
         if (error) resolve(null);
         else resolve(stdout.toString().trim());
       });
     });
-    let checkText = "";
+    let updateInfo = "";
     try {
-      checkText = runHermesCli(["update", "--check"]);
-    } catch { /* ignore */ }
-    let combined = versionText || "";
-    if (checkText) {
-      const behindMatch = checkText.match(/Update available:\s*(\d+)\s*commits?\s*behind\s*(\S+)/i);
-      if (behindMatch) {
-        combined += `\nUpdate available: ${behindMatch[1]} commits behind ${behindMatch[2]}`;
-      } else if (/Up to date|Already up to date/i.test(checkText)) {
-        combined += "\nUp to date";
+      const hermesRepoDir = path.join(HERMES_HOME, "hermes-agent");
+      const localCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: hermesRepoDir, timeout: 10000 }).toString().trim();
+      const remoteSha = await new Promise<string | null>((resolve) => {
+        const req = https.get("https://gitee.com/api/v5/repos/YanPro/ly-hermes-agent/branches/main", { timeout: 10000 }, (res) => {
+          let body = "";
+          res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+          res.on("end", () => {
+            try {
+              const data = JSON.parse(body);
+              resolve(data?.commit?.sha || data?.commit?.id || null);
+            } catch { resolve(null); }
+          });
+        });
+        req.on("error", () => resolve(null));
+        req.on("timeout", () => { req.destroy(); resolve(null); });
+      });
+      if (remoteSha) {
+        if (localCommit === remoteSha) {
+          updateInfo = "\nUp to date";
+        } else {
+          const behindCount = await new Promise<number>((resolve) => {
+            const req = https.get(`https://gitee.com/api/v5/repos/YanPro/ly-hermes-agent/compare/${localCommit}...${remoteSha}`, { timeout: 10000 }, (res) => {
+              let body = "";
+              res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+              res.on("end", () => {
+                try {
+                  const data = JSON.parse(body);
+                  const commits = data?.commits;
+                  resolve(Array.isArray(commits) ? commits.length : (data?.total_commits || 0));
+                } catch { resolve(0); }
+              });
+            });
+            req.on("error", () => resolve(0));
+            req.on("timeout", () => { req.destroy(); resolve(0); });
+          });
+          if (behindCount > 0) {
+            updateInfo = `\nUpdate available: ${behindCount} commits behind ${remoteSha.slice(0, 8)}`;
+          } else {
+            updateInfo = "\nUp to date";
+          }
+        }
       }
-    }
-    _cachedVersion = combined || null;
+    } catch { /* ignore */ }
+    _cachedVersion = (versionText || "") + updateInfo || null;
     return _cachedVersion;
   });
 
@@ -782,7 +866,7 @@ export function registerConfigIpcHandlers(): void {
       TERM: "dumb",
     });
     return new Promise((resolve) => {
-      const proc = spawn(hermesBin, ["update"], { env, stdio: ["ignore", "pipe", "pipe"] });
+      const proc = spawn(hermesBin, ["update"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let log = "";
       let resolved = false;
       const stripAnsi = (text: string): string => text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");

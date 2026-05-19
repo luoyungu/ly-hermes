@@ -21,6 +21,10 @@ extraResources:
         - '**/*'
         - '!**/._*'
         - '!**/.DS_Store'
+  - from: build/tray-icon.png
+    to: tray-icon.png
+  - from: build/tray-icon@2x.png
+    to: tray-icon@2x.png
 
 win:
   icon: build/icon.ico
@@ -50,9 +54,9 @@ mac:
   target:
     - target: dmg
       arch:
-        - universal
+        - arm64
   category: public.app-category.productivity
-  artifactName: ${productName}-${version}.${ext}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 
 linux:
   icon: build
@@ -67,4 +71,4 @@ asar: false
 
 publish:
   provider: generic
-  url: https://your-update-server.com/hermes-desktop
+  url: https://www.luoyungu.com/lyhermes

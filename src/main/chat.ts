@@ -24,6 +24,9 @@ import {
 } from "./employees";
 import { showChatNotification } from "./utils";
 import type { BrowserWindow } from "electron";
+import type { Attachment } from "../shared/attachments";
+import { escapeXmlAttr } from "../shared/attachments";
+import { stageAttachment } from "./attachment-staging";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -48,6 +51,50 @@ interface PendingApproval {
 
 export const _pendingApprovals: Record<string, PendingApproval> = {};
 
+type ChatContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
+export function buildUserContent(
+  text: string,
+  attachments?: Attachment[],
+): ChatContent {
+  if (!attachments || attachments.length === 0) return text;
+
+  const textFiles = attachments.filter((a) => a.kind === "text-file");
+  const pathRefs = attachments.filter(
+    (a) => a.kind === "path-ref" && typeof a.path === "string" && a.path,
+  );
+  const images = attachments.filter(
+    (a) => a.kind === "image" && typeof a.dataUrl === "string" && a.dataUrl,
+  );
+
+  const parts: string[] = [];
+  if (text.trim()) parts.push(text);
+  for (const file of textFiles) {
+    if (typeof file.text !== "string") continue;
+    parts.push(
+      `<file name="${escapeXmlAttr(file.name)}" mime="${escapeXmlAttr(file.mime || "text/plain")}">\n${file.text}\n</file>`,
+    );
+  }
+  if (pathRefs.length > 0) {
+    parts.push(pathRefs.map((file) => `[Attached file: ${file.path}]`).join("\n"));
+  }
+
+  const composedText = parts.join("\n\n");
+  if (images.length === 0) return composedText;
+
+  const imageParts = images.map((image) => ({
+    type: "image_url" as const,
+    image_url: { url: image.dataUrl! },
+  }));
+  if (!composedText) return imageParts;
+  return [{ type: "text" as const, text: composedText }, ...imageParts];
+}
+
 export function sendMessageViaApi(
   profileName: string,
   message: string,
@@ -55,6 +102,7 @@ export function sendMessageViaApi(
   history: Array<{ role: string; content: string }> | undefined,
   mainWindow: BrowserWindow | null,
   resumeSessionId?: string,
+  attachments?: Attachment[],
 ): void {
   const port = getApiPortForProfile(profileName);
   if (!port) {
@@ -68,7 +116,7 @@ export function sendMessageViaApi(
 
   resetIdleTimer(profileName, mainWindow);
 
-  const messages: Array<{ role: string; content: string }> = [];
+  const messages: Array<{ role: string; content: ChatContent }> = [];
   if (history && history.length > 0) {
     const historyToSend = [...history];
     const lastHistoryMessage = historyToSend[historyToSend.length - 1];
@@ -86,7 +134,8 @@ export function sendMessageViaApi(
       });
     }
   }
-  messages.push({ role: "user", content: message });
+  const userContent = buildUserContent(message, attachments);
+  messages.push({ role: "user", content: userContent });
 
   const body = JSON.stringify({
     model: model || "hermes-agent",
@@ -104,6 +153,10 @@ export function sendMessageViaApi(
     if (finished) return;
     finished = true;
     delete _currentChatReqs[profileName];
+    event.sender.send("employee-status-changed", {
+      profileName,
+      status: "online",
+    });
     if (error) {
       event.sender.send("chat-error", { profileName, error });
     } else {
@@ -383,7 +436,26 @@ export function sendMessageViaCli(
   message: string,
   event: IpcMainInvokeEvent,
   mainWindow: BrowserWindow | null,
+  attachments?: Attachment[],
 ): ChildProcess {
+  if (attachments && attachments.length > 0) {
+    const inlineParts: string[] = [];
+    for (const file of attachments) {
+      if (file.kind === "text-file" && typeof file.text === "string") {
+        inlineParts.push(
+          `<file name="${escapeXmlAttr(file.name)}" mime="${escapeXmlAttr(file.mime || "text/plain")}">\n${file.text}\n</file>`,
+        );
+      } else if (file.kind === "path-ref" && file.path) {
+        inlineParts.push(`[Attached file: ${file.path}]`);
+      }
+    }
+    if (inlineParts.length > 0) {
+      message = message.trim()
+        ? `${message}\n\n${inlineParts.join("\n\n")}`
+        : inlineParts.join("\n\n");
+    }
+  }
+
   const appConfig = loadAppConfig();
   const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
   const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
@@ -446,6 +518,7 @@ export function sendMessageViaCli(
   const proc = spawn(hermesBin, args, {
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   let hasOutput = false;
   let capturedSessionId = "";
@@ -501,6 +574,10 @@ export function sendMessageViaCli(
   });
 
   proc.on("close", (code: number | null) => {
+    event.sender.send("employee-status-changed", {
+      profileName,
+      status: "online",
+    });
     if (code === 0 || hasOutput) {
       event.sender.send("chat-done", {
         profileName,
@@ -541,6 +618,7 @@ export function registerChatIpcHandlers(
       message: string,
       history: Array<{ role: string; content: string }>,
       resumeSessionId?: string,
+      attachments?: Attachment[],
     ) => {
       if (!validateProfileName(profileName) && profileName !== "default") {
         event.sender.send("chat-error", {
@@ -574,11 +652,19 @@ export function registerChatIpcHandlers(
           history,
           getMainWindow(),
           resumeSessionId,
+          attachments,
         );
         return;
       }
 
-      sendMessageViaCli(profileName, message, event, getMainWindow());
+      sendMessageViaCli(profileName, message, event, getMainWindow(), attachments);
+    },
+  );
+
+  ipcMain.handle(
+    "stage-attachment",
+    (_, sessionId: string, filename: string, base64Bytes: string) => {
+      return stageAttachment(sessionId, filename, base64Bytes);
     },
   );
 

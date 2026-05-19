@@ -129,10 +129,13 @@ export function TokenStats() {
 
   return (
     <div className="h-full flex flex-col bg-transparent overflow-hidden">
-      <div className="screen-header drag-region flex items-center justify-between glass-medium shrink-0 border-b border-[var(--border)]"
+      <div className="screen-header drag-region flex items-center glass-medium shrink-0 border-b border-[var(--border)]"
         style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <h2 className="screen-header-title">{lexicon.usage.title}</h2>
-        <div className="no-drag flex gap-1">
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex gap-1 mb-4">
           {DAYS_OPTIONS.map(opt => (
             <button
               key={opt.value}
@@ -147,10 +150,6 @@ export function TokenStats() {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full" />

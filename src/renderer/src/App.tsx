@@ -55,6 +55,13 @@ export default function App(): React.ReactElement {
     })
   }, [])
 
+  useEffect(() => {
+    if (!window.hermesAPI?.onCronSessionCreated) return
+    return window.hermesAPI.onCronSessionCreated((data) => {
+      showToast(`日程执行完成：${data.title || data.sessionId}`, 'success')
+    })
+  }, [])
+
   const handleLoginSuccess = (): void => {
     setScreen('main')
   }

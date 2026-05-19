@@ -34,7 +34,7 @@ import {
   AVATARS,
   TOOL_META,
   ALL_TOOLS,
-  CONFIG_FIELDS,
+  AGENT_CONFIG_FIELDS,
   EMPLOYEE_NAME_RE,
   getNestedValue,
   setNestedValue,
@@ -814,12 +814,12 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Wrench size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                配置项控制{lexicon.entities.employee}的<strong className="text-[var(--text-primary)]">运行参数</strong>，调整对话行为、{lexicon.concepts.memory}、压缩等策略。
+                配置项控制{lexicon.entities.employee}的<strong className="text-[var(--text-primary)]">模型参数和对话行为</strong>。记忆、压缩、终端等运行参数请在「设置 → 运行参数」中统一配置。
               </div>
             </div>
             {(() => {
               const groups: { name: string; fields: ConfigFieldDef[] }[] = []
-              for (const f of CONFIG_FIELDS) {
+              for (const f of AGENT_CONFIG_FIELDS) {
                 const g = groups.find(g => g.name === f.group)
                 if (g) g.fields.push(f)
                 else groups.push({ name: f.group, fields: [f] })

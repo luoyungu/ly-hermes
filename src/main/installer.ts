@@ -188,7 +188,7 @@ export async function verifyInstall(): Promise<boolean> {
     execFile(
       HERMES_PYTHON,
       [HERMES_SCRIPT, "--version"],
-      { env, timeout: 15000 },
+      { env, timeout: 15000, windowsHide: true },
       (error, stdout) => {
         const ok = !error && /\d+\.\d+/.test(stdout || "");
         _verifyCache = { result: ok, ts: Date.now() };
@@ -251,6 +251,7 @@ function runStep(
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     let stdout = "";
     let stderr = "";
@@ -383,7 +384,7 @@ export async function runInstall(
       const cloneExist = existsSync(join(HERMES_REPO, ".git"));
       if (cloneExist && sysGit) {
         emit(2, `正在更新已有 Hermes Agent 仓库...`);
-        const pullR = await runStep(sysGit, ["pull", "--ff-only", "origin", "main"], HERMES_REPO, installEnv, 120000);
+        const pullR = await runStep(sysGit, ["pull", "--ff-only", HERMES_REPO_URL, "main"], HERMES_REPO, installEnv, 120000);
         if (!pullR.success) {
           emit(2, `仓库已存在但更新失败，将重新克隆...`);
           removeDir(HERMES_REPO);
@@ -495,7 +496,7 @@ export async function getHermesVersion(): Promise<string | null> {
     execFile(
       HERMES_PYTHON,
       [HERMES_SCRIPT, "--version"],
-      { env, timeout: 15000 },
+      { env, timeout: 15000, windowsHide: true },
       (error, stdout) => {
         if (error) {
           resolve(null);

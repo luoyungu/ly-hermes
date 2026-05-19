@@ -9,6 +9,7 @@ import {
   PROFILES_DIR,
   DEFAULT_API_PORT,
   loadAppConfig,
+  RUNTIME_DEFAULTS,
   getProfilePath,
   readHermesEnv,
   runHermesCli,
@@ -413,6 +414,7 @@ export async function wakeUpEmployee(
     cwd: getProfilePath(profileName),
     stdio: "ignore",
     detached: true,
+    windowsHide: true,
   });
   _gatewayProcesses[profileName] = proc;
   proc.unref();
@@ -599,6 +601,7 @@ export function registerEmployeeIpcHandlers(
 
       const appConfig = loadAppConfig();
       const defaults = (appConfig.defaults as Record<string, unknown>) || {};
+      const runtime = (appConfig.runtime as Record<string, unknown>) || {};
       const port =
         (config.gateway_port as number) || allocatePort();
       if (!port) return { error: "没有可用端口" };
@@ -622,6 +625,20 @@ export function registerEmployeeIpcHandlers(
         (config.base_url as string) ||
         (defaults.base_url as string) ||
         "";
+
+      const defMem = (RUNTIME_DEFAULTS.memory as Record<string, unknown>) || {};
+      const defComp = (RUNTIME_DEFAULTS.compression as Record<string, unknown>) || {};
+      const defTerm = (RUNTIME_DEFAULTS.terminal as Record<string, unknown>) || {};
+      const defCode = (RUNTIME_DEFAULTS.code_execution as Record<string, unknown>) || {};
+      const defBrowser = (RUNTIME_DEFAULTS.browser as Record<string, unknown>) || {};
+      const defSession = (RUNTIME_DEFAULTS.session_reset as Record<string, unknown>) || {};
+
+      const memCfg = Object.assign({}, defMem, (runtime.memory as Record<string, unknown>) || {});
+      const compCfg = Object.assign({}, defComp, (runtime.compression as Record<string, unknown>) || {});
+      const termCfg = Object.assign({}, defTerm, (runtime.terminal as Record<string, unknown>) || {});
+      const codeCfg = Object.assign({}, defCode, (runtime.code_execution as Record<string, unknown>) || {});
+      const browserCfg = Object.assign({}, defBrowser, (runtime.browser as Record<string, unknown>) || {});
+      const sessionCfg = Object.assign({}, defSession, (runtime.session_reset as Record<string, unknown>) || {});
 
       const configYaml = yamlStringify({
         model: { default: model, provider: provider, base_url: baseUrl },
@@ -653,8 +670,33 @@ export function registerEmployeeIpcHandlers(
             ],
         },
         agent: { max_turns: 60, reasoning_effort: "medium" },
-        memory: { enabled: true, max_chars: 2200 },
-        compression: { enabled: true, target_ratio: 0.2 },
+        memory: {
+          enabled: memCfg.memory_enabled,
+          max_chars: memCfg.memory_char_limit,
+          user_char_limit: memCfg.user_char_limit,
+          flush_min_turns: memCfg.flush_min_turns,
+        },
+        compression: {
+          enabled: compCfg.enabled,
+          target_ratio: compCfg.target_ratio,
+          threshold: compCfg.threshold,
+          protect_last_n: compCfg.protect_last_n,
+        },
+        terminal: {
+          timeout: termCfg.timeout,
+          lifetime_seconds: termCfg.lifetime_seconds,
+        },
+        code_execution: {
+          max_tool_calls: codeCfg.max_tool_calls,
+          timeout: codeCfg.timeout,
+        },
+        browser: {
+          inactivity_timeout: browserCfg.inactivity_timeout,
+        },
+        session_reset: {
+          idle_minutes: sessionCfg.idle_minutes,
+          at_hour: sessionCfg.at_hour,
+        },
       });
       ensureDir(profilePath);
       fs.writeFileSync(
@@ -755,6 +797,25 @@ export function registerEmployeeIpcHandlers(
     putEmployeeToSleep(name, getMainWindow());
     await new Promise((r) => setTimeout(r, 2000));
     return wakeUpEmployee(name, getMainWindow());
+  });
+
+  ipcMain.handle("restart-all-engines", async () => {
+    const onlineNames = Object.keys(_gatewayProcesses).filter(
+      (k) => _gatewayProcesses[k] && !_gatewayProcesses[k].killed,
+    );
+    if (onlineNames.length === 0) {
+      return { success: true, restarted: 0 };
+    }
+    for (const name of onlineNames) {
+      putEmployeeToSleep(name, getMainWindow());
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+    let restarted = 0;
+    for (const name of onlineNames) {
+      const result = await wakeUpEmployee(name, getMainWindow());
+      if (result.success) restarted++;
+    }
+    return { success: true, restarted, total: onlineNames.length };
   });
 
   ipcMain.handle("employee:status", async (_, name: string) => {

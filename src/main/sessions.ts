@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import type { BrowserWindow } from "electron";
 import path from "path";
 import fs from "fs";
 import { execFileSync } from "child_process";
@@ -8,6 +9,18 @@ import {
   runHermesCli,
   getProfilePath,
 } from "./config";
+import { showChatNotification } from "./utils";
+
+interface CronSessionNotification {
+  id: string;
+  profileName: string;
+  title: string;
+  startedAt: number;
+}
+
+let cronSessionWatcher: NodeJS.Timeout | null = null;
+let lastCronStartedAt = 0;
+const notifiedCronSessionIds = new Set<string>();
 
 export function escapeSql(val: unknown): string {
   if (val == null) return "";
@@ -122,6 +135,97 @@ export function getEmployeeSessions(profileName: string, limit: number = 20): Ar
   fillCronSessionTitles(sessions, profileName);
   fillSessionTitles(sessions, (sql, params) => queryProfileStateDb(profileName, sql, params));
   return sessions;
+}
+
+function listProfileNamesWithStateDb(): string[] {
+  const names = ["default"];
+  const profilesDir = path.join(HERMES_HOME, "profiles");
+  if (!fs.existsSync(profilesDir)) return names;
+  try {
+    for (const dir of fs.readdirSync(profilesDir)) {
+      if (dir.startsWith(".")) continue;
+      if (!validateProfileName(dir)) continue;
+      const dbPath = path.join(profilesDir, dir, "state.db");
+      if (fs.existsSync(dbPath)) names.push(dir);
+    }
+  } catch {
+    /* ignore */
+  }
+  return names;
+}
+
+function getRecentCronSessions(profileName: string): CronSessionNotification[] {
+  const sql =
+    "SELECT id, source, started_at, title FROM sessions " +
+    "WHERE source = 'cron' OR id LIKE 'cron_%' " +
+    "ORDER BY started_at DESC LIMIT 20";
+  const sessions =
+    profileName === "default"
+      ? queryStateDb(sql)
+      : queryProfileStateDb(profileName, sql);
+  fillCronSessionTitles(sessions, profileName);
+  fillSessionTitles(sessions, (query, params) =>
+    profileName === "default"
+      ? queryStateDb(query, params)
+      : queryProfileStateDb(profileName, query, params),
+  );
+  return sessions
+    .map((session) => ({
+      id: String(session.id || ""),
+      profileName,
+      title: String(session.title || "日程执行结果"),
+      startedAt: Number(session.started_at || 0),
+    }))
+    .filter((session) => session.id && session.startedAt > 0);
+}
+
+function collectRecentCronSessions(): CronSessionNotification[] {
+  const seen = new Set<string>();
+  const result: CronSessionNotification[] = [];
+  for (const profileName of listProfileNamesWithStateDb()) {
+    for (const session of getRecentCronSessions(profileName)) {
+      const key = `${session.profileName}:${session.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(session);
+    }
+  }
+  return result.sort((a, b) => a.startedAt - b.startedAt);
+}
+
+function startCronSessionWatcher(getMainWindow: () => BrowserWindow | null): void {
+  if (cronSessionWatcher) return;
+  for (const session of collectRecentCronSessions()) {
+    notifiedCronSessionIds.add(`${session.profileName}:${session.id}`);
+    lastCronStartedAt = Math.max(lastCronStartedAt, session.startedAt);
+  }
+
+  cronSessionWatcher = setInterval(() => {
+    const freshSessions = collectRecentCronSessions().filter((session) => {
+      const key = `${session.profileName}:${session.id}`;
+      return !notifiedCronSessionIds.has(key) && session.startedAt >= lastCronStartedAt;
+    });
+    for (const session of freshSessions) {
+      const key = `${session.profileName}:${session.id}`;
+      notifiedCronSessionIds.add(key);
+      lastCronStartedAt = Math.max(lastCronStartedAt, session.startedAt);
+      const win = getMainWindow();
+      const payload = {
+        profileName: session.profileName,
+        sessionId: session.id,
+        title: session.title,
+        startedAt: session.startedAt,
+      };
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("cron-session-created", payload);
+      }
+      showChatNotification(
+        "日程执行完成",
+        `${session.profileName}: ${session.title}`,
+        win,
+      );
+    }
+  }, 10000);
 }
 
 export function getAgentStats(profileName: string, days: number): {
@@ -305,7 +409,9 @@ export function getSessionMessages(
   );
 }
 
-export function registerSessionIpcHandlers(): void {
+export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | null): void {
+  startCronSessionWatcher(getMainWindow);
+
   ipcMain.handle("get-session-messages", async (_, sessionId: string, profileName?: string) => {
     return getSessionMessages(sessionId, profileName);
   });

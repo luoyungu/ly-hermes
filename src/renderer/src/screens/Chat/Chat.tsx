@@ -5,15 +5,17 @@ import remarkGfm from 'remark-gfm'
 import {
   Send, Square, History, UserCircle,
   ChevronDown, Copy, Check, X,
-  ArrowLeft, Trash2, Puzzle, Wrench
+  ArrowLeft, Trash2, Puzzle, Wrench, Paperclip, FileText
 } from 'lucide-react'
 import type { EmployeeInfo, SkillInfo, ChatUsage, ApprovalRequest, MemoryData, SavedModel } from '../../../../preload/index'
+import type { Attachment } from '../../../../shared/attachments'
 import { showToast } from '../../App'
 import logoImg from '../../assets/logo.png'
 import { mapStatus, TOOL_META, ALL_TOOLS } from '../../shared/employee-shared'
 import InteractivePet from '../../components/InteractivePet'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
+import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_BYTES, MAX_TEXT_BYTES, isImageMime, isTextFile } from '../../../../shared/attachments'
 
 interface ChatMessage {
   id: string
@@ -22,6 +24,7 @@ interface ChatMessage {
   timestamp: number
   toolCalls?: ToolCallInfo[]
   thinking?: string
+  attachments?: Attachment[]
 }
 
 interface ToolCallInfo {
@@ -53,6 +56,40 @@ interface SessionDisplay {
   startedAt: number
   messageCount: number
   source?: string
+}
+
+function attachmentId(): string {
+  return `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('read failed'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error || new Error('read failed'))
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file)
+  const comma = dataUrl.indexOf(',')
+  return comma >= 0 ? dataUrl.slice(comma + 1) : ''
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function getMessageKey(m: Record<string, unknown>): string {
@@ -254,10 +291,12 @@ const SLASH_COMMANDS = [
 
 function mapSession(r: Record<string, unknown>): SessionDisplay {
   const source = String(r.source || '')
+  const rawStartedAt = Number(r.started_at || r.startedAt || 0)
+  const startedAt = rawStartedAt > 0 && rawStartedAt < 100000000000 ? rawStartedAt * 1000 : rawStartedAt
   return {
     id: String(r.id || ''),
     title: String(r.title || (source === 'cron' ? '日程执行结果' : '未命名会话')),
-    startedAt: Number(r.started_at || r.startedAt || 0),
+    startedAt,
     messageCount: Number(r.message_count || r.messageCount || 0),
     source
   }
@@ -370,6 +409,32 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
   )
 }
 
+function AttachmentChip({ attachment, onRemove }: { attachment: Attachment; onRemove?: () => void }): React.ReactElement {
+  const isImage = attachment.kind === 'image' && attachment.dataUrl
+  return (
+    <div className="flex items-center gap-2 max-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
+      {isImage ? (
+        <img src={attachment.dataUrl} alt="" className="h-7 w-7 rounded object-cover border border-[var(--border)]" />
+      ) : (
+        <FileText size={14} className="shrink-0 text-[var(--text-dim)]" />
+      )}
+      <span className="truncate" title={`${attachment.name} (${formatAttachmentSize(attachment.size)})`}>
+        {attachment.name}
+      </span>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 rounded p-0.5 text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          aria-label={`移除 ${attachment.name}`}
+        >
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showActivityDetails = false }: {
   msg: ChatMessage
   empName: string
@@ -382,6 +447,7 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
   const hasToolCalls = showActivityDetails && msg.toolCalls && msg.toolCalls.length > 0
   const hasThinking = showActivityDetails && !!thinking
   const hasContent = !!msg.content
+  const hasAttachments = !!msg.attachments && msg.attachments.length > 0
   const [expandedThinking, setExpandedThinking] = useState(false)
 
   return (
@@ -416,6 +482,13 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
             <div className={`flex flex-col gap-2 ${hasContent ? 'mb-3 border-b border-[var(--border)] pb-3' : ''}`}>
               {msg.toolCalls!.map((tc, i) => (
                 <ToolCard key={i} toolCall={tc} />
+              ))}
+            </div>
+          )}
+          {hasAttachments && (
+            <div className={`flex flex-wrap gap-2 ${hasContent ? 'mb-2.5' : ''}`}>
+              {msg.attachments!.map(att => (
+                <AttachmentChip key={att.id} attachment={att} />
               ))}
             </div>
           )}
@@ -810,6 +883,7 @@ export default function Chat(): React.ReactElement {
   const [petHidden, setPetHidden] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [input, setInput] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [showDetail, setShowDetail] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
@@ -831,6 +905,7 @@ export default function Chat(): React.ReactElement {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const messageQueueRef = useRef<Record<string, string[]>>({})
   const streamingThinkingMapRef = useRef<Record<string, string>>({})
   const chunkBufferRef = useRef<Record<string, string[]>>({})
@@ -916,6 +991,99 @@ export default function Chat(): React.ReactElement {
     )
   }, [employees, searchQuery])
 
+  const refreshEmployeeStatus = useCallback(async (employeeName: string): Promise<void> => {
+    try {
+      const status = await window.hermesAPI.getEmployeeStatus(employeeName)
+      setEmployees(prev => prev.map(e =>
+        e.name === employeeName ? { ...e, status: mapStatus(status) } : e
+      ))
+    } catch {
+      try {
+        const list = await window.hermesAPI.listEmployees()
+        const emp = (list || []).find((e: EmployeeInfo) => e.name === employeeName)
+        if (emp) {
+          setEmployees(prev => prev.map(e =>
+            e.name === employeeName ? { ...e, status: mapStatus(emp.status || '') } : e
+          ))
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+
+  const addAttachmentFiles = useCallback(async (files: File[] | FileList): Promise<void> => {
+    const list = Array.from(files)
+    if (list.length === 0) return
+    const next: Attachment[] = []
+    for (const file of list) {
+      if (attachments.length + next.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+        showToast(`每条消息最多 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件`, 'error')
+        break
+      }
+
+      const mime = file.type || ''
+      const name = file.name || 'untitled'
+      try {
+        if (isImageMime(mime)) {
+          if (file.size > MAX_IMAGE_BYTES) {
+            showToast(`${name} 图片超过 20MB`, 'error')
+            continue
+          }
+          next.push({
+            id: attachmentId(),
+            kind: 'image',
+            name,
+            mime,
+            size: file.size,
+            dataUrl: await readFileAsDataUrl(file)
+          })
+          continue
+        }
+
+        if (isTextFile(mime, name)) {
+          if (file.size > MAX_TEXT_BYTES) {
+            showToast(`${name} 文本文件超过 256KB`, 'error')
+            continue
+          }
+          next.push({
+            id: attachmentId(),
+            kind: 'text-file',
+            name,
+            mime: mime || 'text/plain',
+            size: file.size,
+            text: await readFileAsText(file)
+          })
+          continue
+        }
+
+        let filePath = ''
+        try {
+          filePath = window.hermesAPI.getPathForFile(file) || ''
+        } catch {
+          filePath = ''
+        }
+        if (!filePath) {
+          const base64 = await readFileAsBase64(file)
+          filePath = await window.hermesAPI.stageAttachment(sessionIds[currentEmployeeName || ''] || currentEmployeeName || 'default', name, base64)
+        }
+        next.push({
+          id: attachmentId(),
+          kind: 'path-ref',
+          name,
+          mime: mime || 'application/octet-stream',
+          size: file.size,
+          path: filePath
+        })
+      } catch {
+        showToast(`${name} 读取失败`, 'error')
+      }
+    }
+    if (next.length > 0) {
+      setAttachments(prev => [...prev, ...next])
+    }
+  }, [attachments.length, currentEmployeeName, sessionIds])
+
   useEffect(() => {
     loadEmployees()
   }, [])
@@ -981,6 +1149,7 @@ export default function Chat(): React.ReactElement {
       } else {
         messageQueueRef.current = { ...messageQueueRef.current, [empName]: [] }
         setStreamStates(prev => ({ ...prev, [empName]: DEFAULT_STREAM }))
+        void refreshEmployeeStatus(empName)
       }
     })
 
@@ -1000,6 +1169,7 @@ export default function Chat(): React.ReactElement {
         return { ...prev, [data.profileName]: [...history, { id: `error-${Date.now()}`, role: 'assistant' as const, content: `❌ ${data.error || '发生错误'}`, timestamp: Date.now() }] }
       })
       streamingThinkingMapRef.current = { ...streamingThinkingMapRef.current, [data.profileName]: '' }
+      void refreshEmployeeStatus(data.profileName)
       showToast(data.error || '发生错误', 'error')
     })
 
@@ -1254,8 +1424,8 @@ export default function Chat(): React.ReactElement {
     setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'busy' as const } : e))
     try {
       await window.hermesAPI.wakeUpEmployee(employeeName)
-      const pollStatus = async (retries: number): Promise<void> => {
-        if (retries <= 0) return
+      const pollStatus = async (retries: number): Promise<boolean> => {
+        if (retries <= 0) return false
         await new Promise(r => setTimeout(r, 2000))
         try {
           const list = await window.hermesAPI.listEmployees()
@@ -1264,17 +1434,20 @@ export default function Chat(): React.ReactElement {
             const mapped = mapStatus(emp.status || '')
             if (mapped === 'awake') {
               setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'awake' as const } : e))
-              return
+              return true
             }
             if (mapped === 'error') {
               setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'error' as const } : e))
-              return
+              return true
             }
           }
-          await pollStatus(retries - 1)
-        } catch { await pollStatus(retries - 1) }
+          return pollStatus(retries - 1)
+        } catch { return pollStatus(retries - 1) }
       }
-      pollStatus(10)
+      const resolved = await pollStatus(10)
+      if (!resolved) {
+        await refreshEmployeeStatus(employeeName)
+      }
     } catch {
       setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'error' as const } : e))
     }
@@ -1312,7 +1485,7 @@ export default function Chat(): React.ReactElement {
     } catch { showToast('删除失败', 'error') }
   }
 
-  const doSend = useCallback((employeeNameOrText: string, textOrSkip?: string | boolean, skipUserAppend = false) => {
+  const doSend = useCallback((employeeNameOrText: string, textOrSkip?: string | boolean, skipUserAppend = false, sendAttachments?: Attachment[]) => {
     let empName: string
     let text: string
     let skip: boolean
@@ -1328,7 +1501,13 @@ export default function Chat(): React.ReactElement {
     if (!empName) return
 
     if (!skip) {
-      const userMsg: ChatMessage = { id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'user', content: text, timestamp: Date.now() }
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        role: 'user',
+        content: text,
+        timestamp: Date.now(),
+        ...(sendAttachments && sendAttachments.length > 0 ? { attachments: sendAttachments } : {})
+      }
       setChatHistories(prev => {
         const updated = [...(prev[empName] || []), userMsg]
         return { ...prev, [empName]: updated }
@@ -1347,19 +1526,25 @@ export default function Chat(): React.ReactElement {
           ? currentHistory.slice(0, -1)
           : currentHistory
       const historyForApi = historyForApiSource.map(m => ({ role: m.role, content: m.content }))
-      window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIds[empName] || undefined).catch(() => {
+      window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIds[empName] || undefined, sendAttachments).catch(() => {
         setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
+        void refreshEmployeeStatus(empName)
         showToast('发送失败', 'error')
       })
       return prev
     })
-  }, [currentEmployeeName, sessionIds])
+  }, [currentEmployeeName, refreshEmployeeStatus, sessionIds])
 
   const handleSend = useCallback(() => {
     const text = input.trim()
-    if (!text) return
+    const sendAttachments = attachments
+    if (!text && sendAttachments.length === 0) return
 
     if (isStreaming) {
+      if (sendAttachments.length > 0) {
+        showToast('附件消息请等待当前回复完成后再发送', 'info')
+        return
+      }
       if (text) {
         const empName = currentEmployeeName || ''
         messageQueueRef.current = { ...messageQueueRef.current, [empName]: [...(messageQueueRef.current[empName] || []), text] }
@@ -1389,8 +1574,9 @@ export default function Chat(): React.ReactElement {
     }
 
     setInput('')
-    doSend(text)
-  }, [input, isStreaming, currentEmployeeName, doSend])
+    setAttachments([])
+    doSend(text, undefined, false, sendAttachments)
+  }, [input, attachments, isStreaming, currentEmployeeName, doSend])
 
   const handleSlashCommand = useCallback((text: string) => {
     const parts = text.split(/\s+/)
@@ -1755,11 +1941,48 @@ export default function Chat(): React.ReactElement {
 
             {/* Input Area */}
             <div className="relative shrink-0 px-6 pb-6 pt-4 glass-medium border-t border-[var(--border)]">
+              {attachments.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {attachments.map(att => (
+                    <AttachmentChip
+                      key={att.id}
+                      attachment={att}
+                      onRemove={() => setAttachments(prev => prev.filter(item => item.id !== att.id))}
+                    />
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2.5 items-end glass-medium border border-[var(--border)] rounded-2xl py-2 pl-4 pr-2 transition-all focus-within:border-[var(--border-focus)] focus-within:shadow-[0_2px_12px_rgba(0,0,0,0.1)]">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files) void addAttachmentFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isStreaming}
+                  className="self-end w-9 h-9 rounded-xl shrink-0 border border-[var(--border)] text-[var(--text-dim)] flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="添加附件"
+                >
+                  <Paperclip size={15} />
+                </button>
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => handleInputChange(e.target.value)}
+                  onPaste={(e) => {
+                    const files = Array.from(e.clipboardData?.files || [])
+                    if (files.length > 0) {
+                      e.preventDefault()
+                      void addAttachmentFiles(files)
+                    }
+                  }}
                   onKeyDown={handleKeyDown}
                   onCompositionStart={() => setIsComposing(true)}
                   onCompositionEnd={() => setIsComposing(false)}
@@ -1774,10 +1997,10 @@ export default function Chat(): React.ReactElement {
                   >
                     <Square size={14} className="inline mr-1" />停止
                   </button>
-                ) : (
+	                ) : (
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() || !currentEmployeeName}
+                    disabled={(!input.trim() && attachments.length === 0) || !currentEmployeeName}
                     className="self-end min-w-[72px] py-2.5 px-5 rounded-xl shrink-0 bg-accent-gradient text-white border-none text-sm font-semibold cursor-pointer transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Send size={14} className="inline mr-1" />发送

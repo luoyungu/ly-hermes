@@ -6,6 +6,7 @@ import {
   protocol,
   net,
   ipcMain,
+  nativeImage,
 } from "electron";
 import path from "path";
 import fs from "fs";
@@ -229,6 +230,19 @@ app.whenReady().then(() => {
   logInfo("main", "Application starting", { version: app.getVersion(), platform: process.platform });
   Menu.setApplicationMenu(null);
 
+  if (process.platform === "darwin") {
+    app.setAboutPanelOptions({
+      applicationName: "落云.Hermes",
+      version: app.getVersion(),
+    });
+    try {
+      const iconPath = path.join(process.resourcesPath || "", "icon.icns");
+      const devIconPath = path.join(__dirname, "../../build/icon.png");
+      const p = fs.existsSync(iconPath) ? iconPath : (fs.existsSync(devIconPath) ? devIconPath : "");
+      if (p) app.dock?.setIcon(nativeImage.createFromPath(p));
+    } catch { /* ignore */ }
+  }
+
   protocol.handle("wallpaper", (request) => {
     const filePath = decodeURIComponent(request.url.replace("wallpaper://", ""));
     return net.fetch(`file://${filePath}`);
@@ -281,7 +295,7 @@ app.whenReady().then(() => {
   registerConfigIpcHandlers();
   registerEmployeeIpcHandlers(getMainWindow);
   registerChatIpcHandlers(getMainWindow);
-  registerSessionIpcHandlers();
+  registerSessionIpcHandlers(getMainWindow);
   registerPetsIpc();
 
   initUpdater(getMainWindow);

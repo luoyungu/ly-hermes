@@ -83,7 +83,7 @@ export interface ConfigFieldDef {
   options?: { value: string; label: string }[]
 }
 
-export const CONFIG_FIELDS: ConfigFieldDef[] = [
+export const AGENT_CONFIG_FIELDS: ConfigFieldDef[] = [
   { key: 'model.temperature', label: '温度', type: 'number', placeholder: '0.7', desc: '控制回复的随机性 (0-2)，越高越随机', group: '模型' },
   { key: 'model.max_tokens', label: '最大令牌数', type: 'number', placeholder: '4096', desc: '单次回复的最大长度', group: '模型' },
 
@@ -94,7 +94,9 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     { value: 'high', label: '高' },
   ]},
   { key: 'agent.verbose', label: '详细日志', type: 'toggle', desc: '是否输出详细运行日志', group: '对话行为' },
+]
 
+export const GLOBAL_CONFIG_FIELDS: ConfigFieldDef[] = [
   { key: 'memory.memory_enabled', label: '启用记忆', type: 'toggle', desc: '是否启用长期记忆功能', group: '记忆' },
   { key: 'memory.memory_char_limit', label: '记忆上限', type: 'number', placeholder: '2200', desc: '长期记忆字符上限', group: '记忆' },
   { key: 'memory.user_char_limit', label: '用户画像上限', type: 'number', placeholder: '1375', desc: '用户画像字符上限', group: '记忆' },
@@ -116,6 +118,8 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
   { key: 'session_reset.idle_minutes', label: '空闲重置', type: 'number', placeholder: '1440', desc: '空闲多少分钟后重置会话', group: '会话重置' },
   { key: 'session_reset.at_hour', label: '定时重置', type: 'number', placeholder: '4', desc: '每天几点重置会话 (0-23)', group: '会话重置' },
 ]
+
+export const CONFIG_FIELDS: ConfigFieldDef[] = [...AGENT_CONFIG_FIELDS, ...GLOBAL_CONFIG_FIELDS]
 
 export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const keys = path.split('.')
@@ -162,8 +166,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyEnv: 'DEEPSEEK_API_KEY',
     apiKeyLabel: 'DeepSeek API 密钥',
     models: [
-      { id: 'deepseek-chat', label: 'DeepSeek Chat' },
-      { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
+      { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
+      { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+      { id: 'deepseek-chat', label: 'DeepSeek Chat (即将停用)' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner (即将停用)' },
     ],
   },
   {
@@ -173,12 +179,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyEnv: 'DASHSCOPE_API_KEY',
     apiKeyLabel: '通义千问 API 密钥',
     models: [
-      { id: 'qwen-turbo', label: 'Qwen Turbo' },
-      { id: 'qwen-plus', label: 'Qwen Plus' },
-      { id: 'qwen-max', label: 'Qwen Max' },
-      { id: 'qwen-long', label: 'Qwen Long' },
-      { id: 'qwq-32b', label: 'QwQ-32B' },
+      { id: 'qwen3.6-plus', label: 'Qwen3.6 Plus' },
+      { id: 'qwen3.6-max-preview', label: 'Qwen3.6 Max Preview' },
+      { id: 'qwen3.6-flash', label: 'Qwen3.6 Flash' },
+      { id: 'qwen3-max', label: 'Qwen3 Max' },
       { id: 'qwen3-235b-a22b', label: 'Qwen3 235B' },
+      { id: 'qwq-plus', label: 'QwQ Plus' },
+      { id: 'qwen-long', label: 'Qwen Long' },
     ],
   },
   {
@@ -188,11 +195,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyEnv: 'GLM_API_KEY',
     apiKeyLabel: '智谱 API 密钥',
     models: [
-      { id: 'glm-4-plus', label: 'GLM-4 Plus' },
-      { id: 'glm-4-flash', label: 'GLM-4 Flash' },
-      { id: 'glm-4-air', label: 'GLM-4 Air' },
-      { id: 'glm-4-long', label: 'GLM-4 Long' },
-      { id: 'glm-4v-plus', label: 'GLM-4V Plus' },
+      { id: 'glm-5.1', label: 'GLM-5.1' },
+      { id: 'glm-5', label: 'GLM-5' },
+      { id: 'glm-4.7', label: 'GLM-4.7' },
+      { id: 'glm-4.5', label: 'GLM-4.5' },
+      { id: 'glm-4.5-air', label: 'GLM-4.5 Air' },
     ],
   },
   {
@@ -202,20 +209,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyEnv: 'MOONSHOT_API_KEY',
     apiKeyLabel: 'Moonshot API 密钥',
     models: [
-      { id: 'moonshot-v1-8k', label: 'Moonshot V1 8K' },
-      { id: 'moonshot-v1-32k', label: 'Moonshot V1 32K' },
+      { id: 'kimi-k2.5', label: 'Kimi K2.5' },
+      { id: 'kimi-k2-0905-preview', label: 'Kimi K2 0905' },
+      { id: 'kimi-k2-thinking', label: 'Kimi K2 Thinking' },
       { id: 'moonshot-v1-128k', label: 'Moonshot V1 128K' },
-    ],
-  },
-  {
-    id: 'yi',
-    label: '零一万物 (Yi)',
-    baseUrl: 'https://api.lingyiwanwu.com/v1',
-    apiKeyEnv: 'YI_API_KEY',
-    apiKeyLabel: '零一万物 API 密钥',
-    models: [
-      { id: 'yi-lightning', label: 'Yi Lightning' },
-      { id: 'yi-large', label: 'Yi Large' },
+      { id: 'moonshot-v1-32k', label: 'Moonshot V1 32K' },
     ],
   },
   {
@@ -225,8 +223,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyEnv: 'MINIMAX_API_KEY',
     apiKeyLabel: 'MiniMax API 密钥',
     models: [
+      { id: 'MiniMax-M2.5', label: 'MiniMax M2.5' },
       { id: 'MiniMax-Text-01', label: 'MiniMax Text 01' },
-      { id: 'abab6.5s-chat', label: 'ABAB 6.5S' },
     ],
   },
   {
@@ -237,8 +235,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyLabel: '讯飞星火 API 密钥',
     models: [
       { id: '4.0Ultra', label: '星火 4.0 Ultra' },
-      { id: 'generalv3.5', label: '星火 3.5' },
-      { id: 'generalv3', label: '星火 3.0' },
+      { id: 'spark-x', label: '星火 X1.5 (深度推理)' },
+      { id: 'generalv3.5', label: '星火 Max' },
     ],
   },
   {
@@ -250,8 +248,9 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     models: [
       { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
       { id: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
-      { id: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen2.5 72B' },
-      { id: 'THUDM/glm-4-9b-chat', label: 'GLM-4 9B' },
+      { id: 'Qwen/Qwen3-235B-A22B', label: 'Qwen3 235B' },
+      { id: 'Qwen/Qwen3-32B', label: 'Qwen3 32B' },
+      { id: 'THUDM/GLM-4-32B-0414', label: 'GLM-4 32B' },
     ],
   },
   {
@@ -261,9 +260,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     apiKeyEnv: 'QIANFAN_API_KEY',
     apiKeyLabel: '百度千帆 API 密钥',
     models: [
+      { id: 'ernie-4.5-8k', label: 'ERNIE 4.5' },
       { id: 'ernie-4.0-8k', label: 'ERNIE 4.0' },
-      { id: 'ernie-3.5-8k', label: 'ERNIE 3.5' },
-      { id: 'ernie-speed-8k', label: 'ERNIE Speed' },
+      { id: 'ernie-speed-128k', label: 'ERNIE Speed 128K' },
+      { id: 'ernie-lite-8k', label: 'ERNIE Lite' },
     ],
   },
 ]

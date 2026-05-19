@@ -13,7 +13,7 @@ interface PopconfirmProps {
 }
 
 const GAP = 10
-const POPOVER_WIDTH = 220
+const POPOVER_WIDTH = 280
 const VIEWPORT_PADDING = 12
 
 function computePlacement(triggerRect: DOMRect): Placement {

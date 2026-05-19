@@ -1,4 +1,6 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
+import type { Attachment } from '../shared/attachments'
+export type { Attachment, AttachmentKind } from '../shared/attachments'
 
 export type ThemeMode = 'dark' | 'light' | 'auto'
 export type AccentColor = 'violet' | 'indigo' | 'blue' | 'green' | 'orange' | 'lavender' | 'rose' | 'slate'
@@ -275,7 +277,9 @@ interface HermesAPI {
 
   getEmployeeSessions: (name: string) => Promise<Array<Record<string, unknown>>>
 
-  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>, resumeSessionId?: string) => Promise<void>
+  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>, resumeSessionId?: string, attachments?: Attachment[]) => Promise<void>
+  getPathForFile: (file: File) => string
+  stageAttachment: (sessionId: string, filename: string, base64Bytes: string) => Promise<string>
   abortChat: (profileName: string) => Promise<{ success: boolean }>
   sendApproval: (profileName: string, approvalId: string, approved: boolean) => Promise<{ success: boolean; error?: string }>
   healthCheck: (profileName: string) => Promise<{ online: boolean }>
@@ -333,6 +337,9 @@ interface HermesAPI {
   clearLogs: (logFile?: string) => Promise<{ success: boolean; path?: string }>
   getAppConfig: () => Promise<Record<string, unknown>>
   setAppConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>
+  getRuntimeConfig: () => Promise<Record<string, unknown>>
+  setRuntimeConfig: (runtime: Record<string, unknown>) => Promise<{ success: boolean }>
+  restartAllEngines: () => Promise<{ success: boolean; restarted: number; total?: number }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
   getHermesVersion: () => Promise<string | null>
   refreshHermesVersion: () => Promise<string | null>
@@ -357,6 +364,7 @@ interface HermesAPI {
   onEmployeeListChanged: (callback: (data: { action: string; name: string }) => void) => () => void
   onEmployeeIdleTimeout: (callback: (data: { profileName: string }) => void) => () => void
   onNewConversation: (callback: (data: { employeeId: string; sessionId: string }) => void) => () => void
+  onCronSessionCreated: (callback: (data: { profileName: string; sessionId: string; title: string; startedAt: number }) => void) => () => void
   onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void) => () => void
 
   windowMinimize: () => Promise<void>

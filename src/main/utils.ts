@@ -1,6 +1,6 @@
 import { Notification, nativeImage } from "electron";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 import zlib from "zlib";
 import * as jsYaml from "js-yaml";
 import type { BrowserWindow } from "electron";
@@ -19,6 +19,22 @@ export function yamlStringify(obj: Record<string, unknown>): string {
 }
 
 export function createTrayIcon(): Electron.NativeImage {
+  const candidates = [
+    join(process.resourcesPath || "", "tray-icon.png"),
+    join(__dirname, "../../build/tray-icon.png"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        const img = nativeImage.createFromPath(p);
+        if (!img.isEmpty()) {
+          const resized = img.resize({ width: 22, height: 22 });
+          if (process.platform === "darwin") resized.setTemplateImage(true);
+          return resized;
+        }
+      } catch { /* fall through */ }
+    }
+  }
   const size = 16;
   const raw: number[] = [];
   for (let y = 0; y < size; y++) {
@@ -28,9 +44,9 @@ export function createTrayIcon(): Electron.NativeImage {
       const dy = y - size / 2 + 0.5;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < size / 2 - 1) {
-        raw.push(74, 144, 226, 255);
+        raw.push(0, 0, 0, 255);
       } else if (dist < size / 2) {
-        raw.push(74, 144, 226, 128);
+        raw.push(0, 0, 0, 128);
       } else {
         raw.push(0, 0, 0, 0);
       }

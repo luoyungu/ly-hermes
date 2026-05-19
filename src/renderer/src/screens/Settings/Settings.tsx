@@ -25,18 +25,42 @@ import {
   Lock as LockIcon,
   FileText,
   Copy,
-  AlertCircle
+  AlertCircle,
+  Moon,
+  Sun,
+  Monitor,
+  Sparkles,
+  Palette
 } from 'lucide-react'
-import { PROVIDER_PRESETS } from '../../shared/employee-shared'
+import { PROVIDER_PRESETS, GLOBAL_CONFIG_FIELDS, getNestedValue, setNestedValue, type ConfigFieldDef } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
 import { showToast } from '../../App'
+import { THEME_PRESETS } from '../../theme/presets'
+import type { ThemeMode, AccentColor, UiTheme } from '../../../../preload/index'
 
-type Section = 'basic' | 'models' | 'engine' | 'data' | 'logs'
+type Section = 'basic' | 'appearance' | 'runtime' | 'models' | 'engine' | 'data' | 'logs'
+
+const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ReactNode; desc: string }> = [
+  { value: 'dark', label: '暗夜', icon: <Moon size={20} />, desc: '始终使用深色外观' },
+  { value: 'light', label: '明亮', icon: <Sun size={20} />, desc: '始终使用浅色外观' },
+  { value: 'auto', label: '跟随系统', icon: <Monitor size={20} />, desc: '自动匹配系统外观设置' },
+]
+
+const ACCENT_OPTIONS: Array<{ value: AccentColor; label: string; color: string }> = [
+  { value: 'violet', label: '紫罗兰', color: '#7c6aef' },
+  { value: 'indigo', label: '靛蓝', color: '#7878c0' },
+  { value: 'blue', label: '海蓝', color: '#4a9ed6' },
+  { value: 'green', label: '翠绿', color: '#4a9e5c' },
+  { value: 'orange', label: '暖橙', color: '#d08040' },
+  { value: 'lavender', label: '薰衣草', color: '#9080c8' },
+  { value: 'rose', label: '玫瑰', color: '#c87090' },
+  { value: 'slate', label: '石板灰', color: '#7a8a9e' },
+]
 
 export default function SettingsScreen(): React.ReactElement {
   const { isMac } = usePlatform()
-  const { lexicon } = useTheme()
+  const { lexicon, mode, accent, uiTheme, setMode, setAccent, setUiTheme } = useTheme()
   const [section, setSection] = useState<Section>('basic')
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<'idle' | 'success' | 'error'>('idle')
@@ -49,6 +73,7 @@ export default function SettingsScreen(): React.ReactElement {
   const [doctorRunning, setDoctorRunning] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [reinstalling, setReinstalling] = useState(false)
+  const [restartingEngines, setRestartingEngines] = useState(false)
   const [updateResult, setUpdateResult] = useState<string | null>(null)
   const [updateResultType, setUpdateResultType] = useState<'success' | 'error' | null>(null)
   const [updateLog, setUpdateLog] = useState<string | null>(null)
@@ -82,6 +107,10 @@ export default function SettingsScreen(): React.ReactElement {
   const [modelFormApiKey, setModelFormApiKey] = useState('')
   const [modelFormSaving, setModelFormSaving] = useState(false)
   const [modelFormError, setModelFormError] = useState<string | null>(null)
+
+  const [runtimeObj, setRuntimeObj] = useState<Record<string, unknown>>({})
+  const [runtimeOriginal, setRuntimeOriginal] = useState<Record<string, unknown>>({})
+  const [runtimeSaving, setRuntimeSaving] = useState(false)
 
   const loadSavedModels = useCallback(async () => {
     try {
@@ -145,6 +174,14 @@ export default function SettingsScreen(): React.ReactElement {
   useEffect(() => {
     loadSavedModels()
   }, [loadSavedModels])
+
+  useEffect(() => {
+    window.hermesAPI.getRuntimeConfig().then((c) => {
+      const obj = c && typeof c === 'object' ? c as Record<string, unknown> : {}
+      setRuntimeObj(obj)
+      setRuntimeOriginal(JSON.parse(JSON.stringify(obj)))
+    }).catch(() => {})
+  }, [])
 
   const parsedVersion = (() => {
     if (!hermesVersion) return null
@@ -213,6 +250,45 @@ export default function SettingsScreen(): React.ReactElement {
     }
   }
 
+  const handleRestartEngines = async (): Promise<void> => {
+    setRestartingEngines(true)
+    try {
+      const result = await window.hermesAPI.restartAllEngines()
+      if (result.success) {
+        if (result.restarted === 0) {
+          showToast('当前没有在线引擎')
+        } else {
+          showToast(`已重启 ${result.restarted}/${result.total} 个引擎`)
+        }
+      } else {
+        showToast('重启引擎失败', 'error')
+      }
+    } catch {
+      showToast('重启引擎失败', 'error')
+    } finally {
+      setRestartingEngines(false)
+    }
+  }
+
+  const handleModeChange = (newMode: ThemeMode): void => {
+    document.documentElement.classList.add('theme-transitioning')
+    setMode(newMode)
+    setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 500)
+  }
+
+  const handleAccentChange = (newAccent: AccentColor): void => {
+    document.documentElement.classList.add('theme-transitioning')
+    setAccent(newAccent)
+    setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 500)
+  }
+
+  const handleUiThemeChange = (newUiTheme: UiTheme): void => {
+    document.documentElement.classList.add('theme-transitioning')
+    setUiTheme(newUiTheme)
+    setAccent(THEME_PRESETS[newUiTheme].defaultAccent)
+    setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 500)
+  }
+
   const handleSave = async (): Promise<void> => {
     setSaving(true)
     setSaveResult('idle')
@@ -230,6 +306,23 @@ export default function SettingsScreen(): React.ReactElement {
     } finally {
       setSaving(false)
       setTimeout(() => setSaveResult('idle'), 2000)
+    }
+  }
+
+  const updateRuntimeField = (key: string, value: unknown): void => {
+    setRuntimeObj(prev => setNestedValue(prev, key, value))
+  }
+
+  const handleSaveRuntime = async (): Promise<void> => {
+    setRuntimeSaving(true)
+    try {
+      await window.hermesAPI.setRuntimeConfig(runtimeObj)
+      setRuntimeOriginal(JSON.parse(JSON.stringify(runtimeObj)))
+      showToast('运行参数已保存')
+    } catch {
+      showToast('保存运行参数失败', 'error')
+    } finally {
+      setRuntimeSaving(false)
     }
   }
 
@@ -403,8 +496,10 @@ export default function SettingsScreen(): React.ReactElement {
 
   const sectionItems: { key: Section; label: string; icon: React.ReactNode }[] = [
     { key: 'basic', label: '基础设置', icon: <SettingsIcon size={16} /> },
+    { key: 'appearance', label: '外观', icon: <Palette size={16} /> },
+    { key: 'runtime', label: '运行参数', icon: <Wrench size={16} /> },
     { key: 'models', label: '模型管理', icon: <Box size={16} /> },
-    { key: 'engine', label: '引擎管理', icon: <Wrench size={16} /> },
+    { key: 'engine', label: '引擎管理', icon: <Terminal size={16} /> },
     { key: 'data', label: '数据管理', icon: <Download size={16} /> },
     { key: 'logs', label: '系统日志', icon: <FileText size={16} /> }
   ]
@@ -535,6 +630,201 @@ export default function SettingsScreen(): React.ReactElement {
                   >
                     <LogOut size={16} /> 退出登录
                   </button>
+                </div>
+              </section>
+            )}
+
+            {section === 'appearance' && (
+              <section className="animate-fade-in">
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">外观</h3>
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{lexicon.appearance.themePack}</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.values(THEME_PRESETS).map((preset) => {
+                        const isActive = uiTheme === preset.id
+                        return (
+                          <button
+                            key={preset.id}
+                            onClick={() => handleUiThemeChange(preset.id)}
+                            className={`group flex flex-col items-start gap-4 rounded-xl border-2 p-5 text-left transition-all cursor-pointer ${
+                              isActive
+                                ? 'border-[var(--accent)] bg-[var(--accent-glow)] shadow-[0_0_20px_var(--accent-glow)]'
+                                : 'border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--text-dim)]'
+                            }`}
+                          >
+                            <div className="flex w-full items-center justify-between gap-3">
+                              <div className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
+                                isActive ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
+                              }`}>
+                                <Sparkles size={19} />
+                              </div>
+                              <div className="flex gap-1.5">
+                                {preset.swatch.map((color) => (
+                                  <span key={color} className="h-5 w-5 rounded-full border border-[var(--border)]" style={{ backgroundColor: color }} />
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <div className={`text-sm font-semibold ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
+                                {preset.label}
+                              </div>
+                              <div className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                                {preset.desc}
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="mt-2 text-xs text-[var(--text-dim)]">{lexicon.appearance.themePackDesc}</p>
+                  </div>
+
+                  <div>
+                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">模式</h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      {MODE_OPTIONS.map((opt) => {
+                        const isActive = mode === opt.value
+                        return (
+                          <button
+                            key={opt.value}
+                            onClick={() => handleModeChange(opt.value)}
+                            className={`group flex flex-col items-center gap-3 rounded-xl border-2 p-5 transition-all cursor-pointer ${
+                              isActive
+                                ? 'border-[var(--accent)] bg-[var(--accent-glow)] shadow-[0_0_20px_var(--accent-glow)]'
+                                : 'border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--text-dim)]'
+                            }`}
+                          >
+                            <div className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
+                              isActive ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
+                            }`}>
+                              {opt.icon}
+                            </div>
+                            <div className="text-center">
+                              <div className={`text-sm font-medium ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
+                                {opt.label}
+                              </div>
+                              <div className="mt-0.5 text-[11px] text-[var(--text-dim)] leading-snug">
+                                {opt.desc}
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">主题色</h4>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
+                      <div className="flex items-center gap-4 flex-wrap">
+                        {ACCENT_OPTIONS.map((opt) => {
+                          const isActive = accent === opt.value
+                          return (
+                            <button
+                              key={opt.value}
+                              onClick={() => handleAccentChange(opt.value)}
+                              className="group flex flex-col items-center gap-2 cursor-pointer"
+                              title={opt.label}
+                            >
+                              <div className={`relative h-9 w-9 rounded-full transition-all ${
+                                isActive ? 'ring-2 ring-offset-2 ring-offset-[var(--bg-surface)]' : 'hover:scale-110'
+                              }`} style={{
+                                backgroundColor: opt.color,
+                                ['--tw-ring-color' as string]: opt.color,
+                              }}>
+                                {isActive && (
+                                  <svg className="absolute inset-0 h-full w-full text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                )}
+                              </div>
+                              <span className={`text-[10px] transition-colors ${
+                                isActive ? 'text-[var(--text-primary)] font-medium' : 'text-[var(--text-dim)] group-hover:text-[var(--text-secondary)]'
+                              }`}>
+                                {opt.label}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {section === 'runtime' && (
+              <section className="animate-fade-in">
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">运行参数</h3>
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 flex items-start gap-3">
+                    <Wrench size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
+                    <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                      这些参数对所有员工<strong className="text-[var(--text-primary)]">全局生效</strong>，包括记忆、压缩、终端、代码执行、浏览器和会话重置策略。
+                    </div>
+                  </div>
+                  {(() => {
+                    const groups: { name: string; fields: ConfigFieldDef[] }[] = []
+                    for (const f of GLOBAL_CONFIG_FIELDS) {
+                      const g = groups.find(g => g.name === f.group)
+                      if (g) g.fields.push(f)
+                      else groups.push({ name: f.group, fields: [f] })
+                    }
+                    return groups.map(group => (
+                      <div key={group.name}>
+                        <div className="text-xs font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-2 px-1">{group.name}</div>
+                        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] overflow-hidden">
+                          {group.fields.map((field, i) => {
+                            const rawValue = getNestedValue(runtimeObj, field.key)
+                            return (
+                              <div key={field.key} className={`flex items-center gap-4 px-4 py-3.5 ${i > 0 ? 'border-t border-[var(--border)]' : ''}`}>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-[var(--text-primary)]">{field.label}</div>
+                                  <div className="text-xs text-[var(--text-dim)] mt-0.5">{field.desc}</div>
+                                </div>
+                                <div className="w-[200px] shrink-0 flex justify-end">
+                                  {field.type === 'toggle' ? (
+                                    <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
+                                      <input type="checkbox" checked={!!rawValue} onChange={(e) => updateRuntimeField(field.key, e.target.checked)} className="sr-only peer" />
+                                      <span className={`tools-toggle-track ${!!rawValue ? 'bg-[var(--accent)] border-[var(--accent)] after:translate-x-[18px] after:bg-white' : ''}`} />
+                                    </label>
+                                  ) : field.type === 'select' ? (
+                                    <select
+                                      value={String(rawValue ?? '')}
+                                      onChange={(e) => updateRuntimeField(field.key, e.target.value)}
+                                      className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)] cursor-pointer"
+                                    >
+                                      <option value="">默认</option>
+                                      {field.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type={field.type === 'number' ? 'number' : 'text'}
+                                      value={String(rawValue ?? '')}
+                                      onChange={(e) => {
+                                        const v = e.target.value
+                                        updateRuntimeField(field.key, v === '' ? '' : (field.type === 'number' ? Number(v) : v))
+                                      }}
+                                      placeholder={field.placeholder}
+                                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--accent)]"
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  })()}
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setRuntimeObj(JSON.parse(JSON.stringify(runtimeOriginal)))} className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] px-3.5 py-2 text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">重置</button>
+                    <button onClick={handleSaveRuntime} disabled={runtimeSaving} className="flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3.5 py-2 text-sm font-semibold text-white cursor-pointer hover:opacity-90 disabled:opacity-40 transition-all">
+                      {runtimeSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                      {runtimeSaving ? '保存中...' : '保存'}
+                    </button>
+                  </div>
                 </div>
               </section>
             )}
@@ -925,14 +1215,24 @@ export default function SettingsScreen(): React.ReactElement {
                           {doctorRunning ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
                           {doctorRunning ? '诊断中...' : '运行诊断'}
                         </button>
-                        <button
-                          onClick={handleReinstall}
-                          disabled={reinstalling}
-                          className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[rgba(239,68,68,0.1)] border-[rgba(239,68,68,0.3)] px-4 py-2 text-sm text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-50"
-                        >
-                          {reinstalling ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
-                          {reinstalling ? '安装中...' : '重新安装'}
-                        </button>
+                        <Popconfirm title="重启引擎将中断所有正在运行的对话和任务，确定继续？" confirmText="重启引擎" onConfirm={handleRestartEngines}>
+                          <button
+                            disabled={restartingEngines}
+                            className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                          >
+                            {restartingEngines ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                            {restartingEngines ? '重启中...' : '重启引擎'}
+                          </button>
+                        </Popconfirm>
+                        <Popconfirm title="重新安装将删除当前引擎并从远程重新拉取，过程中所有正在运行的任务将被中断。确定继续？" confirmText="重新安装" onConfirm={handleReinstall}>
+                          <button
+                            disabled={reinstalling}
+                            className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[rgba(239,68,68,0.1)] border-[rgba(239,68,68,0.3)] px-4 py-2 text-sm text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-50"
+                          >
+                            {reinstalling ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
+                            {reinstalling ? '安装中...' : '重新安装'}
+                          </button>
+                        </Popconfirm>
                       </div>
 
                       {updateResult && (

@@ -1,5 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { Attachment } from '../shared/attachments'
 
 export interface ChatUsage {
   promptTokens: number
@@ -276,6 +277,9 @@ const hermesAPI = {
   restartEmployee: (name: string): Promise<{ success: boolean; status?: string; error?: string }> =>
     ipcRenderer.invoke('employee:restart', name),
 
+  restartAllEngines: (): Promise<{ success: boolean; restarted: number; total?: number }> =>
+    ipcRenderer.invoke('restart-all-engines'),
+
   getEmployeeStatus: (name: string): Promise<string> =>
     ipcRenderer.invoke('employee:status', name),
 
@@ -360,8 +364,19 @@ const hermesAPI = {
   getEmployeeSessions: (name: string): Promise<Array<Record<string, unknown>>> =>
     ipcRenderer.invoke('employee:get-sessions', name),
 
-  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>, resumeSessionId?: string): Promise<void> =>
-    ipcRenderer.invoke('send-message', profileName, message, history, resumeSessionId),
+  sendMessage: (profileName: string, message: string, history?: Array<{ role: string; content: string }>, resumeSessionId?: string, attachments?: Attachment[]): Promise<void> =>
+    ipcRenderer.invoke('send-message', profileName, message, history, resumeSessionId, attachments),
+
+  getPathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file) || ''
+    } catch {
+      return ''
+    }
+  },
+
+  stageAttachment: (sessionId: string, filename: string, base64Bytes: string): Promise<string> =>
+    ipcRenderer.invoke('stage-attachment', sessionId, filename, base64Bytes),
 
   abortChat: (profileName: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('abort-chat', profileName),
@@ -531,6 +546,12 @@ const hermesAPI = {
   setAppConfig: (config: Record<string, unknown>): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('set-app-config', config),
 
+  getRuntimeConfig: (): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('get-runtime-config'),
+
+  setRuntimeConfig: (runtime: Record<string, unknown>): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('set-runtime-config', runtime),
+
   saveWallpaperFile: (dataUrl: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('save-wallpaper-file', dataUrl),
 
@@ -654,6 +675,13 @@ const hermesAPI = {
       callback(data as { employeeId: string; sessionId: string })
     ipcRenderer.on('new-conversation', handler)
     return () => ipcRenderer.removeListener('new-conversation', handler)
+  },
+
+  onCronSessionCreated: (callback: (data: { profileName: string; sessionId: string; title: string; startedAt: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
+      callback(data as { profileName: string; sessionId: string; title: string; startedAt: number })
+    ipcRenderer.on('cron-session-created', handler)
+    return () => ipcRenderer.removeListener('cron-session-created', handler)
   },
 
   onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void): (() => void) => {
