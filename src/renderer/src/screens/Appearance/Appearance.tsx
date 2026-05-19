@@ -53,7 +53,7 @@ export default function Appearance(): React.ReactElement {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <h2 className="screen-header-title">{lexicon.nav.appearance}</h2>
       </div>
 

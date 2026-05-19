@@ -22,13 +22,17 @@ import {
   Trash2,
   Box,
   ArrowUpCircle,
-  Lock as LockIcon
+  Lock as LockIcon,
+  FileText,
+  Copy,
+  AlertCircle
 } from 'lucide-react'
 import { PROVIDER_PRESETS } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
+import { showToast } from '../../App'
 
-type Section = 'basic' | 'models' | 'engine' | 'data'
+type Section = 'basic' | 'models' | 'engine' | 'data' | 'logs'
 
 export default function SettingsScreen(): React.ReactElement {
   const { isMac } = usePlatform()
@@ -401,12 +405,13 @@ export default function SettingsScreen(): React.ReactElement {
     { key: 'basic', label: '基础设置', icon: <SettingsIcon size={16} /> },
     { key: 'models', label: '模型管理', icon: <Box size={16} /> },
     { key: 'engine', label: '引擎管理', icon: <Wrench size={16} /> },
-    { key: 'data', label: '数据管理', icon: <Download size={16} /> }
+    { key: 'data', label: '数据管理', icon: <Download size={16} /> },
+    { key: 'logs', label: '系统日志', icon: <FileText size={16} /> }
   ]
 
   return (
     <div className="flex h-full flex-col">
-      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <h2 className="screen-header-title">{lexicon.nav.settings}</h2>
       </div>
       <div className="flex flex-1 overflow-hidden">
@@ -1009,9 +1014,184 @@ export default function SettingsScreen(): React.ReactElement {
                 </div>
               </section>
             )}
+
+            {section === 'logs' && (
+              <LogsSection />
+            )}
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+const LOG_FILES = [
+  { key: 'agent.log', label: 'Agent', icon: Terminal, color: 'var(--accent)' },
+  { key: 'gateway.log', label: 'Gateway', icon: FileText, color: 'var(--info, #3b82f6)' },
+  { key: 'errors.log', label: '错误', icon: AlertCircle, color: 'var(--danger, #ef4444)' },
+]
+
+function LogsSection(): React.ReactElement {
+  const [activeLog, setActiveLog] = useState('agent.log')
+  const [logContent, setLogContent] = useState('')
+  const [logPath, setLogPath] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const loadLogs = useCallback(async (logFile?: string) => {
+    setLoading(true)
+    try {
+      const file = logFile || activeLog
+      const result = await window.hermesAPI?.readLogs(file, 500)
+      if (result) {
+        setLogContent(result.content)
+        setLogPath(result.path)
+      }
+    } catch { /* ignore */ }
+    finally { setLoading(false) }
+  }, [activeLog])
+
+  useEffect(() => {
+    loadLogs()
+  }, [loadLogs])
+
+  useEffect(() => {
+    if (autoRefresh) {
+      autoRefreshRef.current = setInterval(() => loadLogs(), 3000)
+    } else if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current)
+      autoRefreshRef.current = null
+    }
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current)
+    }
+  }, [autoRefresh, loadLogs])
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(logContent)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
+
+  const handleClear = async (): Promise<void> => {
+    try {
+      const result = await window.hermesAPI?.clearLogs(activeLog)
+      if (result?.success) {
+        setLogContent('')
+        showToast('日志已清空')
+        loadLogs(activeLog)
+      } else {
+        showToast('清空日志失败', 'error')
+      }
+    } catch { showToast('清空日志失败', 'error') }
+  }
+
+  const parseLogLine = (line: string) => {
+    const match = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d{3})\s+(INFO|WARNING|ERROR|DEBUG|CRITICAL)\s+(\S+?):\s*(.*)$/)
+    if (match) {
+      const levelMap: Record<string, string> = { INFO: 'info', WARNING: 'warn', ERROR: 'error', DEBUG: 'debug', CRITICAL: 'error' }
+      return { timestamp: match[1].replace(',', '.'), level: levelMap[match[2]] || match[2].toLowerCase(), message: `${match[3]}: ${match[4]}` }
+    }
+    return { timestamp: '', level: '', message: line }
+  }
+
+  const getLevelColor = (level: string) => {
+    switch (level) {
+      case 'error': return 'text-red-400'
+      case 'warn': return 'text-yellow-400'
+      case 'info': return 'text-blue-400'
+      case 'debug': return 'text-gray-400'
+      default: return 'text-[var(--text-primary)]'
+    }
+  }
+
+  const lines = logContent.split('\n').filter(l => l.trim())
+  const lineCount = lines.length
+
+  return (
+    <section className="animate-fade-in">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">系统日志</h3>
+          <p className="text-xs text-[var(--text-dim)] mt-1 font-mono truncate max-w-md">{logPath || '加载中...'}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`px-3 py-1.5 text-xs rounded-lg transition-all ${
+              autoRefresh
+                ? 'bg-accent-gradient text-white shadow-sm'
+                : 'bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)]'
+            }`}
+          >
+            自动刷新
+          </button>
+          <button onClick={handleCopy} disabled={!logContent} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-30" title="复制">
+            {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+          </button>
+          <Popconfirm title="确认清空当前日志？" confirmText="清空" onConfirm={handleClear}>
+            <button disabled={!logContent} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] transition-all disabled:opacity-30" title="清空">
+              <Trash2 size={14} />
+            </button>
+          </Popconfirm>
+          <button onClick={() => loadLogs()} disabled={loading} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-50" title="刷新">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        {LOG_FILES.map(log => {
+          const Icon = log.icon
+          const isActive = activeLog === log.key
+          return (
+            <button
+              key={log.key}
+              onClick={() => { setActiveLog(log.key); loadLogs(log.key) }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs font-medium ${
+                isActive
+                  ? 'bg-accent-gradient text-white shadow-sm'
+                  : 'bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Icon size={12} />
+              <span>{log.label}</span>
+            </button>
+          )
+        })}
+        <span className="ml-auto text-[11px] text-[var(--text-dim)]">{lineCount} 行</span>
+      </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[rgba(0,0,0,0.2)] overflow-hidden">
+        <div className="h-[500px] overflow-auto px-4 py-3 font-mono text-xs leading-5">
+          {loading && !logContent ? (
+            <div className="flex items-center justify-center h-full text-[var(--text-dim)]">
+              <RefreshCw size={18} className="animate-spin mr-2" /> 加载中...
+            </div>
+          ) : lineCount === 0 ? (
+            <div className="flex items-center justify-center h-full text-[var(--text-dim)]">暂无日志</div>
+          ) : (
+            lines.map((line, i) => {
+              const parsed = parseLogLine(line)
+              return (
+                <div key={i} className="flex gap-3 hover:bg-[rgba(255,255,255,0.03)]">
+                  {parsed.timestamp && <span className="text-[var(--text-dim)] shrink-0 select-none">{parsed.timestamp.split(' ')[1]?.split(',')[0] || ''}</span>}
+                  {parsed.level && (
+                    <span className={`shrink-0 w-12 text-right font-semibold ${getLevelColor(parsed.level)}`}>
+                      {parsed.level.toUpperCase().padEnd(5)}
+                    </span>
+                  )}
+                  <span className={`${getLevelColor(parsed.level)} break-all`}>{parsed.message}</span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+    </section>
   )
 }

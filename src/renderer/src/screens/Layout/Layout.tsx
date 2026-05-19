@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { MessageSquare, Settings, Info, LogOut, Palette, Users, Calendar, BarChart3, FileText } from 'lucide-react'
+import { MessageSquare, Settings, Info, LogOut, Palette, Users, Calendar, BarChart3 } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import Chat from '../Chat/Chat'
 import SettingsScreen from '../Settings/Settings'
@@ -8,11 +8,10 @@ import Appearance from '../Appearance/Appearance'
 import Manage from '../Manage/Manage'
 import Schedule from '../Schedule/Schedule'
 import { TokenStats } from '../Chat/TokenStats'
-import LogsScreen from '../Logs/Logs'
 import WindowControls from '../../components/WindowControls'
 import { useTheme } from '../../components/ThemeProvider'
 
-type ViewId = 'chat' | 'manage' | 'schedule' | 'appearance' | 'settings' | 'about' | 'token-stats' | 'logs'
+type ViewId = 'chat' | 'manage' | 'schedule' | 'appearance' | 'settings' | 'about' | 'token-stats'
 
 interface NavItem {
   id: ViewId
@@ -27,7 +26,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'token-stats', icon: <BarChart3 size={22} />, label: 'tokenStats' },
   { id: 'appearance', icon: <Palette size={22} />, label: 'appearance' },
   { id: 'settings', icon: <Settings size={22} />, label: 'settings' },
-  { id: 'logs', icon: <FileText size={22} />, label: 'logs' },
   { id: 'about', icon: <Info size={22} />, label: 'about' }
 ]
 
@@ -135,11 +133,6 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
         {visitedViews.has('about') && (
           <div className={`h-full ${currentView === 'about' ? '' : 'hidden'}`}>
             <About />
-          </div>
-        )}
-        {visitedViews.has('logs') && (
-          <div className={`h-full ${currentView === 'logs' ? '' : 'hidden'}`}>
-            <LogsScreen />
           </div>
         )}
         </div>

@@ -1,27 +1,179 @@
-import { existsSync, readdirSync, readFileSync, statSync, rmSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync, rmSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { HERMES_HOME, loadAppConfig, getProfilePath, runHermesCli } from "./config";
+import * as yaml from "./lib/yaml-simple";
+import { safeWriteFile, yamlStringify } from "./utils";
 
 export interface InstalledSkill {
+  id: string;
   name: string;
   category: string;
   description: string;
   path: string;
+  type: "prompt" | "tool" | "workflow";
+  enabled: boolean;
+  source: "official" | "custom";
+  version?: string;
+  requiredTools?: string[];
+  stats?: SkillUsageStats;
 }
 
 export interface BundledSkill {
+  id: string;
   name: string;
   description: string;
   category: string;
   source: string;
   installed: boolean;
+  type: "prompt" | "tool" | "workflow";
+  version?: string;
+  requiredTools?: string[];
+}
+
+export interface SkillUsageStats {
+  uses: number;
+  successes: number;
+  failures: number;
+  xp: number;
+  lastUsedAt: number | null;
+}
+
+interface SkillConfig {
+  enabled: Record<string, boolean>;
+  stats: Record<string, SkillUsageStats>;
+  updatedAt?: number;
+}
+
+interface SkillMeta {
+  name: string;
+  description: string;
+  type: "prompt" | "tool" | "workflow";
+  version?: string;
+  requiredTools?: string[];
+}
+
+const DEFAULT_SKILL_STATS: SkillUsageStats = {
+  uses: 0,
+  successes: 0,
+  failures: 0,
+  xp: 0,
+  lastUsedAt: null,
+};
+
+function getSkillConfigPath(profile?: string): string {
+  return join(getProfilePath(profile || "default"), "skill-config.json");
+}
+
+function loadSkillConfig(profile?: string): SkillConfig {
+  const configPath = getSkillConfigPath(profile);
+  try {
+    if (existsSync(configPath)) {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<SkillConfig>;
+      return {
+        enabled: raw.enabled && typeof raw.enabled === "object" ? raw.enabled : {},
+        stats: raw.stats && typeof raw.stats === "object" ? raw.stats : {},
+        updatedAt: raw.updatedAt,
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+  return { enabled: {}, stats: {} };
+}
+
+function saveSkillConfig(profile: string | undefined, config: SkillConfig): void {
+  const configPath = getSkillConfigPath(profile);
+  mkdirSync(getProfilePath(profile || "default"), { recursive: true });
+  writeFileSync(
+    configPath,
+    JSON.stringify({ ...config, updatedAt: Date.now() }, null, 2),
+    "utf-8",
+  );
+}
+
+function getProfileConfigPath(profile?: string): string {
+  return join(getProfilePath(profile || "default"), "config.yaml");
+}
+
+function readDisabledSkillNames(profile?: string): Set<string> {
+  const configPath = getProfileConfigPath(profile);
+  if (!existsSync(configPath)) return new Set();
+  try {
+    const cfg = yaml.parse(readFileSync(configPath, "utf-8"));
+    const skillsCfg = cfg.skills as Record<string, unknown> | undefined;
+    const disabled = skillsCfg?.disabled;
+    if (Array.isArray(disabled)) {
+      return new Set(disabled.map((v) => String(v).trim()).filter(Boolean));
+    }
+    if (typeof disabled === "string" && disabled.trim()) {
+      return new Set([disabled.trim()]);
+    }
+  } catch {
+    /* fall through */
+  }
+  return new Set();
+}
+
+function saveDisabledSkillNames(profile: string | undefined, disabledNames: Set<string>): void {
+  const configPath = getProfileConfigPath(profile);
+  let cfg: Record<string, unknown> = {};
+  try {
+    if (existsSync(configPath)) {
+      cfg = yaml.parse(readFileSync(configPath, "utf-8"));
+    }
+  } catch {
+    cfg = {};
+  }
+  if (!cfg.skills || typeof cfg.skills !== "object") {
+    cfg.skills = {};
+  }
+  (cfg.skills as Record<string, unknown>).disabled = Array.from(disabledNames).sort();
+  safeWriteFile(configPath, yamlStringify(cfg));
+}
+
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120) || "skill";
+}
+
+function getSkillId(category: string, name: string): string {
+  return `${slugify(category || "general")}/${slugify(name)}`;
+}
+
+function parseListValue(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed
+      .slice(1, -1)
+      .split(",")
+      .map((v) => v.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+  }
+  return trimmed
+    .split(",")
+    .map((v) => v.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
 }
 
 function parseSkillFrontmatter(content: string): {
   name: string;
   description: string;
+  type?: "prompt" | "tool" | "workflow";
+  version?: string;
+  requiredTools?: string[];
 } {
-  const result = { name: "", description: "" };
+  const result: {
+    name: string;
+    description: string;
+    type?: "prompt" | "tool" | "workflow";
+    version?: string;
+    requiredTools?: string[];
+  } = { name: "", description: "" };
 
   if (!content.startsWith("---")) {
     const headingMatch = content.match(/^#\s+(.+)/m);
@@ -44,6 +196,18 @@ function parseSkillFrontmatter(content: string): {
   );
   if (descMatch) result.description = descMatch[1].trim();
 
+  const typeMatch = frontmatter.match(/^\s*type:\s*["']?([^"'\n]+)["']?\s*$/m);
+  const typeValue = typeMatch ? typeMatch[1].trim() : "";
+  if (typeValue === "tool" || typeValue === "workflow" || typeValue === "prompt") {
+    result.type = typeValue;
+  }
+
+  const versionMatch = frontmatter.match(/^\s*version:\s*["']?([^"'\n]+)["']?\s*$/m);
+  if (versionMatch) result.version = versionMatch[1].trim();
+
+  const toolsMatch = frontmatter.match(/^\s*(requiredTools|required_tools):\s*(.+)\s*$/m);
+  if (toolsMatch) result.requiredTools = parseListValue(toolsMatch[2]);
+
   return result;
 }
 
@@ -59,19 +223,53 @@ function safeStat(p: string): { isDir: boolean; isFile: boolean } {
 function readSkillMeta(entryPath: string, entryName: string): {
   name: string;
   description: string;
+  type: "prompt" | "tool" | "workflow";
+  version?: string;
+  requiredTools?: string[];
 } {
   const skillFile = join(entryPath, "SKILL.md");
-  if (!existsSync(skillFile)) return { name: entryName, description: "" };
+  if (!existsSync(skillFile)) return { name: entryName, description: "", type: "prompt" };
   try {
     const content = readFileSync(skillFile, "utf-8").slice(0, 4000);
     const meta = parseSkillFrontmatter(content);
-    return { name: meta.name || entryName, description: meta.description || "" };
+    return {
+      name: meta.name || entryName,
+      description: meta.description || "",
+      type: meta.type || "prompt",
+      version: meta.version,
+      requiredTools: meta.requiredTools,
+    };
   } catch {
-    return { name: entryName, description: "" };
+    return { name: entryName, description: "", type: "prompt" };
   }
 }
 
-function scanSkillsDir(skillsDir: string): InstalledSkill[] {
+function buildInstalledSkill(
+  meta: SkillMeta,
+  category: string,
+  path: string,
+  profile?: string,
+): InstalledSkill {
+  const id = getSkillId(category, meta.name);
+  const config = loadSkillConfig(profile);
+  const disabledNames = readDisabledSkillNames(profile);
+  const enabled = config.enabled[id] !== false && !disabledNames.has(meta.name);
+  return {
+    id,
+    name: meta.name,
+    category,
+    description: meta.description,
+    path,
+    type: meta.type,
+    enabled,
+    source: "official",
+    version: meta.version,
+    requiredTools: meta.requiredTools,
+    stats: config.stats[id] || { ...DEFAULT_SKILL_STATS },
+  };
+}
+
+function scanSkillsDir(skillsDir: string, profile?: string): InstalledSkill[] {
   const skills: InstalledSkill[] = [];
   if (!existsSync(skillsDir)) return skills;
 
@@ -92,12 +290,7 @@ function scanSkillsDir(skillsDir: string): InstalledSkill[] {
     const skillFile = join(topPath, "SKILL.md");
     if (existsSync(skillFile)) {
       const meta = readSkillMeta(topPath, topEntry);
-      skills.push({
-        name: meta.name,
-        category: "general",
-        description: meta.description,
-        path: topPath,
-      });
+      skills.push(buildInstalledSkill(meta, "general", topPath, profile));
       continue;
     }
 
@@ -119,12 +312,7 @@ function scanSkillsDir(skillsDir: string): InstalledSkill[] {
       if (!existsSync(subSkillFile)) continue;
 
       const meta = readSkillMeta(subPath, subEntry);
-      skills.push({
-        name: meta.name,
-        category: topEntry,
-        description: meta.description,
-        path: subPath,
-      });
+      skills.push(buildInstalledSkill(meta, topEntry, subPath, profile));
     }
   }
 
@@ -138,7 +326,7 @@ export function listInstalledSkills(profile?: string): InstalledSkill[] {
   const profilePath = getProfilePath(profile || "default");
   const skillsDir = join(profilePath, "skills");
   console.log("[skills] listInstalledSkills profile:", profile, "dir:", skillsDir);
-  const result = scanSkillsDir(skillsDir);
+  const result = scanSkillsDir(skillsDir, profile);
   console.log("[skills] listInstalledSkills found:", result.length, "skills");
   return result;
 }
@@ -204,12 +392,17 @@ export function listBundledSkills(profile?: string): BundledSkill[] {
     if (existsSync(skillFile)) {
       const meta = readSkillMeta(topPath, topEntry);
       const skillName = meta.name;
+      const category = "general";
       skills.push({
+        id: getSkillId(category, skillName),
         name: skillName,
         description: meta.description,
-        category: "general",
+        category,
         source: "bundled",
         installed: installedNames.has(skillName.toLowerCase()),
+        type: meta.type,
+        version: meta.version,
+        requiredTools: meta.requiredTools,
       });
       continue;
     }
@@ -234,11 +427,15 @@ export function listBundledSkills(profile?: string): BundledSkill[] {
       const meta = readSkillMeta(subPath, subEntry);
       const skillName = meta.name;
       skills.push({
+        id: getSkillId(topEntry, skillName),
         name: skillName,
         description: meta.description,
         category: topEntry,
         source: "bundled",
         installed: installedNames.has(skillName.toLowerCase()),
+        type: meta.type,
+        version: meta.version,
+        requiredTools: meta.requiredTools,
       });
     }
   }
@@ -262,12 +459,17 @@ export function listBundledSkills(profile?: string): BundledSkill[] {
       if (existsSync(skillFile)) {
         const meta = readSkillMeta(optPath, optEntry);
         const skillName = meta.name;
+        const category = "optional";
         skills.push({
+          id: getSkillId(category, skillName),
           name: skillName,
           description: meta.description,
-          category: "optional",
+          category,
           source: "optional",
           installed: installedNames.has(skillName.toLowerCase()),
+          type: meta.type,
+          version: meta.version,
+          requiredTools: meta.requiredTools,
         });
         continue;
       }
@@ -291,12 +493,17 @@ export function listBundledSkills(profile?: string): BundledSkill[] {
 
         const meta = readSkillMeta(subPath, subEntry);
         const skillName = meta.name;
+        const category = `optional/${optEntry}`;
         skills.push({
+          id: getSkillId(category, skillName),
           name: skillName,
           description: meta.description,
-          category: `optional/${optEntry}`,
+          category,
           source: "optional",
           installed: installedNames.has(skillName.toLowerCase()),
+          type: meta.type,
+          version: meta.version,
+          requiredTools: meta.requiredTools,
         });
       }
     }
@@ -319,7 +526,71 @@ export function installSkill(
     if (output.includes("Error") || output.includes("error")) {
       return { success: false, error: output };
     }
+    const installed = listInstalledSkills(profile);
+    const installedSkill = installed.find((s) => s.name.toLowerCase() === identifier.toLowerCase());
+    if (installedSkill) {
+      setSkillEnabled(installedSkill.id, true, profile);
+    }
     return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export function getSkillConfig(profile?: string): SkillConfig {
+  return loadSkillConfig(profile);
+}
+
+export function setSkillEnabled(
+  skillId: string,
+  enabled: boolean,
+  profile?: string,
+): { success: boolean; error?: string } {
+  try {
+    if (!skillId || typeof skillId !== "string") {
+      return { success: false, error: "无效的技能 ID" };
+    }
+    const skill = listInstalledSkills(profile).find((item) => item.id === skillId);
+    if (!skill) {
+      return { success: false, error: "技能不存在或未安装" };
+    }
+    const config = loadSkillConfig(profile);
+    config.enabled[skillId] = enabled;
+    saveSkillConfig(profile, config);
+    const disabledNames = readDisabledSkillNames(profile);
+    if (enabled) {
+      disabledNames.delete(skill.name);
+    } else {
+      disabledNames.add(skill.name);
+    }
+    saveDisabledSkillNames(profile, disabledNames);
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export function recordSkillUsage(
+  skillId: string,
+  success: boolean,
+  profile?: string,
+): { success: boolean; stats?: SkillUsageStats; error?: string } {
+  try {
+    if (!skillId || typeof skillId !== "string") {
+      return { success: false, error: "无效的技能 ID" };
+    }
+    const config = loadSkillConfig(profile);
+    const current = config.stats[skillId] || { ...DEFAULT_SKILL_STATS };
+    const next: SkillUsageStats = {
+      uses: current.uses + 1,
+      successes: current.successes + (success ? 1 : 0),
+      failures: current.failures + (success ? 0 : 1),
+      xp: current.xp + (success ? 20 : 3),
+      lastUsedAt: Date.now(),
+    };
+    config.stats[skillId] = next;
+    saveSkillConfig(profile, config);
+    return { success: true, stats: next };
   } catch (err: unknown) {
     return { success: false, error: (err as Error).message };
   }

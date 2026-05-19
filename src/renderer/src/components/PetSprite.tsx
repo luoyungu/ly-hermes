@@ -23,6 +23,8 @@ const EMPLOYEE_STATUS_TO_PET: Record<string, string> = {
   busy: 'running',
   starting: 'running',
   streaming: 'running',
+  thinking: 'waiting',
+  tool: 'running',
   done: 'review',
   error: 'failed',
   waiting: 'waiting',

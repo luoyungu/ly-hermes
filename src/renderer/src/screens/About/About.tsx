@@ -8,7 +8,7 @@ export default function About(): React.ReactElement {
   const { lexicon } = useTheme()
   return (
     <div className="flex h-full flex-col">
-      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <h2 className="screen-header-title">{lexicon.nav.about}</h2>
       </div>
       <div className="flex flex-1 items-center justify-center">

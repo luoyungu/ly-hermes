@@ -18,7 +18,7 @@ import { registerAuthIpcHandlers } from "./auth";
 import { registerConfigIpcHandlers } from "./config";
 import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
-import { registerSessionIpcHandlers, readLogs as readHermesLogs } from "./sessions";
+import { registerSessionIpcHandlers, readLogs as readHermesLogs, clearHermesLog } from "./sessions";
 import { registerPetsIpc } from "./pets";
 import { initUpdater } from "./updater";
 import { autoUpdater } from "electron-updater";
@@ -311,6 +311,10 @@ app.whenReady().then(() => {
     const result = readHermesLogs(logFile, lines);
     console.log('[read-logs] result:', { path: result.path, contentLength: result.content.length });
     return result;
+  });
+
+  ipcMain.handle("clear-logs", (_, logFile?: string) => {
+    return clearHermesLog(logFile);
   });
 
   createWindow();

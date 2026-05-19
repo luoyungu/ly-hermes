@@ -36,18 +36,43 @@ export interface SkillInfo {
 }
 
 export interface InstalledSkill {
+  id: string
   name: string
   category: string
   description: string
   path: string
+  type: 'prompt' | 'tool' | 'workflow'
+  enabled: boolean
+  source: 'official' | 'custom'
+  version?: string
+  requiredTools?: string[]
+  stats?: SkillUsageStats
 }
 
 export interface BundledSkill {
+  id: string
   name: string
   description: string
   category: string
   source: string
   installed: boolean
+  type: 'prompt' | 'tool' | 'workflow'
+  version?: string
+  requiredTools?: string[]
+}
+
+export interface SkillUsageStats {
+  uses: number
+  successes: number
+  failures: number
+  xp: number
+  lastUsedAt: number | null
+}
+
+export interface SkillConfig {
+  enabled: Record<string, boolean>
+  stats: Record<string, SkillUsageStats>
+  updatedAt?: number
 }
 
 export interface ToolsetInfo {
@@ -236,6 +261,9 @@ interface HermesAPI {
   getSkillContent: (skillPath: string) => Promise<string>
   installSkill: (identifier: string, profile?: string) => Promise<{ success: boolean; error?: string }>
   uninstallSkill: (name: string, profile?: string) => Promise<{ success: boolean; error?: string }>
+  getSkillConfig: (profile?: string) => Promise<SkillConfig>
+  setSkillEnabled: (skillId: string, enabled: boolean, profile?: string) => Promise<{ success: boolean; error?: string }>
+  recordSkillUsage: (skillId: string, success: boolean, profile?: string) => Promise<{ success: boolean; stats?: SkillUsageStats; error?: string }>
 
   getEmployeeTools: (name: string) => Promise<string[]>
   setEmployeeTools: (name: string, tools: string[]) => Promise<{ success: boolean; error?: string }>
@@ -264,7 +292,9 @@ interface HermesAPI {
   createCronJob: (job: { name?: string; schedule: string; prompt: string; deliver?: string; profile?: string }) => Promise<{ success: boolean; output?: string }>
   pauseCronJob: (jobId: string, profile?: string) => Promise<{ success: boolean }>
   resumeCronJob: (jobId: string, profile?: string) => Promise<{ success: boolean }>
-  triggerCronJob: (jobId: string, profile?: string) => Promise<{ success: boolean }>
+  triggerCronJob: (jobId: string, profile?: string) => Promise<{ success: boolean; output?: string }>
+  updateCronJobDeliver: (jobId: string, deliver: string, profile?: string) => Promise<{ success: boolean; output?: string }>
+  updateCronJob: (jobId: string, updates: Record<string, string>, profile?: string) => Promise<{ success: boolean; output?: string }>
   deleteCronJob: (jobId: string, profile?: string) => Promise<{ success: boolean }>
   runHermesBackup: () => Promise<{ success: boolean; output?: string }>
   runHermesImport: (filePath: string) => Promise<{ success: boolean; output?: string }>
@@ -300,6 +330,7 @@ interface HermesAPI {
   getUiTheme: () => Promise<UiTheme>
   setUiTheme: (theme: UiTheme) => Promise<{ success: boolean }>
   readLogs: (logFile?: string, lines?: number) => Promise<{ content: string; path: string }>
+  clearLogs: (logFile?: string) => Promise<{ success: boolean; path?: string }>
   getAppConfig: () => Promise<Record<string, unknown>>
   setAppConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>

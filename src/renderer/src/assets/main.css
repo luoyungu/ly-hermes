@@ -340,18 +340,23 @@ select {
 }
 
 .screen-header {
-  min-height: 52px;
-  padding: 0 24px 12px;
+  height: 80px;
+  min-height: 80px;
+  padding: 0 24px;
 }
 
 .screen-header-compact {
-  min-height: 52px;
-  padding: 0 16px 12px;
+  height: 80px;
+  min-height: 80px;
+  padding: 0 16px;
 }
 
 .screen-header-title {
   font-size: 17px;
   font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-primary);
+  letter-spacing: 0;
 }
 
 .tools-toggle {

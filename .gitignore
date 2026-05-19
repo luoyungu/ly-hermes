@@ -1,6 +1,7 @@
 node_modules/
 out/
 dist/
+build/runtime/python/
 .DS_Store
 ._*
 *.log

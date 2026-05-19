@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { RefreshCw, Copy, Check, FileText, AlertTriangle, Terminal } from 'lucide-react'
+import { RefreshCw, Copy, Check, FileText, AlertTriangle, Terminal, Trash2 } from 'lucide-react'
 import { useTheme } from '../../components/ThemeProvider'
 import { usePlatform } from '../../hooks/usePlatform'
+import Popconfirm from '../../components/Popconfirm'
+import { showToast } from '../../App'
 
 const LOG_FILES = [
   { key: 'agent.log', label: 'Agent 日志', icon: Terminal, color: 'var(--accent)' },
@@ -14,7 +16,6 @@ export default function LogsScreen(): React.ReactElement {
   const { isMac } = usePlatform()
   const [activeLog, setActiveLog] = useState('agent.log')
   const [logContent, setLogContent] = useState('')
-  const [logPath, setLogPath] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
@@ -31,7 +32,6 @@ export default function LogsScreen(): React.ReactElement {
       console.log('[Logs] readLogs result:', result)
       if (result) {
         setLogContent(result.content)
-        setLogPath(result.path)
       }
     } catch (err) {
       console.error('Failed to load logs:', err)
@@ -74,6 +74,21 @@ export default function LogsScreen(): React.ReactElement {
   const handleSwitchLog = (key: string) => {
     setActiveLog(key)
     loadLogs(key)
+  }
+
+  const handleClearLog = async () => {
+    try {
+      const result = await window.hermesAPI?.clearLogs(activeLog)
+      if (result?.success) {
+        setLogContent('')
+        showToast('日志已清空')
+        loadLogs(activeLog)
+      } else {
+        showToast('清空日志失败', 'error')
+      }
+    } catch {
+      showToast('清空日志失败', 'error')
+    }
   }
 
   const parseLogLine = (line: string) => {
@@ -130,13 +145,8 @@ export default function LogsScreen(): React.ReactElement {
   return (
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
       {/* Header */}
-      <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
-        <div>
-          <h1 className="screen-header-title text-[var(--text-primary)]">{lexicon.nav.logs}</h1>
-          <p className="text-xs text-[var(--text-dim)] mt-1 font-mono truncate max-w-md">
-            {logPath || '加载中...'}
-          </p>
-        </div>
+      <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
+        <h1 className="screen-header-title">{lexicon.nav.logs}</h1>
         <div className="no-drag flex items-center gap-2">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
@@ -156,6 +166,15 @@ export default function LogsScreen(): React.ReactElement {
           >
             {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
           </button>
+          <Popconfirm title="确认清空当前日志？" confirmText="清空" onConfirm={handleClearLog}>
+            <button
+              disabled={!logContent}
+              className="p-2 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              title="清空当前日志"
+            >
+              <Trash2 size={16} />
+            </button>
+          </Popconfirm>
           <button
             onClick={() => loadLogs()}
             disabled={loading}

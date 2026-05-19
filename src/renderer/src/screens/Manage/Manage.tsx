@@ -17,7 +17,9 @@ import {
   Puzzle,
   Zap,
   Sparkles,
-  Download
+  Download,
+  Plug,
+  MessageCircle
 } from 'lucide-react'
 import type { EmployeeInfo, InstalledSkill, BundledSkill } from '../../../../preload/index'
 import { showToast } from '../../App'
@@ -111,7 +113,7 @@ export default function Manage(): React.ReactElement {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+      <div className="screen-header drag-region flex items-center border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <h2 className="screen-header-title">{lexicon.nav.manage}</h2>
       </div>
       <div className="flex flex-1 overflow-hidden">
@@ -366,7 +368,11 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
   )
 }
 
-type EditTab = 'basic' | 'soul' | 'config' | 'tools' | 'skills'
+type EditTab = 'basic' | 'soul' | 'config' | 'integrations' | 'tools' | 'skills'
+
+const isMaskedSecret = (value: string): boolean => value.includes('****')
+
+const nonMasked = (value: string): string => isMaskedSecret(value) ? '' : value
 
 function EditEmployee({
   employee,
@@ -412,6 +418,21 @@ function EditEmployee({
   const [soulOriginal, setSoulOriginal] = useState('')
   const [configObj, setConfigObj] = useState<Record<string, unknown>>({})
   const [configOriginal, setConfigOriginal] = useState<Record<string, unknown>>({})
+  const [envLoading, setEnvLoading] = useState(false)
+  const [feishuAppId, setFeishuAppId] = useState('')
+  const [feishuAppSecret, setFeishuAppSecret] = useState('')
+  const [feishuHomeChannel, setFeishuHomeChannel] = useState('')
+  const [feishuDomain, setFeishuDomain] = useState('feishu')
+  const [feishuConnectionMode, setFeishuConnectionMode] = useState('websocket')
+  const [hasSavedFeishuSecret, setHasSavedFeishuSecret] = useState(false)
+  const [weixinAccountId, setWeixinAccountId] = useState('')
+  const [weixinToken, setWeixinToken] = useState('')
+  const [weixinHomeChannel, setWeixinHomeChannel] = useState('')
+  const [hasSavedWeixinToken, setHasSavedWeixinToken] = useState(false)
+  const [dingtalkClientId, setDingtalkClientId] = useState('')
+  const [dingtalkClientSecret, setDingtalkClientSecret] = useState('')
+  const [dingtalkHomeChannel, setDingtalkHomeChannel] = useState('')
+  const [hasSavedDingtalkSecret, setHasSavedDingtalkSecret] = useState(false)
   const [tools, setTools] = useState<string[]>([])
   const [skills, setSkills] = useState<InstalledSkill[]>([])
   const [bundledSkills, setBundledSkills] = useState<BundledSkill[]>([])
@@ -447,6 +468,38 @@ function EditEmployee({
       const obj = c && typeof c === 'object' ? c as Record<string, unknown> : {}
       setConfigObj(obj); setConfigOriginal(JSON.parse(JSON.stringify(obj)))
     }).catch(() => {})
+    setEnvLoading(true)
+    window.hermesAPI.getEmployeeEnv(ename).then((env) => {
+      setFeishuAppId(env.FEISHU_APP_ID || '')
+      setFeishuAppSecret(nonMasked(env.FEISHU_APP_SECRET || ''))
+      setHasSavedFeishuSecret(Boolean(env.FEISHU_APP_SECRET))
+      setFeishuHomeChannel(env.FEISHU_HOME_CHANNEL || '')
+      setFeishuDomain(env.FEISHU_DOMAIN || 'feishu')
+      setFeishuConnectionMode(env.FEISHU_CONNECTION_MODE || 'websocket')
+      setWeixinAccountId(env.WEIXIN_ACCOUNT_ID || '')
+      setWeixinToken(nonMasked(env.WEIXIN_TOKEN || ''))
+      setHasSavedWeixinToken(Boolean(env.WEIXIN_TOKEN))
+      setWeixinHomeChannel(env.WEIXIN_HOME_CHANNEL || '')
+      setDingtalkClientId(env.DINGTALK_CLIENT_ID || '')
+      setDingtalkClientSecret(nonMasked(env.DINGTALK_CLIENT_SECRET || ''))
+      setHasSavedDingtalkSecret(Boolean(env.DINGTALK_CLIENT_SECRET))
+      setDingtalkHomeChannel(env.DINGTALK_HOME_CHANNEL || '')
+    }).catch(() => {
+      setFeishuAppId('')
+      setFeishuAppSecret('')
+      setHasSavedFeishuSecret(false)
+      setFeishuHomeChannel('')
+      setFeishuDomain('feishu')
+      setFeishuConnectionMode('websocket')
+      setWeixinAccountId('')
+      setWeixinToken('')
+      setHasSavedWeixinToken(false)
+      setWeixinHomeChannel('')
+      setDingtalkClientId('')
+      setDingtalkClientSecret('')
+      setHasSavedDingtalkSecret(false)
+      setDingtalkHomeChannel('')
+    }).finally(() => setEnvLoading(false))
   }, [employee.name, loadSkills])
 
   const handleSaveBasic = async (): Promise<void> => {
@@ -484,6 +537,46 @@ function EditEmployee({
       showToast('配置已保存')
     } catch { showToast('保存失败', 'error') }
     finally { setSaving(false) }
+  }
+
+  const handleSaveIntegrations = async (): Promise<void> => {
+    setSaving(true)
+    try {
+      const envObj: Record<string, string> = {
+        FEISHU_DOMAIN: feishuDomain.trim() || 'feishu',
+        FEISHU_CONNECTION_MODE: feishuConnectionMode.trim() || 'websocket',
+      }
+      if (feishuAppId.trim()) envObj.FEISHU_APP_ID = feishuAppId.trim()
+      if (feishuHomeChannel.trim()) envObj.FEISHU_HOME_CHANNEL = feishuHomeChannel.trim()
+      if (feishuAppSecret.trim() && !isMaskedSecret(feishuAppSecret)) {
+        envObj.FEISHU_APP_SECRET = feishuAppSecret.trim()
+      }
+      if (weixinAccountId.trim()) envObj.WEIXIN_ACCOUNT_ID = weixinAccountId.trim()
+      if (weixinHomeChannel.trim()) envObj.WEIXIN_HOME_CHANNEL = weixinHomeChannel.trim()
+      if (weixinToken.trim() && !isMaskedSecret(weixinToken)) {
+        envObj.WEIXIN_TOKEN = weixinToken.trim()
+      }
+      if (dingtalkClientId.trim()) envObj.DINGTALK_CLIENT_ID = dingtalkClientId.trim()
+      if (dingtalkHomeChannel.trim()) envObj.DINGTALK_HOME_CHANNEL = dingtalkHomeChannel.trim()
+      if (dingtalkClientSecret.trim() && !isMaskedSecret(dingtalkClientSecret)) {
+        envObj.DINGTALK_CLIENT_SECRET = dingtalkClientSecret.trim()
+      }
+      const result = await window.hermesAPI.setEmployeeEnv(employee.name, envObj)
+      if (!result.success) {
+        showToast(result.error || '保存集成配置失败', 'error')
+        return
+      }
+      if (feishuAppSecret.trim()) setHasSavedFeishuSecret(true)
+      if (weixinToken.trim()) setHasSavedWeixinToken(true)
+      if (dingtalkClientSecret.trim()) setHasSavedDingtalkSecret(true)
+      showToast('集成配置已保存，正在重启使其生效')
+      await window.hermesAPI.restartEmployee(employee.name).catch(() => {})
+      onRefresh()
+    } catch {
+      showToast('保存集成配置失败', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleToggleTool = async (toolKey: string, enabled: boolean): Promise<void> => {
@@ -547,6 +640,23 @@ function EditEmployee({
     }
   }
 
+  const handleToggleSkillEnabled = async (skill: InstalledSkill, enabled: boolean): Promise<void> => {
+    setActionInProgress(skill.id)
+    try {
+      const result = await window.hermesAPI.setSkillEnabled(skill.id, enabled, employee.name)
+      if (!result.success) {
+        showToast(result.error || '切换技能状态失败', 'error')
+        return
+      }
+      await loadSkills()
+      showToast(enabled ? '技能已启用' : '技能已停用', 'info')
+    } catch {
+      showToast('切换技能状态失败', 'error')
+    } finally {
+      setActionInProgress(null)
+    }
+  }
+
   const updateConfigField = (key: string, value: unknown): void => {
     setConfigObj(prev => setNestedValue(prev, key, value))
   }
@@ -555,6 +665,7 @@ function EditEmployee({
     { id: 'basic', label: '基本信息', icon: <UserPlus size={14} /> },
     { id: 'soul', label: lexicon.concepts.soul, icon: <Sparkles size={14} /> },
     { id: 'config', label: lexicon.concepts.config, icon: <Wrench size={14} /> },
+    { id: 'integrations', label: '集成', icon: <Plug size={14} /> },
     { id: 'tools', label: lexicon.concepts.tools, icon: <Zap size={14} /> },
     { id: 'skills', label: lexicon.concepts.skills, icon: <Puzzle size={14} /> },
   ]
@@ -766,6 +877,187 @@ function EditEmployee({
             </div>
           </div>
         )}
+        {tab === 'integrations' && (
+          <div className="flex flex-col gap-4 max-w-3xl">
+            <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
+              <Plug size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
+              <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                集成配置属于当前{lexicon.entities.employee}。飞书、微信和钉钉的机器人凭据、默认接收会话会保存在这个 profile 里，
+                因此可以做到一个{lexicon.entities.employee}对应一个飞书机器人。
+              </div>
+              {envLoading && <Loader2 size={16} className="animate-spin text-[var(--text-dim)] ml-auto shrink-0" />}
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <section className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--accent-glow)] text-[var(--accent)] flex items-center justify-center">
+                    <MessageCircle size={18} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">飞书机器人</div>
+                    <div className="text-xs text-[var(--text-dim)]">用于飞书/Lark 消息接入和日程结果外发</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">App ID</label>
+                    <input
+                      value={feishuAppId}
+                      onChange={(e) => setFeishuAppId(e.target.value)}
+                      placeholder="cli_a..."
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">App Secret</label>
+                    <input
+                      value={feishuAppSecret}
+                      onChange={(e) => setFeishuAppSecret(e.target.value)}
+                      type="password"
+                      placeholder={hasSavedFeishuSecret ? '已保存，留空保持不变' : '请输入 App Secret'}
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">默认接收会话 ID</label>
+                    <input
+                      value={feishuHomeChannel}
+                      onChange={(e) => setFeishuHomeChannel(e.target.value)}
+                      placeholder="oc_xxx / ou_xxx"
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">域名</label>
+                      <select
+                        value={feishuDomain}
+                        onChange={(e) => setFeishuDomain(e.target.value)}
+                        className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)]"
+                      >
+                        <option value="feishu">飞书</option>
+                        <option value="larksuite">Lark</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">连接模式</label>
+                      <select
+                        value={feishuConnectionMode}
+                        onChange={(e) => setFeishuConnectionMode(e.target.value)}
+                        className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)]"
+                      >
+                        <option value="websocket">WebSocket</option>
+                        <option value="webhook">Webhook</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--accent-glow)] text-[var(--accent)] flex items-center justify-center">
+                    <MessageCircle size={18} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">微信接入</div>
+                    <div className="text-xs text-[var(--text-dim)]">用于微信消息接入和日程结果外发</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">账号 ID</label>
+                    <input
+                      value={weixinAccountId}
+                      onChange={(e) => setWeixinAccountId(e.target.value)}
+                      placeholder="可选，按接入服务要求填写"
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">Token</label>
+                    <input
+                      value={weixinToken}
+                      onChange={(e) => setWeixinToken(e.target.value)}
+                      type="password"
+                      placeholder={hasSavedWeixinToken ? '已保存，留空保持不变' : '请输入 Token'}
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">默认接收对象 ID</label>
+                    <input
+                      value={weixinHomeChannel}
+                      onChange={(e) => setWeixinHomeChannel(e.target.value)}
+                      placeholder="wxid_xxx / filehelper / xxx@chatroom"
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--accent-glow)] text-[var(--accent)] flex items-center justify-center">
+                    <MessageCircle size={18} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">钉钉机器人</div>
+                    <div className="text-xs text-[var(--text-dim)]">用于钉钉消息接入和日程结果外发</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">Client ID / AppKey</label>
+                    <input
+                      value={dingtalkClientId}
+                      onChange={(e) => setDingtalkClientId(e.target.value)}
+                      placeholder="从钉钉开发者控制台获取"
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">Client Secret / AppSecret</label>
+                    <input
+                      value={dingtalkClientSecret}
+                      onChange={(e) => setDingtalkClientSecret(e.target.value)}
+                      type="password"
+                      placeholder={hasSavedDingtalkSecret ? '已保存，留空保持不变' : '请输入 Client Secret'}
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">默认接收会话 ID</label>
+                    <input
+                      value={dingtalkHomeChannel}
+                      onChange={(e) => setDingtalkHomeChannel(e.target.value)}
+                      placeholder="cid_xxx / openConversationId"
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-[var(--text-dim)]">
+                保存后会重启当前{lexicon.entities.employee}，让后台网关和日程调度读取最新配置。
+              </p>
+              <button
+                onClick={handleSaveIntegrations}
+                disabled={saving}
+                className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 cursor-pointer transition-all"
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {saving ? '保存中...' : '保存集成'}
+              </button>
+            </div>
+          </div>
+        )}
         {tab === 'tools' && (
           <div className="flex flex-col gap-4 max-w-3xl">
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
@@ -853,18 +1145,28 @@ function EditEmployee({
                           </button>
                         )
                       ) : (
-                        <button
-                          onClick={() => handleUninstallSkill((detailSkill as InstalledSkill).name)}
-                          disabled={actionInProgress === detailSkill.name}
-                          className="flex items-center gap-2 rounded-lg border border-[var(--danger)]/30 px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
-                        >
-                          {actionInProgress === detailSkill.name ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={14} />
-                          )}
-                          移除
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleToggleSkillEnabled(detailSkill as InstalledSkill, !(detailSkill as InstalledSkill).enabled)}
+                            disabled={actionInProgress === (detailSkill as InstalledSkill).id}
+                            className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+                          >
+                            {actionInProgress === (detailSkill as InstalledSkill).id && <Loader2 size={14} className="animate-spin" />}
+                            {(detailSkill as InstalledSkill).enabled ? '停用' : '启用'}
+                          </button>
+                          <button
+                            onClick={() => handleUninstallSkill((detailSkill as InstalledSkill).name)}
+                            disabled={actionInProgress === detailSkill.name}
+                            className="flex items-center gap-2 rounded-lg border border-[var(--danger)]/30 px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
+                          >
+                            {actionInProgress === detailSkill.name ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
+                            移除
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={() => setDetailSkill(null)}
@@ -961,7 +1263,7 @@ function EditEmployee({
                   {skills.filter(s => !skillSearch || s.name.toLowerCase().includes(skillSearch.toLowerCase()) || s.description.toLowerCase().includes(skillSearch.toLowerCase())).map(s => (
                     <div
                       key={`${s.category}/${s.name}`}
-                      className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 cursor-pointer transition-all hover:shadow-[0_2px_12px_rgba(0,0,0,0.1)] hover:border-[rgba(124,106,239,0.3)]"
+                      className={`glass-medium border rounded-[var(--radius-lg)] p-4 cursor-pointer transition-all hover:shadow-[0_2px_12px_rgba(0,0,0,0.1)] hover:border-[rgba(124,106,239,0.3)] ${s.enabled ? 'border-[var(--border)]' : 'border-[var(--border)] opacity-60'}`}
                       onClick={() => handleViewSkillDetail(s)}
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -974,11 +1276,29 @@ function EditEmployee({
                             <div className="text-xs text-[var(--text-dim)]">{s.category}</div>
                           </div>
                         </div>
-                        <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium shrink-0">已安装</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[11px] px-2.5 py-0.5 rounded-xl font-medium ${s.enabled ? 'bg-[rgba(34,197,94,0.1)] text-[var(--success)]' : 'bg-[var(--bg-surface)] text-[var(--text-dim)]'}`}>
+                            {s.enabled ? '已启用' : '已停用'}
+                          </span>
+                          <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={s.enabled}
+                              disabled={actionInProgress === s.id}
+                              onChange={(e) => handleToggleSkillEnabled(s, e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <span className={`tools-toggle-track ${s.enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:translate-x-[18px] after:bg-white' : ''}`} />
+                          </label>
+                        </div>
                       </div>
                       {s.description && (
                         <div className="text-xs text-[var(--text-dim)] leading-relaxed mt-2">{s.description}</div>
                       )}
+                      <div className="flex items-center gap-2 mt-3 text-[11px] text-[var(--text-dim)]">
+                        <span className="px-2 py-0.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">{s.type}</span>
+                        {s.stats && <span>{s.stats.uses} 次使用 · XP {s.stats.xp}</span>}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1040,6 +1360,11 @@ function EditEmployee({
                           {s.description && (
                             <div className="text-xs text-[var(--text-dim)] leading-relaxed mt-2">{s.description}</div>
                           )}
+                          <div className="flex items-center gap-2 mt-3 text-[11px] text-[var(--text-dim)]">
+                            <span className="px-2 py-0.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">{s.type}</span>
+                            <span>{s.source}</span>
+                            {s.requiredTools && s.requiredTools.length > 0 && <span>需要 {s.requiredTools.join(', ')}</span>}
+                          </div>
                         </div>
                       );
                     });

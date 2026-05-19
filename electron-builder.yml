@@ -6,6 +6,8 @@ directories:
   buildResources: build
   output: dist
 
+afterPack: scripts/after-pack.cjs
+
 files:
   - out/**/*
   - package.json

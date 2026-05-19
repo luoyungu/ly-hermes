@@ -548,6 +548,21 @@ export function registerEmployeeIpcHandlers(
     return uninstallSkill(name, profile);
   });
 
+  ipcMain.handle("skills:getConfig", async (_, profile?: string) => {
+    const { getSkillConfig } = await import("./skills");
+    return getSkillConfig(profile);
+  });
+
+  ipcMain.handle("skills:setEnabled", async (_, skillId: string, enabled: boolean, profile?: string) => {
+    const { setSkillEnabled } = await import("./skills");
+    return setSkillEnabled(skillId, enabled, profile);
+  });
+
+  ipcMain.handle("skills:recordUsage", async (_, skillId: string, success: boolean, profile?: string) => {
+    const { recordSkillUsage } = await import("./skills");
+    return recordSkillUsage(skillId, success, profile);
+  });
+
   ipcMain.handle("employee:list", async () => {
     const employees = listEmployees();
     const result: EmployeeInfo[] = [];

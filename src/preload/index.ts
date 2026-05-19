@@ -33,18 +33,43 @@ export interface SkillInfo {
 }
 
 export interface InstalledSkill {
+  id: string;
   name: string;
   category: string;
   description: string;
   path: string;
+  type: 'prompt' | 'tool' | 'workflow';
+  enabled: boolean;
+  source: 'official' | 'custom';
+  version?: string;
+  requiredTools?: string[];
+  stats?: SkillUsageStats;
 }
 
 export interface BundledSkill {
+  id: string;
   name: string;
   description: string;
   category: string;
   source: string;
   installed: boolean;
+  type: 'prompt' | 'tool' | 'workflow';
+  version?: string;
+  requiredTools?: string[];
+}
+
+export interface SkillUsageStats {
+  uses: number;
+  successes: number;
+  failures: number;
+  xp: number;
+  lastUsedAt: number | null;
+}
+
+export interface SkillConfig {
+  enabled: Record<string, boolean>;
+  stats: Record<string, SkillUsageStats>;
+  updatedAt?: number;
 }
 
 export interface ToolsetInfo {
@@ -323,6 +348,15 @@ const hermesAPI = {
   uninstallSkill: (name: string, profile?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("skills:uninstall", name, profile),
 
+  getSkillConfig: (profile?: string): Promise<SkillConfig> =>
+    ipcRenderer.invoke("skills:getConfig", profile),
+
+  setSkillEnabled: (skillId: string, enabled: boolean, profile?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("skills:setEnabled", skillId, enabled, profile),
+
+  recordSkillUsage: (skillId: string, success: boolean, profile?: string): Promise<{ success: boolean; stats?: SkillUsageStats; error?: string }> =>
+    ipcRenderer.invoke("skills:recordUsage", skillId, success, profile),
+
   getEmployeeSessions: (name: string): Promise<Array<Record<string, unknown>>> =>
     ipcRenderer.invoke('employee:get-sessions', name),
 
@@ -374,8 +408,14 @@ const hermesAPI = {
   resumeCronJob: (jobId: string, profile?: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('resume-cron-job', jobId, profile),
 
-  triggerCronJob: (jobId: string, profile?: string): Promise<{ success: boolean }> =>
+  triggerCronJob: (jobId: string, profile?: string): Promise<{ success: boolean; output?: string }> =>
     ipcRenderer.invoke('trigger-cron-job', jobId, profile),
+
+  updateCronJobDeliver: (jobId: string, deliver: string, profile?: string): Promise<{ success: boolean; output?: string }> =>
+    ipcRenderer.invoke('update-cron-job-deliver', jobId, deliver, profile),
+
+  updateCronJob: (jobId: string, updates: Record<string, string>, profile?: string): Promise<{ success: boolean; output?: string }> =>
+    ipcRenderer.invoke('update-cron-job', jobId, updates, profile),
 
   deleteCronJob: (jobId: string, profile?: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('delete-cron-job', jobId, profile),
@@ -481,6 +521,9 @@ const hermesAPI = {
 
   readLogs: (logFile?: string, lines?: number): Promise<{ content: string; path: string }> =>
     ipcRenderer.invoke('read-logs', logFile, lines ?? 300),
+
+  clearLogs: (logFile?: string): Promise<{ success: boolean; path?: string }> =>
+    ipcRenderer.invoke('clear-logs', logFile),
 
   getAppConfig: (): Promise<Record<string, unknown>> =>
     ipcRenderer.invoke('get-app-config'),

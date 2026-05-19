@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
 
-type Placement = 'top' | 'bottom' | 'left' | 'right'
+type Placement = 'top' | 'bottom'
 
 interface PopconfirmProps {
   title?: string
@@ -12,51 +12,43 @@ interface PopconfirmProps {
   children: React.ReactElement
 }
 
-const GAP = 8
+const GAP = 10
+const POPOVER_WIDTH = 220
+const VIEWPORT_PADDING = 12
 
 function computePlacement(triggerRect: DOMRect): Placement {
   const spaceTop = triggerRect.top
   const spaceBottom = window.innerHeight - triggerRect.bottom
-  const spaceLeft = triggerRect.left
-  const spaceRight = window.innerWidth - triggerRect.right
 
-  const placements: Array<{ dir: Placement; space: number }> = [
-    { dir: 'top', space: spaceTop },
-    { dir: 'bottom', space: spaceBottom },
-    { dir: 'right', space: spaceRight },
-    { dir: 'left', space: spaceLeft },
-  ]
-  placements.sort((a, b) => b.space - a.space)
-  return placements[0].dir
+  if (spaceBottom >= 120 || spaceBottom >= spaceTop) return 'bottom'
+  return 'top'
 }
 
 function computeStyle(placement: Placement, triggerRect: DOMRect): React.CSSProperties {
   const cx = triggerRect.left + triggerRect.width / 2
-  const cy = triggerRect.top + triggerRect.height / 2
+  const left = Math.min(
+    Math.max(cx - POPOVER_WIDTH / 2, VIEWPORT_PADDING),
+    window.innerWidth - POPOVER_WIDTH - VIEWPORT_PADDING,
+  )
 
   switch (placement) {
     case 'top':
-      return { top: triggerRect.top - GAP, left: cx, transform: 'translate(-50%, -100%)' }
+      return { top: triggerRect.top - GAP, left, transform: 'translateY(-100%)', width: POPOVER_WIDTH }
     case 'bottom':
-      return { top: triggerRect.bottom + GAP, left: cx, transform: 'translate(-50%, 0)' }
-    case 'left':
-      return { top: cy, left: triggerRect.left - GAP, transform: 'translate(-100%, -50%)' }
-    case 'right':
-      return { top: cy, left: triggerRect.right + GAP, transform: 'translate(0, -50%)' }
+      return { top: triggerRect.bottom + GAP, left, transform: 'translateY(0)', width: POPOVER_WIDTH }
   }
 }
 
-function Arrow({ placement }: { placement: Placement }): React.ReactElement {
+function Arrow({ placement, triggerRect, style }: { placement: Placement; triggerRect: DOMRect | null; style: React.CSSProperties }): React.ReactElement {
+  const popoverLeft = Number(style.left || 0)
+  const triggerCenter = triggerRect ? triggerRect.left + triggerRect.width / 2 : popoverLeft + POPOVER_WIDTH / 2
+  const arrowLeft = Math.min(Math.max(triggerCenter - popoverLeft, 16), POPOVER_WIDTH - 16)
   const base = 'absolute w-0 h-0'
   switch (placement) {
     case 'top':
-      return <div className={`${base} left-1/2 -translate-x-1/2 top-full border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-[var(--border)]`} />
+      return <div className={`${base} top-full border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-[var(--border)]`} style={{ left: arrowLeft, transform: 'translateX(-50%)' }} />
     case 'bottom':
-      return <div className={`${base} left-1/2 -translate-x-1/2 bottom-full border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-[var(--border)]`} />
-    case 'left':
-      return <div className={`${base} top-1/2 -translate-y-1/2 left-full border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[6px] border-l-[var(--border)]`} />
-    case 'right':
-      return <div className={`${base} top-1/2 -translate-y-1/2 right-full border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-[var(--border)]`} />
+      return <div className={`${base} bottom-full border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-[var(--border)]`} style={{ left: arrowLeft, transform: 'translateX(-50%)' }} />
   }
 }
 
@@ -70,6 +62,7 @@ export default function Popconfirm({
   const [open, setOpen] = useState(false)
   const [placement, setPlacement] = useState<Placement>('top')
   const [style, setStyle] = useState<React.CSSProperties>({})
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
@@ -78,6 +71,7 @@ export default function Popconfirm({
     const rect = triggerRef.current.getBoundingClientRect()
     const p = computePlacement(rect)
     setPlacement(p)
+    setTriggerRect(rect)
     setStyle(computeStyle(p, rect))
   }, [])
 
@@ -88,6 +82,7 @@ export default function Popconfirm({
     const rect = triggerRef.current.getBoundingClientRect()
     const p = computePlacement(rect)
     setPlacement(p)
+    setTriggerRect(rect)
     setStyle(computeStyle(p, rect))
     setOpen(true)
   }, [])
@@ -104,9 +99,7 @@ export default function Popconfirm({
     const handleKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setOpen(false)
     }
-    const handleScroll = (): void => {
-      updatePos()
-    }
+    const handleScroll = (): void => { setOpen(false) }
     document.addEventListener('mousedown', handleClick)
     document.addEventListener('keydown', handleKey)
     window.addEventListener('scroll', handleScroll, true)
@@ -145,13 +138,13 @@ export default function Popconfirm({
           </button>
         </div>
       </div>
-      <Arrow placement={placement} />
+      <Arrow placement={placement} triggerRect={triggerRect} style={style} />
     </div>,
     document.body,
   ) : null
 
   return (
-    <div className="inline-flex" ref={triggerRef}>
+    <div className="inline-flex shrink-0" ref={triggerRef}>
       <div onClick={handleOpen} className="inline-flex shrink-0">
         {children}
       </div>

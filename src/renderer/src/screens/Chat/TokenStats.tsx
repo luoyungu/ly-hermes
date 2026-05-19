@@ -129,16 +129,10 @@ export function TokenStats() {
 
   return (
     <div className="h-full flex flex-col bg-transparent overflow-hidden">
-      {/* Header */}
       <div className="screen-header drag-region flex items-center justify-between glass-medium shrink-0 border-b border-[var(--border)]"
-        style={{ paddingTop: isMac ? 20 : 0 }}>
-        <div>
-          <h2 className="text-base font-bold text-accent-gradient" style={{ letterSpacing: '-0.3px' }}>
-            📊 {lexicon.usage.title}
-          </h2>
-          <p className="text-xs text-[var(--text-dim)]">{lexicon.usage.subtitle}</p>
-        </div>
-        <div className="flex gap-1">
+        style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
+        <h2 className="screen-header-title">{lexicon.usage.title}</h2>
+        <div className="no-drag flex gap-1">
           {DAYS_OPTIONS.map(opt => (
             <button
               key={opt.value}

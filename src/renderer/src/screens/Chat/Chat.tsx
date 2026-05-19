@@ -52,6 +52,7 @@ interface SessionDisplay {
   title: string
   startedAt: number
   messageCount: number
+  source?: string
 }
 
 function getMessageKey(m: Record<string, unknown>): string {
@@ -117,7 +118,7 @@ function extractThinkingFromContent(content: string): { thinking: string | undef
   return { thinking: undefined, content }
 }
 
-function parseSessionMessages(messages: Array<Record<string, unknown>>): ChatMessage[] {
+function parseSessionMessages(messages: Array<Record<string, unknown>>, sessionId?: string): ChatMessage[] {
   const uniqueMessages: Record<string, unknown>[] = []
   const seenMessages = new Set<string>()
   for (const m of messages) {
@@ -174,6 +175,17 @@ function parseSessionMessages(messages: Array<Record<string, unknown>>): ChatMes
         thinking,
       }
     })
+
+  if (sessionId?.startsWith('cron_')) {
+    const reportMessages = parsedMessages.filter(m => m.role === 'assistant' && m.content.trim())
+    if (reportMessages.length > 0) {
+      return reportMessages.map(m => ({
+        ...m,
+        toolCalls: undefined,
+        thinking: undefined,
+      }))
+    }
+  }
 
   const mergedMessages: ChatMessage[] = []
   for (const msg of parsedMessages) {
@@ -241,11 +253,13 @@ const SLASH_COMMANDS = [
 ]
 
 function mapSession(r: Record<string, unknown>): SessionDisplay {
+  const source = String(r.source || '')
   return {
     id: String(r.id || ''),
-    title: String(r.title || '未命名会话'),
+    title: String(r.title || (source === 'cron' ? '日程执行结果' : '未命名会话')),
     startedAt: Number(r.started_at || r.startedAt || 0),
-    messageCount: Number(r.message_count || r.messageCount || 0)
+    messageCount: Number(r.message_count || r.messageCount || 0),
+    source
   }
 }
 
@@ -356,16 +370,17 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
   )
 }
 
-function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking }: {
+function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showActivityDetails = false }: {
   msg: ChatMessage
   empName: string
   empAvatar: string
   isStreaming?: boolean
   thinking?: string
+  showActivityDetails?: boolean
 }): React.ReactElement {
   const isUser = msg.role === 'user'
-  const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
-  const hasThinking = !!thinking
+  const hasToolCalls = showActivityDetails && msg.toolCalls && msg.toolCalls.length > 0
+  const hasThinking = showActivityDetails && !!thinking
   const hasContent = !!msg.content
   const [expandedThinking, setExpandedThinking] = useState(false)
 
@@ -489,9 +504,9 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
 
   return (
     <div className="flex flex-col h-full">
-      <div className="screen-header drag-region flex items-center gap-3 border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+      <div className="screen-header drag-region flex items-center gap-3 border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <button onClick={onBack} className="no-drag text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors"><ArrowLeft size={20} /></button>
-        <span style={{ fontSize: 17, fontWeight: 600 }}>{employee.displayName || employee.name}</span>
+        <h2 className="screen-header-title">{employee.displayName || employee.name}</h2>
       </div>
       <div className="flex flex-col items-center py-7 px-5 border-b border-[var(--border)]">
         <div className="w-[72px] h-[72px] rounded-[18px] glass-medium flex items-center justify-center text-[36px] mb-3 border border-[var(--border)]">{employee.avatar || '🧑‍💼'}</div>
@@ -719,7 +734,7 @@ function HistoryPanel({ employeeName, onClose, onViewSession }: { employeeName: 
         return
       }
 
-      const finalMessages = parseSessionMessages(messages as Record<string, unknown>[])
+      const finalMessages = parseSessionMessages(messages as Record<string, unknown>[], sessionId)
 
       if (finalMessages.length === 0) {
         showToast('此会话暂无消息', 'info')
@@ -758,8 +773,13 @@ function HistoryPanel({ employeeName, onClose, onViewSession }: { employeeName: 
               onClick={() => handleViewSession(s.id)}
               className="px-3.5 py-3 rounded-[var(--radius)] transition-all hover:bg-[var(--bg-hover)] mb-0.5 cursor-pointer"
             >
-              <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || '未命名会话'}</div>
-              <div className="text-xs text-[var(--text-dim)] mt-0.5">{formatDate(s.startedAt)} · {s.messageCount} 条消息</div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                {s.source === 'cron' && (
+                  <span className="shrink-0 rounded bg-[var(--accent-glow)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">日程</span>
+                )}
+                <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || '未命名会话'}</div>
+              </div>
+              <div className="text-xs text-[var(--text-dim)] mt-0.5">{formatDate(s.startedAt)} · {s.source === 'cron' ? '执行结果' : `${s.messageCount} 条消息`}</div>
               <div className="flex gap-1.5 mt-2">
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleViewSession(s.id) }}
@@ -800,6 +820,13 @@ export default function Chat(): React.ReactElement {
   const [isComposing, setIsComposing] = useState(false)
   const [savedModels, setSavedModels] = useState<SavedModel[]>([])
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [showActivityDetails, setShowActivityDetails] = useState(() => {
+    try {
+      return localStorage.getItem('hermes:show-activity-details') === 'true'
+    } catch {
+      return false
+    }
+  })
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -847,6 +874,12 @@ export default function Chat(): React.ReactElement {
 
   const isStreaming = currentStream.isStreaming
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('hermes:show-activity-details', String(showActivityDetails))
+    } catch { /* ignore */ }
+  }, [showActivityDetails])
+
   const currentEmployee = useMemo(() =>
     employees.find(e => e.name === currentEmployeeName) || null
   , [employees, currentEmployeeName])
@@ -854,6 +887,24 @@ export default function Chat(): React.ReactElement {
   const currentMessages = useMemo(() =>
     chatHistories[currentEmployeeName || ''] || []
   , [chatHistories, currentEmployeeName])
+
+  const visibleMessages = useMemo(() => {
+    if (showActivityDetails) return currentMessages
+    return currentMessages.filter((msg) => {
+      if (msg.role === 'user') return true
+      return !!msg.content
+    })
+  }, [currentMessages, showActivityDetails])
+
+  const petActivity = useMemo(() => {
+    if (currentStream.streamingCurrentTool) {
+      return { type: 'tool' as const, label: currentStream.streamingCurrentTool }
+    }
+    if (currentStream.streamingThinking.trim()) {
+      return { type: 'thinking' as const }
+    }
+    return null
+  }, [currentStream.streamingCurrentTool, currentStream.streamingThinking])
 
   const filteredEmployees = useMemo(() => {
     if (!searchQuery) return employees
@@ -1134,7 +1185,7 @@ export default function Chat(): React.ReactElement {
   const loadSessionIntoChat = useCallback(async (employeeName: string, sessionId: string): Promise<boolean> => {
     try {
       const rawMessages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
-      const parsedMessages = parseSessionMessages(rawMessages as Record<string, unknown>[])
+      const parsedMessages = parseSessionMessages(rawMessages as Record<string, unknown>[], sessionId)
       setChatHistories(prev => ({ ...prev, [employeeName]: parsedMessages }))
       setSessionIds(prev => ({ ...prev, [employeeName]: sessionId }))
       return true
@@ -1494,8 +1545,8 @@ export default function Chat(): React.ReactElement {
     <div className="flex h-full relative">
       {/* Left Panel - Employee List */}
       <div className="w-[var(--sidebar-w)] min-w-[var(--sidebar-w)] glass-medium border-r border-[var(--border)] flex flex-col overflow-hidden z-[2] relative">
-        <div className="screen-header-compact drag-region flex items-center justify-between glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.3px' }} className="text-accent-gradient">{lexicon.entities.employeeList}</h2>
+        <div className="screen-header-compact drag-region flex items-center justify-between glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
+          <h2 className="screen-header-title">{lexicon.entities.employeeList}</h2>
         </div>
         <div className="px-3 pt-4 pb-3 shrink-0">
           <input
@@ -1564,7 +1615,7 @@ export default function Chat(): React.ReactElement {
         ) : currentEmployee ? (
           <>
             {/* Chat Header */}
-            <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0 }}>
+            <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
               <div className="flex items-center gap-3.5 no-drag">
                 <div className="w-9 h-9 rounded-[10px] glass-medium flex items-center justify-center text-lg border border-[var(--border)]">{empAvatar}</div>
                 <div className="flex flex-col gap-0.5">
@@ -1576,6 +1627,20 @@ export default function Chat(): React.ReactElement {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 no-drag">
+                <button
+                  onClick={() => setShowActivityDetails(v => !v)}
+                  className={`h-8 rounded-[var(--radius)] border px-3 text-xs font-medium cursor-pointer flex items-center gap-1.5 transition-all ${
+                    showActivityDetails
+                      ? 'border-[var(--accent)] bg-[var(--accent-glow)] text-[var(--accent)]'
+                      : 'border-[var(--border)] glass-medium text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="显示或隐藏思考过程和工具调用"
+                >
+                  <span className="text-[11px]">思考/工具</span>
+                  <span className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${showActivityDetails ? 'bg-[var(--accent)]' : 'bg-[var(--bg-surface)] border border-[var(--border)]'}`}>
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white transition-transform ${showActivityDetails ? 'translate-x-3' : 'translate-x-0.5'}`} />
+                  </span>
+                </button>
                 <button onClick={() => setShowHistory(!showHistory)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title="历史会话">
                   <History size={14} />
                 </button>
@@ -1592,7 +1657,7 @@ export default function Chat(): React.ReactElement {
 
             {/* Messages */}
             <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-4 glass-light">
-              {currentMessages.length === 0 && !isStreaming ? (
+              {visibleMessages.length === 0 && !isStreaming ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
                   <img src={logoImg} alt="" className="w-24 h-24 opacity-60" />
                   <div className="text-[22px] font-bold text-[var(--text-primary)]">{lexicon.chat.startTitle}</div>
@@ -1613,9 +1678,9 @@ export default function Chat(): React.ReactElement {
                 </div>
               ) : (
                 <>
-                  {currentMessages.map((msg, idx) => {
-                    const isLastMsg = idx === currentMessages.length - 1
-                    const isStreamingThis = isStreaming && msg.role === 'assistant' && isLastMsg
+                  {visibleMessages.map((msg) => {
+                    const lastMsg = currentMessages[currentMessages.length - 1]
+                    const isStreamingThis = isStreaming && msg.role === 'assistant' && msg.id === lastMsg?.id
                     return (
                       <MessageBubble
                         key={msg.id}
@@ -1624,10 +1689,11 @@ export default function Chat(): React.ReactElement {
                         empAvatar={empAvatar}
                         isStreaming={isStreamingThis}
                         thinking={isStreamingThis ? currentStream.streamingThinking : msg.thinking}
+                        showActivityDetails={showActivityDetails}
                       />
                     )
                   })}
-                  {isStreaming && (currentMessages.length === 0 || currentMessages[currentMessages.length - 1].role !== 'assistant') && (
+                  {isStreaming && (visibleMessages.length === 0 || visibleMessages[visibleMessages.length - 1].role !== 'assistant') && (
                     <MessageBubble
                       key="streaming-placeholder"
                       msg={{ id: 'streaming-placeholder', role: 'assistant', content: '', timestamp: Date.now() }}
@@ -1635,6 +1701,7 @@ export default function Chat(): React.ReactElement {
                       empAvatar={empAvatar}
                       isStreaming={true}
                       thinking={currentStream.streamingThinking}
+                      showActivityDetails={showActivityDetails}
                     />
                   )}
                   <div ref={messagesEndRef} />
@@ -1671,6 +1738,7 @@ export default function Chat(): React.ReactElement {
                   slug={currentEmployee.petSlug}
                   status={isStreaming ? 'streaming' : (currentEmployee.status || 'awake')}
                   scale={0.5}
+                  activity={petActivity}
                   onToggleHide={() => setPetHidden(true)}
                 />
               </div>
