@@ -613,7 +613,7 @@ function EditEmployee({
       } else {
         showToast(result.error || '安装失败', 'error')
       }
-    } catch (err) { 
+    } catch { 
       showToast('安装失败', 'error') 
     } finally {
       setActionInProgress(null)
@@ -840,7 +840,7 @@ function EditEmployee({
                             {field.type === 'toggle' ? (
                               <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
                                 <input type="checkbox" checked={!!rawValue} onChange={(e) => updateConfigField(field.key, e.target.checked)} className="sr-only peer" />
-                                <span className={`tools-toggle-track ${!!rawValue ? 'bg-[var(--accent)] border-[var(--accent)] after:translate-x-[18px] after:bg-white' : ''}`} />
+                                <span className={`tools-toggle-track ${!!rawValue ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
                               </label>
                             ) : field.type === 'select' ? (
                               <select
@@ -1088,7 +1088,7 @@ function EditEmployee({
                       </div>
                       <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={enabled} onChange={() => handleToggleTool(t, enabled)} className="sr-only peer" />
-                        <span className={`tools-toggle-track ${enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:translate-x-[18px] after:bg-white' : ''}`} />
+                        <span className={`tools-toggle-track ${enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
                       </label>
                     </div>
                     {meta && <div className="text-xs text-[var(--text-dim)] leading-relaxed">{meta.desc}</div>}
@@ -1288,7 +1288,7 @@ function EditEmployee({
                               onChange={(e) => handleToggleSkillEnabled(s, e.target.checked)}
                               className="sr-only peer"
                             />
-                            <span className={`tools-toggle-track ${s.enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:translate-x-[18px] after:bg-white' : ''}`} />
+                            <span className={`tools-toggle-track ${s.enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
                           </label>
                         </div>
                       </div>

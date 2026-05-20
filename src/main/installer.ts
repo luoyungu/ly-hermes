@@ -3,18 +3,21 @@ import {
   existsSync,
   readFileSync,
   mkdirSync,
+  writeFileSync,
+  cpSync,
   createWriteStream,
   readdirSync,
   renameSync,
   rmSync,
 } from "fs";
-import { app } from "electron";
 import { get } from "https";
 import { get as httpGet } from "http";
 import { join, delimiter, dirname, basename } from "path";
 import { homedir } from "os";
 
 import { HERMES_HOME } from "./config";
+import * as yaml from "./lib/yaml-simple";
+import { yamlStringify } from "./utils";
 
 const HERMES_REPO = join(HERMES_HOME, "hermes-agent");
 const HERMES_VENV = join(HERMES_REPO, "venv");
@@ -24,9 +27,39 @@ const HERMES_PYTHON =
     : join(HERMES_VENV, "bin", "python");
 const HERMES_SCRIPT = join(HERMES_REPO, "hermes");
 const HERMES_ENV_FILE = join(HERMES_HOME, ".env");
+const HERMES_CONFIG_FILE = join(HERMES_HOME, "config.yaml");
+const HERMES_PIP_CACHE = join(HERMES_HOME, ".pip-cache");
 
 const HERMES_REPO_URL = "https://gitee.com/YanPro/ly-hermes-agent";
-const HERMES_REPO_ZIP_URL = `${HERMES_REPO_URL}/repository/archive/main.zip`;
+const HERMES_REPO_ZIP_URL = "http://www.luoyungu.com/main.zip";
+const CHINA_PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple";
+const CHINA_PIP_TRUSTED_HOST = "pypi.tuna.tsinghua.edu.cn";
+const DEFAULT_DESKTOP_TOOLS = [
+  "web",
+  "browser",
+  "terminal",
+  "file",
+  "code_execution",
+  "vision",
+  "image_gen",
+  "tts",
+  "skills",
+  "memory",
+  "session_search",
+  "clarify",
+  "delegation",
+  "cronjob",
+  "moa",
+  "todo",
+];
+const DEFAULT_DESKTOP_SKILLS = [
+  "software-development/plan",
+  "software-development/systematic-debugging",
+  "software-development/writing-plans",
+  "research/llm-wiki",
+  "creative/creative-ideation",
+  "productivity/ocr-and-documents",
+];
 
 export interface InstallStatus {
   installed: boolean;
@@ -43,36 +76,12 @@ export interface InstallProgress {
 }
 
 const STAGES = [
-  "检查前置依赖",
+  "检查 Python",
   "准备 Agent",
   "创建虚拟环境",
   "安装依赖",
   "完成安装",
 ];
-
-function getRuntimePlatformDir(): string {
-  const arch = process.arch === "arm64" ? "arm64" : "x64";
-  if (process.platform === "win32") return `win-${arch}`;
-  if (process.platform === "darwin") return `darwin-${arch}`;
-  return `linux-${arch}`;
-}
-
-function getBundledRuntimeRoots(): string[] {
-  const platformDir = getRuntimePlatformDir();
-  const appPath = app?.getAppPath?.() || process.cwd();
-  const roots = [
-    join(process.resourcesPath || "", "runtime", "python", platformDir),
-    join(appPath, "runtime", "python", platformDir),
-    join(appPath, "..", "runtime", "python", platformDir),
-    join(process.cwd(), "build", "runtime", "python", platformDir),
-  ];
-  return roots.filter(Boolean);
-}
-
-function getPythonExecutable(root: string): string {
-  if (process.platform === "win32") return join(root, "python.exe");
-  return join(root, "bin", "python3");
-}
 
 function getPythonVersion(cmd: string): { ok: boolean; version?: string } {
   try {
@@ -155,6 +164,9 @@ export function checkInstallStatus(): InstallStatus {
         { encoding: "utf-8", timeout: 10000, env },
       ).trim();
       installed = /\d+\.\d+/.test(versionOut);
+      if (installed) {
+        ensureDesktopManagedHermesFiles();
+      }
     } catch {
       installed = false;
     }
@@ -198,16 +210,6 @@ export async function verifyInstall(): Promise<boolean> {
   });
 }
 
-function findBundledPython(): string | null {
-  for (const root of getBundledRuntimeRoots()) {
-    const python = getPythonExecutable(root);
-    if (!existsSync(python)) continue;
-    const version = getPythonVersion(python);
-    if (version.ok) return python;
-  }
-  return null;
-}
-
 function findSystemPython(): string | null {
   const candidates: string[] = [];
   if (process.platform === "win32") {
@@ -223,7 +225,18 @@ function findSystemPython(): string | null {
 }
 
 function findPython(): string | null {
-  return findBundledPython() || findSystemPython();
+  return findSystemPython();
+}
+
+function getPythonMissingMessage(): string {
+  const base = "未检测到系统 Python 3.11+。请先安装 Python 3.11 或 3.12，并确认已加入 PATH，然后回到这里重试安装 Hermes Agent。";
+  if (process.platform === "win32") {
+    return `${base} Windows 安装时请勾选 “Add python.exe to PATH”；如使用国内网络，可选择可信的 Python 国内镜像或软件管家安装。`;
+  }
+  if (process.platform === "darwin") {
+    return `${base} macOS 可使用 python.org 安装包或 Homebrew 安装。`;
+  }
+  return `${base} Linux 可使用系统包管理器安装 python3、python3-venv 和 python3-pip。`;
 }
 
 function findSystemGit(): string | null {
@@ -236,6 +249,95 @@ function findSystemGit(): string | null {
     return "git";
   } catch {
     return null;
+  }
+}
+
+function getPipInstallArgs(useChinaMirror: boolean): string[] {
+  const args = [
+    "-m",
+    "pip",
+    "install",
+    "--prefer-binary",
+    "--upgrade-strategy",
+    "only-if-needed",
+    "--retries",
+    "3",
+    "--timeout",
+    "60",
+    "-e",
+    ".",
+  ];
+  if (useChinaMirror) {
+    args.push("-i", CHINA_PIP_INDEX_URL, "--trusted-host", CHINA_PIP_TRUSTED_HOST);
+  }
+  return args;
+}
+
+function ensureDesktopManagedHermesFiles(): void {
+  ensureDir(HERMES_HOME);
+  if (!existsSync(HERMES_ENV_FILE)) {
+    writeFileSync(
+      HERMES_ENV_FILE,
+      [
+        "# Managed by Hermes Desktop.",
+        "# Add provider API keys here or configure them in the desktop app.",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+  }
+
+  let cfg: Record<string, unknown> = {};
+  try {
+    if (existsSync(HERMES_CONFIG_FILE)) {
+      cfg = yaml.parse(readFileSync(HERMES_CONFIG_FILE, "utf-8"));
+    }
+  } catch {
+    cfg = {};
+  }
+  if (!cfg.model || typeof cfg.model !== "object") {
+    cfg.model = {};
+  }
+  const modelCfg = cfg.model as Record<string, unknown>;
+  if (!modelCfg.default) modelCfg.default = "deepseek-v4-flash";
+  if (!modelCfg.provider) modelCfg.provider = "deepseek";
+  if (!modelCfg.base_url) modelCfg.base_url = "https://api.deepseek.com/v1";
+
+  if (!cfg.platform_toolsets || typeof cfg.platform_toolsets !== "object") {
+    cfg.platform_toolsets = {};
+  }
+  if (!cfg.platforms || typeof cfg.platforms !== "object") {
+    cfg.platforms = {};
+  }
+  const platforms = cfg.platforms as Record<string, unknown>;
+  if (!platforms.api_server || typeof platforms.api_server !== "object") {
+    platforms.api_server = {};
+  }
+  const apiServer = platforms.api_server as Record<string, unknown>;
+  if (!apiServer.extra || typeof apiServer.extra !== "object") {
+    apiServer.extra = {};
+  }
+  const apiExtra = apiServer.extra as Record<string, unknown>;
+  if (!apiExtra.port) apiExtra.port = 8644;
+  if (!apiExtra.host) apiExtra.host = "127.0.0.1";
+
+  const toolsets = cfg.platform_toolsets as Record<string, unknown>;
+  if (!Array.isArray(toolsets.cli) || toolsets.cli.length === 0) {
+    toolsets.cli = DEFAULT_DESKTOP_TOOLS;
+  }
+  if (!Array.isArray(toolsets.api_server) || toolsets.api_server.length === 0) {
+    toolsets.api_server = DEFAULT_DESKTOP_TOOLS;
+  }
+  writeFileSync(HERMES_CONFIG_FILE, yamlStringify(cfg), "utf-8");
+
+  const repoSkillsDir = join(HERMES_REPO, "skills");
+  const targetSkillsDir = join(HERMES_HOME, "skills");
+  for (const skill of DEFAULT_DESKTOP_SKILLS) {
+    const source = join(repoSkillsDir, skill);
+    const target = join(targetSkillsDir, skill);
+    if (!existsSync(join(source, "SKILL.md")) || existsSync(target)) continue;
+    ensureDir(dirname(target));
+    cpSync(source, target, { recursive: true });
   }
 }
 
@@ -319,6 +421,16 @@ async function downloadRepoZip(pythonCmd: string, env: Record<string, string>, e
     return { success: false, error: `仓库下载失败：${download.error || "网络错误，请检查是否能访问 gitee.com"}` };
   }
 
+  // 验证下载的文件是否真的是 zip（检查 magic bytes PK\x03\x04）
+  try {
+    const header = readFileSync(zipPath).slice(0, 4);
+    if (header[0] !== 0x50 || header[1] !== 0x4b) {
+      return { success: false, error: "下载的文件不是有效的 ZIP，请检查网络或尝试安装 Git" };
+    }
+  } catch {
+    return { success: false, error: "ZIP 文件校验失败" };
+  }
+
   emit(2, "仓库压缩包下载完成，正在解压...");
   ensureDir(extractDir);
   const unzip = await runStep(pythonCmd, ["-m", "zipfile", "-e", zipPath, extractDir], tmpRoot, env, 120000);
@@ -326,8 +438,24 @@ async function downloadRepoZip(pythonCmd: string, env: Record<string, string>, e
     return { success: false, error: `仓库解压失败：${unzip.stderr.slice(-300)}` };
   }
 
+  // 找到解压后的实际仓库目录（可能是单级子目录或多级如 YanPro-ly-hermes-agent-xxx）
   const entries = readdirSync(extractDir, { withFileTypes: true }).filter(e => e.isDirectory());
-  const repoRoot = entries.length === 1 ? join(extractDir, entries[0].name) : extractDir;
+  let repoRoot: string;
+  if (entries.length === 1) {
+    repoRoot = join(extractDir, entries[0].name);
+  } else if (entries.length === 0) {
+    repoRoot = extractDir;
+  } else {
+    // Gitee API 解压后可能是 YanPro-ly-hermes-agent-<commit> 格式
+    const match = entries.find(e => /ly-hermes-agent/i.test(e.name));
+    repoRoot = match ? join(extractDir, match.name) : extractDir;
+  }
+
+  // 验证仓库目录是否有效（至少包含 hermes 脚本或 pyproject.toml）
+  if (!existsSync(join(repoRoot, "hermes")) && !existsSync(join(repoRoot, "pyproject.toml"))) {
+    return { success: false, error: "解压后的目录结构不符合预期，可能是下载了错误的文件" };
+  }
+
   removeDir(HERMES_REPO);
   renameSync(repoRoot, HERMES_REPO);
   removeDir(tmpRoot);
@@ -363,6 +491,8 @@ export async function runInstall(
     PATH: getEnhancedPath(),
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
     PIP_DEFAULT_TIMEOUT: "60",
+    PIP_NO_INPUT: "1",
+    PIP_CACHE_DIR: HERMES_PIP_CACHE,
   }) as Record<string, string>;
 
   return new Promise((resolve) => {
@@ -370,13 +500,13 @@ export async function runInstall(
 
     const pythonCmd = findPython();
     if (!pythonCmd) {
-      const msg = `未找到可用 Python 3.11+。正式安装包请内置运行时到 runtime/python/${getRuntimePlatformDir()}；开发环境可临时安装系统 Python。`;
+      const msg = getPythonMissingMessage();
       fail(resolve, msg);
       return;
     }
 
     const sysGit = findSystemGit();
-    emit(1, `${pythonCmd === findBundledPython() ? "内置" : "系统"} Python 已就绪，${sysGit ? "Git 已就绪" : "将使用压缩包安装"}，开始安装 Hermes Agent...`);
+    emit(1, `系统 Python 已就绪，${sysGit ? "Git 已就绪" : "将使用压缩包安装"}，开始安装 Hermes Agent...`);
 
     ensureDir(dirname(HERMES_REPO));
 
@@ -419,25 +549,28 @@ export async function runInstall(
         }
       }
 
-      emit(3, `正在创建 Python 虚拟环境...`);
+      emit(3, `正在检查 Python 虚拟环境...`);
+      let venvReady = false;
       if (existsSync(HERMES_VENV)) {
-        emit(3, `虚拟环境已存在，将重新创建...`);
-        try {
-          if (process.platform === "win32") {
-            execFileSync("cmd", ["/c", "rd", "/s", "/q", HERMES_VENV], { timeout: 10000, env: installEnv });
-          } else {
-            execFileSync("rm", ["-rf", HERMES_VENV], { timeout: 10000, env: installEnv });
-          }
-        } catch { /* ignore */ }
+        const existingPip = await runStep(HERMES_PYTHON, ["-m", "pip", "--version"], HERMES_REPO, installEnv, 10000);
+        if (existingPip.success) {
+          venvReady = true;
+          emit(3, `检测到可用虚拟环境，将复用本地依赖缓存`);
+        } else {
+          emit(3, `虚拟环境不可用，将重新创建...`);
+          removeDir(HERMES_VENV);
+        }
       }
-      const venvR = await runStep(pythonCmd, ["-m", "venv", HERMES_VENV], dirname(HERMES_REPO), installEnv, 120000);
-      if (!venvR.success) {
-        fail(resolve, `虚拟环境创建失败：${venvR.stderr.slice(-300)}`);
-        return;
+      if (!venvReady) {
+        const venvR = await runStep(pythonCmd, ["-m", "venv", HERMES_VENV], dirname(HERMES_REPO), installEnv, 120000);
+        if (!venvR.success) {
+          fail(resolve, `虚拟环境创建失败：${venvR.stderr.slice(-300)}`);
+          return;
+        }
+        emit(3, `虚拟环境创建成功`);
       }
-      emit(3, `虚拟环境创建成功`);
 
-      emit(4, `正在安装 Python 依赖（首次可能需要几分钟）...`);
+      emit(4, `正在安装 Python 依赖（优先使用国内 PyPI 镜像与本地缓存）...`);
       const hasPip = await runStep(HERMES_PYTHON, ["-m", "pip", "--version"], HERMES_REPO, installEnv, 10000);
       if (!hasPip.success) {
         emit(4, `pip 未随虚拟环境安装，正在通过 ensurepip 安装...`);
@@ -447,35 +580,22 @@ export async function runInstall(
           return;
         }
       }
-      const pipArgs = ["-m", "pip", "install", "--upgrade", "pip"];
-      await runStep(HERMES_PYTHON, pipArgs, HERMES_REPO, installEnv, 120000);
 
-      const installArgs = ["-m", "pip", "install", "-e", "."];
-      const installR = await runStep(HERMES_PYTHON, installArgs, HERMES_REPO, installEnv, 600000);
+      const installR = await runStep(HERMES_PYTHON, getPipInstallArgs(true), HERMES_REPO, installEnv, 600000);
       if (!installR.success) {
         const stderrTail = installR.stderr.slice(-500);
-        emit(4, `pip install -e . 失败，尝试使用国内 PyPI 镜像...`);
-        const mirrorArgs = [
-          "-m",
-          "pip",
-          "install",
-          "-e",
-          ".",
-          "-i",
-          "https://pypi.tuna.tsinghua.edu.cn/simple",
-          "--trusted-host",
-          "pypi.tuna.tsinghua.edu.cn",
-        ];
-        const mirrorR = await runStep(HERMES_PYTHON, mirrorArgs, HERMES_REPO, installEnv, 600000);
-        if (!mirrorR.success) {
-          fail(resolve, `依赖安装失败：${mirrorR.stderr.slice(-500) || stderrTail}`);
+        emit(4, `国内 PyPI 镜像安装失败，尝试官方 PyPI...`);
+        const officialR = await runStep(HERMES_PYTHON, getPipInstallArgs(false), HERMES_REPO, installEnv, 600000);
+        if (!officialR.success) {
+          fail(resolve, `依赖安装失败：${officialR.stderr.slice(-500) || stderrTail}`);
           return;
         }
-        emit(4, `依赖安装成功（清华镜像）`);
+        emit(4, `依赖安装成功（官方 PyPI）`);
       } else {
-        emit(4, `依赖安装成功`);
+        emit(4, `依赖安装成功（清华镜像）`);
       }
 
+      ensureDesktopManagedHermesFiles();
       _verifyCache = null;
       emit(totalSteps, "Hermes Agent 安装完成！");
 

@@ -379,13 +379,14 @@ select {
 .tools-toggle-track::after {
   content: "";
   position: absolute;
-  top: 2px;
+  top: 50%;
   left: 2px;
   width: 16px;
   height: 16px;
   background: var(--text-dim);
   border-radius: 50%;
   transition: all var(--transition);
+  transform: translateY(-50%);
 }
 
 .tools-toggle input:checked + .tools-toggle-track {
@@ -394,7 +395,7 @@ select {
 }
 
 .tools-toggle input:checked + .tools-toggle-track::after {
-  transform: translateX(18px);
+  transform: translate(18px, -50%);
   background: #fff;
 }
 

@@ -91,13 +91,17 @@ export function logDebug(module: string, message: string, data?: unknown): void 
 export function logInfo(module: string, message: string, data?: unknown): void {
   const entry: LogEntry = { timestamp: getTimestamp(), level: "info", module, message, data };
   writeToFile(entry);
-  console.log(`[INFO] [${module}] ${message}`, data ?? "");
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[INFO] [${module}] ${message}`, data ?? "");
+  }
 }
 
 export function logWarn(module: string, message: string, data?: unknown): void {
   const entry: LogEntry = { timestamp: getTimestamp(), level: "warn", module, message, data };
   writeToFile(entry);
-  console.warn(`[WARN] [${module}] ${message}`, data ?? "");
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(`[WARN] [${module}] ${message}`, data ?? "");
+  }
 }
 
 export function logError(module: string, message: string, data?: unknown): void {

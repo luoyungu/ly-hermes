@@ -706,10 +706,7 @@ export function registerChatIpcHandlers(
             timeout: 10000,
           },
           (res) => {
-            let data = "";
-            res.on("data", (chunk: Buffer) => {
-              data += chunk;
-            });
+            res.resume();
             res.on("end", () => {
               resolve({ success: true, statusCode: res.statusCode });
             });

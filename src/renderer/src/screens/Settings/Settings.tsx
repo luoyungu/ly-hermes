@@ -787,7 +787,7 @@ export default function SettingsScreen(): React.ReactElement {
                                   {field.type === 'toggle' ? (
                                     <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
                                       <input type="checkbox" checked={!!rawValue} onChange={(e) => updateRuntimeField(field.key, e.target.checked)} className="sr-only peer" />
-                                      <span className={`tools-toggle-track ${!!rawValue ? 'bg-[var(--accent)] border-[var(--accent)] after:translate-x-[18px] after:bg-white' : ''}`} />
+                                      <span className={`tools-toggle-track ${!!rawValue ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
                                     </label>
                                   ) : field.type === 'select' ? (
                                     <select
@@ -1224,7 +1224,7 @@ export default function SettingsScreen(): React.ReactElement {
                             {restartingEngines ? '重启中...' : '重启引擎'}
                           </button>
                         </Popconfirm>
-                        <Popconfirm title="重新安装将删除当前引擎并从远程重新拉取，过程中所有正在运行的任务将被中断。确定继续？" confirmText="重新安装" onConfirm={handleReinstall}>
+                        <Popconfirm title="重新安装将重新拉取并校验当前引擎，优先复用已有虚拟环境和依赖缓存；过程中所有正在运行的任务将被中断。确定继续？" confirmText="重新安装" onConfirm={handleReinstall}>
                           <button
                             disabled={reinstalling}
                             className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[rgba(239,68,68,0.1)] border-[rgba(239,68,68,0.3)] px-4 py-2 text-sm text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-50"

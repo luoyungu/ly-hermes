@@ -325,10 +325,7 @@ function scanSkillsDir(skillsDir: string, profile?: string): InstalledSkill[] {
 export function listInstalledSkills(profile?: string): InstalledSkill[] {
   const profilePath = getProfilePath(profile || "default");
   const skillsDir = join(profilePath, "skills");
-  console.log("[skills] listInstalledSkills profile:", profile, "dir:", skillsDir);
-  const result = scanSkillsDir(skillsDir, profile);
-  console.log("[skills] listInstalledSkills found:", result.length, "skills");
-  return result;
+  return scanSkillsDir(skillsDir, profile);
 }
 
 export function getSkillContent(skillPath: string): string {
@@ -362,10 +359,8 @@ function findHermesRepoDir(): string {
 export function listBundledSkills(profile?: string): BundledSkill[] {
   const repoDir = findHermesRepoDir();
   const bundledDir = join(repoDir, "skills");
-  console.log("[skills] listBundledSkills repo:", repoDir, "dir:", bundledDir);
 
   if (!existsSync(bundledDir)) {
-    console.log("[skills] bundled dir not found, returning empty");
     return [];
   }
 
@@ -509,7 +504,6 @@ export function listBundledSkills(profile?: string): BundledSkill[] {
     }
   }
 
-  console.log("[skills] listBundledSkills found:", skills.length, "skills");
   return skills.sort(
     (a, b) =>
       a.category.localeCompare(b.category) || a.name.localeCompare(b.name),

@@ -33,6 +33,25 @@ const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   ernie:       { envKey: "QIANFAN_API_KEY",      baseUrl: "https://qianfan.baidubce.com/v2" },
 };
 
+const DEFAULT_DESKTOP_TOOLS = [
+  "web",
+  "browser",
+  "terminal",
+  "file",
+  "code_execution",
+  "vision",
+  "image_gen",
+  "tts",
+  "skills",
+  "memory",
+  "session_search",
+  "clarify",
+  "delegation",
+  "cronjob",
+  "moa",
+  "todo",
+];
+
 export const _gatewayProcesses: Record<string, ChildProcess> = {};
 export const _idleTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
@@ -104,6 +123,7 @@ export function getApiPortForProfile(profileName: string): number | null {
   }
   const meta = readEmployeeMeta(profileName);
   if (meta && meta.gateway_port) return meta.gateway_port as number;
+  if (profileName === "default") return DEFAULT_API_PORT;
   return null;
 }
 
@@ -293,7 +313,6 @@ export async function wakeUpEmployee(
   });
 
   const hermesEnv = readHermesEnv(profileName);
-  console.log("[wakeUpEmployee] profile:", profileName, "hermesEnv keys:", Object.keys(hermesEnv));
   for (const [key, value] of Object.entries(hermesEnv)) {
     if (value) env[key] = value;
   }
@@ -313,14 +332,11 @@ export async function wakeUpEmployee(
       const providerInfo = PROVIDER_KEY_MAP[provider];
       const isCustomProvider = !providerInfo && provider !== "";
 
-      console.log("[wakeUpEmployee] config provider:", provider, "isBuiltin:", !!providerInfo, "isCustom:", isCustomProvider);
-
       if (!providerInfo && provider !== "custom" && provider !== "") {
         const baseUrl = (m?.base_url as string) || "";
         for (const [pid, info] of Object.entries(PROVIDER_KEY_MAP)) {
           if (baseUrl && info.baseUrl === baseUrl) {
             provider = pid;
-            console.log("[wakeUpEmployee] auto-corrected provider from", m?.provider, "to", pid);
             m!.provider = pid;
             safeWriteFile(configPath, yamlStringify(cfg));
             break;
@@ -361,7 +377,6 @@ export async function wakeUpEmployee(
           }
           if (changed) {
             safeWriteFile(envPath, filtered.join("\n"));
-            console.log("[wakeUpEmployee] updated .env: added OPENAI_API_KEY, removed HERMES_INFERENCE_PROVIDER");
           }
         }
       } else if (provider === "custom" || isCustomProvider) {
@@ -395,11 +410,9 @@ export async function wakeUpEmployee(
           });
           if (!hasOpenaiKey) {
             safeWriteFile(envPath, envContent.trimEnd() + "\nOPENAI_API_KEY=" + env.OPENAI_API_KEY + "\n");
-            console.log("[wakeUpEmployee] added OPENAI_API_KEY to .env for custom provider");
           }
         }
       }
-      console.log("[wakeUpEmployee] final env has DEEPSEEK_API_KEY:", !!env.DEEPSEEK_API_KEY, "OPENAI_API_KEY:", !!env.OPENAI_API_KEY, "HERMES_INFERENCE_PROVIDER:", env.HERMES_INFERENCE_PROVIDER);
     }
   } catch {
     /* fall through */
@@ -650,24 +663,12 @@ export function registerEmployeeIpcHandlers(
         platform_toolsets: {
           cli:
             (config.tools as string[]) ||
-            (defaults.tools as string[]) || [
-              "browser",
-              "terminal",
-              "file",
-              "memory",
-              "web",
-              "code",
-            ],
+            (defaults.tools as string[]) ||
+            DEFAULT_DESKTOP_TOOLS,
           api_server:
             (config.tools as string[]) ||
-            (defaults.tools as string[]) || [
-              "browser",
-              "terminal",
-              "file",
-              "memory",
-              "web",
-              "code",
-            ],
+            (defaults.tools as string[]) ||
+            DEFAULT_DESKTOP_TOOLS,
         },
         agent: { max_turns: 60, reasoning_effort: "medium" },
         memory: {
@@ -984,7 +985,7 @@ export function registerEmployeeIpcHandlers(
   ipcMain.handle("employee:get-tools", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default") return [];
     const configPath = path.join(getProfilePath(name), "config.yaml");
-    if (!fs.existsSync(configPath)) return [];
+    if (!fs.existsSync(configPath)) return DEFAULT_DESKTOP_TOOLS;
     try {
       const cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
       const pt = cfg.platform_toolsets as Record<string, unknown> | undefined;
@@ -999,9 +1000,9 @@ export function registerEmployeeIpcHandlers(
       if (cli?.tools && Array.isArray(cli.tools)) {
         return cli.tools;
       }
-      return [];
+      return DEFAULT_DESKTOP_TOOLS;
     } catch {
-      return [];
+      return DEFAULT_DESKTOP_TOOLS;
     }
   });
 

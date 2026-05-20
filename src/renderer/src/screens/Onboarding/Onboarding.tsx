@@ -20,7 +20,7 @@ interface OnboardingProps {
 type Step = 'install' | 'apikey' | 'password'
 
 const STAGE_LABELS = [
-  '检查环境',
+  '检查 Python',
   '准备 Agent',
   '创建虚拟环境',
   '安装依赖',
@@ -36,6 +36,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const logRef = useRef<HTMLDivElement>(null)
 
   const [provider, setProvider] = useState('deepseek')
+  const [modelId, setModelId] = useState(PROVIDER_PRESETS.find(p => p.id === 'deepseek')?.models[0]?.id || '')
   const [apiKey, setApiKey] = useState('')
 
   const [password, setPassword] = useState('')
@@ -97,28 +98,29 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   }, [])
 
   const handleSaveApiKey = useCallback(async () => {
-    if (!apiKey.trim()) {
-      setStep('password')
-      return
-    }
     try {
       const preset = PROVIDER_PRESETS.find(p => p.id === provider)
       const envInfo = PROVIDER_API_KEY_MAP[provider]
       if (!preset || !envInfo) return
-      const envObj: Record<string, string> = {}
-      envObj[envInfo.envKey] = apiKey.trim()
-      await window.hermesAPI.setEmployeeEnv('default', envObj)
+      const savedModelId = modelId.trim() || preset.models[0]?.id || ''
       await window.hermesAPI.setModelConfig({
-        model: preset.models[0]?.id || '',
+        model: savedModelId,
         provider: preset.id,
         baseUrl: preset.baseUrl,
       })
+      if (apiKey.trim()) {
+        const envObj: Record<string, string> = {}
+        envObj[envInfo.envKey] = apiKey.trim()
+        await window.hermesAPI.setEmployeeEnv('default', envObj)
+      } else {
+        await window.hermesAPI.setEmployeeEnv('default', {})
+      }
       setStep('password')
-    } catch (e: unknown) {
+    } catch {
       showToast('API 密钥保存失败，可以稍后在设置中配置', 'error')
       setStep('password')
     }
-  }, [apiKey, provider])
+  }, [apiKey, modelId, provider])
 
   const handleSetupPassword = useCallback(async () => {
     if (password.length < 4) return
@@ -141,9 +143,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   const currentStepIndex = step === 'install' ? 0 : step === 'apikey' ? 1 : 2
   const installTotalSteps = installProgress?.totalSteps || STAGE_LABELS.length
+  const selectedPreset = PROVIDER_PRESETS.find(p => p.id === provider)
+  const selectedPresetModels = selectedPreset?.models || []
+  const modelSelectValue = selectedPresetModels.some(m => m.id === modelId) ? modelId : '_custom'
+  const isCustomModelId = modelSelectValue === '_custom'
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+      <div className="drag-region absolute left-0 right-0 top-0 h-10 z-40" />
       <div className="absolute top-0 right-0 z-50" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <WindowControls />
       </div>
@@ -187,7 +194,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="w-16 h-16 rounded-2xl bg-[var(--accent-glow)] flex items-center justify-center">
                     <Download size={28} className="text-[var(--accent)]" />
                   </div>
-                  <p className="text-sm text-[var(--text-secondary)] text-center">未检测到 Hermes Agent，点击下方按钮开始安装</p>
+                  <p className="text-sm text-[var(--text-secondary)] text-center">未检测到 Hermes Agent。安装前请确保系统已安装 Python 3.11+。</p>
+                  <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--text-dim)]">
+                    Windows 用户安装 Python 时请勾选 Add python.exe to PATH；国内网络环境建议提前准备可访问的 Python 与 PyPI 镜像。
+                  </div>
                   <button onClick={handleInstall} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
                     <Download size={16} /> 开始安装
                   </button>
@@ -241,6 +251,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     <AlertCircle size={28} className="text-[var(--danger)]" />
                   </div>
                   <p className="text-sm text-[var(--danger)] text-center">{installError || '安装失败'}</p>
+                  {installError.includes('Python') && (
+                    <div className="w-full rounded-lg border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-xs leading-relaxed text-[var(--text-secondary)]">
+                      安装好 Python 后无需重装客户端，直接点击“重试安装”即可继续安装 Hermes Agent。
+                    </div>
+                  )}
                   <button onClick={handleInstall} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
                     <Download size={16} /> 重试安装
                   </button>
@@ -258,20 +273,54 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           {step === 'apikey' && (
             <>
               <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">配置 AI 模型</h2>
-              <p className="text-sm text-[var(--text-secondary)] mb-5">选择一个 AI 服务商并填入 API 密钥，也可以稍后配置</p>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">选择服务商、模型 ID 并填入 API 密钥，也可以稍后配置</p>
 
               <div className="flex-1 flex flex-col gap-4">
                 <div>
                   <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">服务商</label>
                   <select
                     value={provider}
-                    onChange={(e) => setProvider(e.target.value)}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value
+                      const nextPreset = PROVIDER_PRESETS.find(p => p.id === nextProvider)
+                      setProvider(nextProvider)
+                      setModelId(nextPreset?.models[0]?.id || '')
+                    }}
                     className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)] bg-transparent cursor-pointer"
                   >
                     {PROVIDER_PRESETS.map(p => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">模型 ID</label>
+                  <select
+                    value={modelSelectValue}
+                    onChange={(e) => {
+                      const nextModel = e.target.value
+                      setModelId(nextModel === '_custom' ? '' : nextModel)
+                    }}
+                    className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)] bg-transparent cursor-pointer"
+                  >
+                    {selectedPresetModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.label} · {m.id}</option>
+                    ))}
+                    <option value="_custom">自定义模型 ID...</option>
+                  </select>
+                  {isCustomModelId && (
+                    <input
+                      type="text"
+                      value={modelId}
+                      onChange={(e) => setModelId(e.target.value)}
+                      placeholder="输入模型 ID"
+                      className="mt-2 w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  )}
+                  <p className="mt-1.5 text-xs text-[var(--text-dim)]">
+                    将写入配置：{modelId.trim() || selectedPresetModels[0]?.id || '未选择模型'}
+                  </p>
                 </div>
 
                 <div>

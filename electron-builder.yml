@@ -15,12 +15,6 @@ files:
   - '!**/.DS_Store'
 
 extraResources:
-  - from: build/runtime
-    to: runtime
-    filter:
-        - '**/*'
-        - '!**/._*'
-        - '!**/.DS_Store'
   - from: build/tray-icon.png
     to: tray-icon.png
   - from: build/tray-icon@2x.png
@@ -38,6 +32,7 @@ win:
 nsis:
   oneClick: false
   perMachine: false
+  include: build/installer.nsh
   allowToChangeInstallationDirectory: true
   allowElevation: true
   runAfterFinish: true

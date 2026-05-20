@@ -322,9 +322,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("read-logs", (_, logFile?: string, lines?: number) => {
-    const result = readHermesLogs(logFile, lines);
-    console.log('[read-logs] result:', { path: result.path, contentLength: result.content.length });
-    return result;
+    return readHermesLogs(logFile, lines);
   });
 
   ipcMain.handle("clear-logs", (_, logFile?: string) => {

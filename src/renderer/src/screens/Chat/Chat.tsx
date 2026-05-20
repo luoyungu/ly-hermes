@@ -1341,7 +1341,6 @@ export default function Chat(): React.ReactElement {
     try {
       const list = await window.hermesAPI.listEmployees()
       const mapped = (list || []).map(e => ({ ...e, status: mapStatus(e.status || '') }))
-      console.log('[Chat] loaded employees:', mapped.map(e => ({ name: e.name, petSlug: e.petSlug })))
       setEmployees(mapped)
       if (mapped.length > 0 && !currentEmployeeName) {
         const firstAwake = mapped.find((e: EmployeeInfo) => e.status === 'awake')
@@ -1367,6 +1366,8 @@ export default function Chat(): React.ReactElement {
 
   const loadLatestSession = useCallback(async (employeeName: string): Promise<void> => {
     if (loadingLatestSessionRef.current[employeeName]) return
+    const localHistory = chatHistories[employeeName] || []
+    if (localHistory.length > 0) return
     loadingLatestSessionRef.current = { ...loadingLatestSessionRef.current, [employeeName]: true }
     try {
       const sessions = await window.hermesAPI.getEmployeeSessions(employeeName)
@@ -1380,7 +1381,7 @@ export default function Chat(): React.ReactElement {
     } finally {
       loadingLatestSessionRef.current = { ...loadingLatestSessionRef.current, [employeeName]: false }
     }
-  }, [loadSessionIntoChat])
+  }, [chatHistories, loadSessionIntoChat])
 
   const selectEmployee = useCallback(async (employeeName: string) => {
     setCurrentEmployeeName(employeeName)

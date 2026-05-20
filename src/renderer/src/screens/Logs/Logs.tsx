@@ -23,13 +23,10 @@ export default function LogsScreen(): React.ReactElement {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadLogs = useCallback(async (logFile?: string) => {
-    console.log('[Logs] loadLogs called:', { logFile, activeLog })
     setLoading(true)
     try {
       const file = logFile || activeLog
-      console.log('[Logs] calling readLogs:', file)
       const result = await window.hermesAPI?.readLogs(file, 500)
-      console.log('[Logs] readLogs result:', result)
       if (result) {
         setLogContent(result.content)
       }
@@ -37,7 +34,6 @@ export default function LogsScreen(): React.ReactElement {
       console.error('Failed to load logs:', err)
     } finally {
       setLoading(false)
-      console.log('[Logs] loading set to false')
     }
   }, [activeLog])
 
