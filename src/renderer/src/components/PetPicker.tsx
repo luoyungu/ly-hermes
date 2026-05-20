@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import PetSprite from './PetSprite'
 
@@ -24,9 +25,20 @@ export default function PetPicker({ value, onChange, onClose }: PetPickerProps):
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const triggerRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
+
+  useEffect(() => {
+    const el = triggerRef.current?.parentElement
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const top = rect.bottom + 6
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 336))
+    setPos({ top: Math.min(top, window.innerHeight - 420), left })
+  }, [])
 
   useEffect(() => {
     window.hermesAPI.listPets().then(list => {
@@ -37,7 +49,7 @@ export default function PetPicker({ value, onChange, onClose }: PetPickerProps):
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onCloseRef.current()
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onCloseRef.current()
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -63,8 +75,12 @@ export default function PetPicker({ value, onChange, onClose }: PetPickerProps):
   const allItems = [{ slug: '', name: '不选择', isNone: true as const }, ...filtered.map(p => ({ ...p, isNone: false as const }))]
   const pageItems = allItems.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
-  return (
-    <div ref={ref} className="absolute top-full left-0 mt-2 w-[320px] rounded-xl glass-heavy border border-[var(--border)] z-20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] overflow-hidden">
+  const panel = (
+    <div
+      ref={panelRef}
+      className="fixed rounded-xl glass-heavy border border-[var(--border)] z-[999] shadow-[0_8px_32px_rgba(0,0,0,0.3)] overflow-hidden animate-scale-in"
+      style={{ width: 320, top: pos?.top ?? 0, left: pos?.left ?? 0, opacity: pos ? 1 : 0 }}
+    >
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border)]">
         <Search size={14} className="text-[var(--text-dim)] shrink-0" />
         <input
@@ -81,7 +97,7 @@ export default function PetPicker({ value, onChange, onClose }: PetPickerProps):
         )}
       </div>
 
-      <div className="p-3">
+      <div className="p-3" style={{ maxHeight: 320, overflowY: 'auto' }}>
         {loading ? (
           <div className="flex items-center justify-center py-8 text-[var(--text-dim)]">
             <Loader2 size={18} className="animate-spin mr-2" /> 加载中...
@@ -138,5 +154,12 @@ export default function PetPicker({ value, onChange, onClose }: PetPickerProps):
         </div>
       )}
     </div>
+  )
+
+  return (
+    <>
+      <div ref={triggerRef} style={{ position: 'absolute', pointerEvents: 'none' }} />
+      {createPortal(panel, document.body)}
+    </>
   )
 }
