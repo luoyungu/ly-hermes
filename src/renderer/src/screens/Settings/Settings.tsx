@@ -377,7 +377,7 @@ export default function SettingsScreen(): React.ReactElement {
   const handleImportFileSelect = (): void => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.zip,.tar.gz,.tgz'
+    input.accept = '.json,.zip,.tar.gz,.tgz'
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (file) {
@@ -1269,7 +1269,7 @@ export default function SettingsScreen(): React.ReactElement {
                 <div className="space-y-5">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
                     <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">导出备份</h4>
-                    <p className="text-xs text-[var(--text-dim)] mb-4">将所有配置、员工档案、日程等数据打包为 ZIP 文件备份。备份文件保存在 ~/.hermes/backups/ 目录。</p>
+                    <p className="text-xs text-[var(--text-dim)] mb-4">将桌面端数据库和 Hermes 数据一起备份。备份文件保存在 ~/.hermes/backups/ 目录。</p>
                     <button
                       onClick={handleBackup}
                       disabled={backingUp}
@@ -1282,7 +1282,7 @@ export default function SettingsScreen(): React.ReactElement {
 
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
                     <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">导入备份</h4>
-                    <p className="text-xs text-[var(--text-dim)] mb-4">从 ZIP 或 TAR.GZ 备份文件恢复数据。导入将覆盖现有配置，请谨慎操作。</p>
+                    <p className="text-xs text-[var(--text-dim)] mb-4">从桌面端 JSON、ZIP 或 TAR.GZ 备份文件恢复数据。导入将覆盖现有配置，请谨慎操作。</p>
                     {importConfirm ? (
                       <div className="flex items-center gap-3 p-3 rounded-lg bg-[rgba(245,158,11,0.1)] border border-[rgba(245,158,11,0.3)]">
                         <AlertTriangle size={16} className="text-[var(--warning)] shrink-0" />

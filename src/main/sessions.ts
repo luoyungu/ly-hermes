@@ -10,6 +10,7 @@ import {
   getProfilePath,
 } from "./config";
 import { showChatNotification } from "./utils";
+import { exportAppDataBackup, importAppDataBackup } from "./db";
 
 interface CronSessionNotification {
   id: string;
@@ -786,14 +787,31 @@ export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | 
   ipcMain.handle("run-hermes-backup", async () => {
     try {
       const output = runHermesCli(["backup"], "default");
-      return { success: !output.includes("Error"), output: output };
+      const appBackup = exportAppDataBackup();
+      const success = !output.includes("Error") && appBackup.success;
+      return {
+        success,
+        output: appBackup.success
+          ? `${output}\n桌面端数据备份: ${appBackup.path}`
+          : `${output}\n桌面端数据备份失败: ${appBackup.error || "unknown error"}`,
+      };
     } catch (e) {
-      return { success: false, output: String(e) };
+      const appBackup = exportAppDataBackup();
+      return {
+        success: appBackup.success,
+        output: appBackup.success
+          ? `Hermes 备份失败: ${String(e)}\n桌面端数据备份: ${appBackup.path}`
+          : String(e),
+      };
     }
   });
 
   ipcMain.handle("run-hermes-import", async (_, filePath: string) => {
     try {
+      if (String(filePath).toLowerCase().endsWith(".json")) {
+        const result = importAppDataBackup(filePath);
+        return { success: result.success, output: result.error };
+      }
       const output = runHermesCli(["import", filePath, "--force"], "default");
       return { success: !output.includes("Error"), output: output };
     } catch (e) {

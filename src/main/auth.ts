@@ -1,8 +1,6 @@
 import { ipcMain } from "electron";
 import crypto from "crypto";
-import fs from "fs";
-import { APP_DATA_DIR, USERS_FILE } from "./config";
-import { ensureDir } from "./utils";
+import { loadDbUsers, saveDbUsers } from "./db";
 
 export const DEFAULT_USERNAME = "admin";
 export const DEFAULT_PASSWORD = "123456";
@@ -20,18 +18,11 @@ interface UserRecord {
 export let currentUser: UserRecord | null = null;
 
 export function readUsers(): UserRecord[] {
-  ensureDir(APP_DATA_DIR);
-  if (!fs.existsSync(USERS_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
+  return loadDbUsers();
 }
 
 export function writeUsers(users: UserRecord[]): void {
-  ensureDir(APP_DATA_DIR);
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  saveDbUsers(users);
 }
 
 export function hashPassword(password: string, salt: string): string {

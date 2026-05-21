@@ -20,6 +20,12 @@ import {
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 import { getSessionCount, getEmployeeSessions } from "./sessions";
 import type { BrowserWindow } from "electron";
+import {
+  loadDbEmployeeMeta,
+  loadDbMemory,
+  saveDbEmployeeMeta,
+  saveDbMemory,
+} from "./db";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -74,29 +80,17 @@ export interface EmployeeInfo {
   status?: string;
 }
 
-function getEmployeeMetaPath(profileName: string): string {
-  return path.join(getProfilePath(profileName), "employee.yaml");
-}
-
 export function readEmployeeMeta(
   profileName: string,
 ): Record<string, unknown> | null {
-  const metaPath = getEmployeeMetaPath(profileName);
-  if (!fs.existsSync(metaPath)) return null;
-  try {
-    return yaml.parse(fs.readFileSync(metaPath, "utf-8"));
-  } catch {
-    return null;
-  }
+  return loadDbEmployeeMeta(profileName);
 }
 
 export function writeEmployeeMeta(
   profileName: string,
   meta: Record<string, unknown>,
 ): void {
-  const profilePath = getProfilePath(profileName);
-  ensureDir(profilePath);
-  fs.writeFileSync(getEmployeeMetaPath(profileName), yamlStringify(meta), "utf-8");
+  saveDbEmployeeMeta(profileName, meta);
 }
 
 export function getApiPortForProfile(profileName: string): number | null {
@@ -1083,13 +1077,8 @@ export function registerEmployeeIpcHandlers(
         user: "",
         stats: {},
       };
-      const memPath = path.join(
-        getProfilePath(name),
-        "memories",
-        "MEMORY.md",
-      );
-      if (fs.existsSync(memPath)) {
-        const content = fs.readFileSync(memPath, "utf-8");
+      const content = loadDbMemory(name, "memory");
+      if (content) {
         const entries = content
           .split("\n§\n")
           .filter((e: string) => e.trim().length > 0);
@@ -1099,13 +1088,9 @@ export function registerEmployeeIpcHandlers(
         result.memoryCharCount = content.length;
         result.memoryCharLimit = 2200;
       }
-      const userPath = path.join(
-        getProfilePath(name),
-        "memories",
-        "USER.md",
-      );
-      if (fs.existsSync(userPath)) {
-        result.user = fs.readFileSync(userPath, "utf-8");
+      const user = loadDbMemory(name, "user");
+      if (user) {
+        result.user = user;
         result.userCharCount = (result.user as string).length;
         result.userCharLimit = 1375;
       }
@@ -1122,12 +1107,7 @@ export function registerEmployeeIpcHandlers(
       if (!validateProfileName(name) && name !== "default")
         return { error: "无效的员工名称" };
       try {
-        const memDir = path.join(getProfilePath(name), "memories");
-        ensureDir(memDir);
-        const memPath = path.join(memDir, "MEMORY.md");
-        let existing = "";
-        if (fs.existsSync(memPath))
-          existing = fs.readFileSync(memPath, "utf-8");
+        const existing = loadDbMemory(name, "memory");
         const newContent = existing.trim()
           ? existing.trimEnd() + "\n§\n" + content.trim()
           : content.trim();
@@ -1135,7 +1115,7 @@ export function registerEmployeeIpcHandlers(
           return {
             error: "超出记忆容量限制 (" + newContent.length + "/2200)",
           };
-        safeWriteFile(memPath, newContent);
+        saveDbMemory(name, "memory", newContent);
         return { success: true };
       } catch (e: unknown) {
         return { error: String(e) };
@@ -1149,13 +1129,8 @@ export function registerEmployeeIpcHandlers(
       if (!validateProfileName(name) && name !== "default")
         return { error: "无效的员工名称" };
       try {
-        const memPath = path.join(
-          getProfilePath(name),
-          "memories",
-          "MEMORY.md",
-        );
-        if (!fs.existsSync(memPath)) return { error: "记忆文件不存在" };
-        const content = fs.readFileSync(memPath, "utf-8");
+        const content = loadDbMemory(name, "memory");
+        if (!content) return { error: "记忆不存在" };
         const entries = content
           .split("\n§\n")
           .filter((e: string) => e.trim().length > 0);
@@ -1163,7 +1138,7 @@ export function registerEmployeeIpcHandlers(
         if (idx < 0 || idx >= entries.length)
           return { error: "条目不存在" };
         entries.splice(idx, 1);
-        safeWriteFile(memPath, entries.join("\n§\n"));
+        saveDbMemory(name, "memory", entries.join("\n§\n"));
         return { success: true };
       } catch (e: unknown) {
         return { error: String(e) };
@@ -1194,7 +1169,7 @@ export function registerEmployeeIpcHandlers(
       if (output.includes("Error") || output.includes("error")) {
         return { error: output };
       }
-      const meta = readEmployeeMeta(newName);
+      const meta = readEmployeeMeta(newName) || readEmployeeMeta(oldName);
       if (meta) {
         meta.name = meta.name === oldName ? newName : meta.name;
         writeEmployeeMeta(newName, meta);

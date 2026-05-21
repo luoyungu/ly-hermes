@@ -7,6 +7,7 @@ import http from "http";
 import https from "https";
 import * as yaml from "./lib/yaml-simple";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
+import { getSetting, loadDbSavedModels, saveDbSavedModels, setSetting } from "./db";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -27,23 +28,9 @@ export const DEFAULT_HERMES_BIN: string =
   process.platform === "win32"
     ? path.join(HERMES_HOME, "hermes-agent", "venv", "Scripts", "hermes.exe")
     : path.join(HERMES_HOME, "hermes-agent", "venv", "bin", "hermes");
-export const USERS_FILE: string = path.join(APP_DATA_DIR, "users.json");
-export const WINDOW_STATE_FILE: string = path.join(
-  APP_DATA_DIR,
-  "window-state.json",
-);
-export const PREFERENCES_FILE: string = path.join(
-  APP_DATA_DIR,
-  "preferences.json",
-);
-export const CONFIG_FILE: string = path.join(APP_DATA_DIR, "config.json");
 export const PROFILES_DIR: string = path.join(HERMES_HOME, "profiles");
 export const DEFAULT_API_HOST: string = "127.0.0.1";
 export const DEFAULT_API_PORT: number = 8644;
-export const SAVED_MODELS_FILE: string = path.join(
-  APP_DATA_DIR,
-  "saved-models.json",
-);
 export const WALLPAPERS_DIR: string = path.join(
   APP_DATA_DIR,
   "wallpapers",
@@ -109,15 +96,6 @@ export function invalidateCache(prefix: string): void {
 export function loadAppConfig(): Record<string, unknown> {
   const cached = getCached<Record<string, unknown>>("appconfig");
   if (cached) return cached;
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
-      setCache("appconfig", data);
-      return data;
-    }
-  } catch {
-    /* fall through */
-  }
   const defaults: Record<string, unknown> = {
     defaults: {
       model: "",
@@ -154,30 +132,22 @@ export function loadAppConfig(): Record<string, unknown> {
       port_range: [8644, 8743],
     },
   };
-  setCache("appconfig", defaults);
-  return defaults;
+  const data = getSetting<Record<string, unknown>>("app", "config", defaults);
+  setCache("appconfig", data);
+  return data;
 }
 
 export function saveAppConfig(config: Record<string, unknown>): void {
-  ensureDir(APP_DATA_DIR);
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  setSetting("app", "config", config);
   invalidateCache("appconfig");
 }
 
 export function loadPreferences(): Record<string, unknown> {
-  try {
-    if (fs.existsSync(PREFERENCES_FILE)) {
-      return JSON.parse(fs.readFileSync(PREFERENCES_FILE, "utf-8"));
-    }
-  } catch {
-    /* fall through */
-  }
-  return {};
+  return getSetting<Record<string, unknown>>("app", "preferences", {});
 }
 
 export function savePreferences(prefs: Record<string, unknown>): void {
-  ensureDir(APP_DATA_DIR);
-  fs.writeFileSync(PREFERENCES_FILE, JSON.stringify(prefs, null, 2), "utf-8");
+  setSetting("app", "preferences", prefs);
 }
 
 export function getProfilePath(profileName: string): string {
@@ -326,19 +296,11 @@ export function validateProfileName(name: string): boolean {
 }
 
 function loadSavedModels(): Array<Record<string, unknown>> {
-  try {
-    if (fs.existsSync(SAVED_MODELS_FILE)) {
-      return JSON.parse(fs.readFileSync(SAVED_MODELS_FILE, "utf-8"));
-    }
-  } catch {
-    /* fall through */
-  }
-  return [];
+  return loadDbSavedModels();
 }
 
 function saveSavedModels(models: Array<Record<string, unknown>>): void {
-  ensureDir(APP_DATA_DIR);
-  safeWriteFile(SAVED_MODELS_FILE, JSON.stringify(models, null, 2));
+  saveDbSavedModels(models);
 }
 
 export function registerConfigIpcHandlers(): void {

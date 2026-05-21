@@ -10,11 +10,11 @@ import {
 } from "electron";
 import path from "path";
 import fs from "fs";
-import { WINDOW_STATE_FILE, APP_DATA_DIR } from "./config";
 import { ensureApiServerConfig } from "./config";
 import { _gatewayProcesses, _idleTimers, clearIdleTimer } from "./employees";
 import { _pendingApprovals } from "./chat";
-import { createTrayIcon, ensureDir } from "./utils";
+import { createTrayIcon } from "./utils";
+import { getSetting, setSetting } from "./db";
 import { registerAuthIpcHandlers } from "./auth";
 import { registerConfigIpcHandlers } from "./config";
 import { registerEmployeeIpcHandlers } from "./employees";
@@ -61,14 +61,8 @@ function getMainWindow(): BrowserWindow | null {
 }
 
 function loadWindowState(): Record<string, unknown> | null {
-  try {
-    if (fs.existsSync(WINDOW_STATE_FILE)) {
-      return JSON.parse(fs.readFileSync(WINDOW_STATE_FILE, "utf-8"));
-    }
-  } catch {
-    /* fall through */
-  }
-  return null;
+  const state = getSetting<Record<string, unknown>>("app", "window_state", {});
+  return Object.keys(state).length > 0 ? state : null;
 }
 
 function saveWindowState(): void {
@@ -76,12 +70,7 @@ function saveWindowState(): void {
   try {
     const bounds = mainWindow.getBounds();
     const isMaximized = mainWindow.isMaximized();
-    ensureDir(APP_DATA_DIR);
-    fs.writeFileSync(
-      WINDOW_STATE_FILE,
-      JSON.stringify({ ...bounds, isMaximized }),
-      "utf-8",
-    );
+    setSetting("app", "window_state", { ...bounds, isMaximized });
   } catch {
     /* fall through */
   }

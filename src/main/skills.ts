@@ -1,8 +1,9 @@
-import { existsSync, readdirSync, readFileSync, statSync, rmSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync, rmSync } from "fs";
 import { join } from "path";
 import { HERMES_HOME, loadAppConfig, getProfilePath, runHermesCli } from "./config";
 import * as yaml from "./lib/yaml-simple";
 import { safeWriteFile, yamlStringify } from "./utils";
+import { loadDbSkillConfig, saveDbSkillConfig } from "./db";
 
 export interface InstalledSkill {
   id: string;
@@ -60,35 +61,17 @@ const DEFAULT_SKILL_STATS: SkillUsageStats = {
   lastUsedAt: null,
 };
 
-function getSkillConfigPath(profile?: string): string {
-  return join(getProfilePath(profile || "default"), "skill-config.json");
-}
-
 function loadSkillConfig(profile?: string): SkillConfig {
-  const configPath = getSkillConfigPath(profile);
-  try {
-    if (existsSync(configPath)) {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Partial<SkillConfig>;
-      return {
-        enabled: raw.enabled && typeof raw.enabled === "object" ? raw.enabled : {},
-        stats: raw.stats && typeof raw.stats === "object" ? raw.stats : {},
-        updatedAt: raw.updatedAt,
-      };
-    }
-  } catch {
-    /* fall through */
-  }
-  return { enabled: {}, stats: {} };
+  const config = loadDbSkillConfig(profile);
+  return {
+    enabled: config.enabled,
+    stats: config.stats as Record<string, SkillUsageStats>,
+    updatedAt: config.updatedAt,
+  };
 }
 
 function saveSkillConfig(profile: string | undefined, config: SkillConfig): void {
-  const configPath = getSkillConfigPath(profile);
-  mkdirSync(getProfilePath(profile || "default"), { recursive: true });
-  writeFileSync(
-    configPath,
-    JSON.stringify({ ...config, updatedAt: Date.now() }, null, 2),
-    "utf-8",
-  );
+  saveDbSkillConfig(profile, config);
 }
 
 function getProfileConfigPath(profile?: string): string {
