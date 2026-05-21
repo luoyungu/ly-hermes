@@ -1,8 +1,8 @@
 import { ipcMain } from "electron";
 import type { BrowserWindow } from "electron";
+import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import { execFileSync } from "child_process";
 import {
   HERMES_HOME,
   validateProfileName,
@@ -35,15 +35,43 @@ let lastCronStartedAt = 0;
 const notifiedCronSessionIds = new Set<string>();
 const knownSessionActivity = new Map<string, string>();
 
-export function escapeSql(val: unknown): string {
-  if (val == null) return "";
-  return String(val).replace(/'/g, "''").slice(0, 1000);
-}
-
 export function validateSessionId(sid: string): boolean {
   if (!sid || typeof sid !== "string") return false;
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sid)) return false;
   return true;
+}
+
+function querySqliteDb(
+  dbPath: string,
+  sql: string,
+  params?: unknown[],
+): Array<Record<string, unknown>> {
+  if (!fs.existsSync(dbPath)) return [];
+  try {
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      return db.prepare(sql).all(...(params || [])) as Array<Record<string, unknown>>;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+function execSqliteDb(dbPath: string, sql: string, params?: unknown[]): boolean {
+  if (!fs.existsSync(dbPath)) return false;
+  try {
+    const db = new Database(dbPath, { fileMustExist: true });
+    try {
+      db.prepare(sql).run(...(params || []));
+      return true;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
+  }
 }
 
 export function queryStateDb(
@@ -51,21 +79,7 @@ export function queryStateDb(
   params?: unknown[],
 ): Array<Record<string, unknown>> {
   const dbPath = path.join(HERMES_HOME, "state.db");
-  if (!fs.existsSync(dbPath)) return [];
-  try {
-    if (params && Array.isArray(params)) {
-      for (let i = 0; i < params.length; i++) {
-        sql = sql.replace("?", "'" + escapeSql(params[i]) + "'");
-      }
-    }
-    const result = execFileSync("sqlite3", ["-json", dbPath, sql], {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    return JSON.parse(result.trim() || "[]");
-  } catch {
-    return [];
-  }
+  return querySqliteDb(dbPath, sql, params);
 }
 
 export function queryProfileStateDb(
@@ -81,55 +95,19 @@ export function queryProfileStateDb(
     "state.db",
   );
   if (!fs.existsSync(dbPath)) return queryStateDb(sql, params);
-  try {
-    if (params && Array.isArray(params)) {
-      for (let i = 0; i < params.length; i++) {
-        sql = sql.replace("?", "'" + escapeSql(params[i]) + "'");
-      }
-    }
-    const result = execFileSync("sqlite3", ["-json", dbPath, sql], {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    return JSON.parse(result.trim() || "[]");
-  } catch {
-    return [];
-  }
+  return querySqliteDb(dbPath, sql, params);
 }
 
 export function execStateDb(sql: string, params?: unknown[]): boolean {
   const dbPath = path.join(HERMES_HOME, "state.db");
-  if (!fs.existsSync(dbPath)) return false;
-  try {
-    let finalSql = sql;
-    if (params && Array.isArray(params)) {
-      for (let i = 0; i < params.length; i++) {
-        finalSql = finalSql.replace("?", "'" + escapeSql(params[i]) + "'");
-      }
-    }
-    execFileSync("sqlite3", [dbPath, finalSql], { encoding: "utf-8", timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
+  return execSqliteDb(dbPath, sql, params);
 }
 
 export function execProfileStateDb(profileName: string, sql: string, params?: unknown[]): boolean {
   if (!validateProfileName(profileName)) return false;
   const dbPath = path.join(HERMES_HOME, "profiles", profileName, "state.db");
   if (!fs.existsSync(dbPath)) return execStateDb(sql, params);
-  try {
-    let finalSql = sql;
-    if (params && Array.isArray(params)) {
-      for (let i = 0; i < params.length; i++) {
-        finalSql = finalSql.replace("?", "'" + escapeSql(params[i]) + "'");
-      }
-    }
-    execFileSync("sqlite3", [dbPath, finalSql], { encoding: "utf-8", timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
+  return execSqliteDb(dbPath, sql, params);
 }
 
 export function getSessionCount(): number {
@@ -785,23 +763,26 @@ export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | 
   );
 
   ipcMain.handle("run-hermes-backup", async () => {
+    const appBackup = exportAppDataBackup();
     try {
       const output = runHermesCli(["backup"], "default");
-      const appBackup = exportAppDataBackup();
-      const success = !output.includes("Error") && appBackup.success;
+      const hermesSuccess = !hasHermesCliFailure(output);
+      const success = hermesSuccess && appBackup.success;
       return {
         success,
-        output: appBackup.success
-          ? `${output}\n桌面端数据备份: ${appBackup.path}`
-          : `${output}\n桌面端数据备份失败: ${appBackup.error || "unknown error"}`,
+        output: [
+          hermesSuccess ? output : `Hermes 备份失败: ${output}`,
+          appBackup.success
+            ? `桌面端数据备份: ${appBackup.path}`
+            : `桌面端数据备份失败: ${appBackup.error || "unknown error"}`,
+        ].filter(Boolean).join("\n"),
       };
     } catch (e) {
-      const appBackup = exportAppDataBackup();
       return {
-        success: appBackup.success,
+        success: false,
         output: appBackup.success
           ? `Hermes 备份失败: ${String(e)}\n桌面端数据备份: ${appBackup.path}`
-          : String(e),
+          : `Hermes 备份失败: ${String(e)}\n桌面端数据备份失败: ${appBackup.error || "unknown error"}`,
       };
     }
   });

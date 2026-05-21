@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { safeStorage } from "electron";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -71,6 +72,11 @@ function initSchema(database: Database.Database): void {
   database.pragma("journal_mode = WAL");
   database.pragma("foreign_keys = ON");
   database.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -138,6 +144,69 @@ function initSchema(database: Database.Database): void {
       PRIMARY KEY (profile_name, kind)
     );
   `);
+  applySchemaMigrations(database);
+}
+
+function hasMigration(database: Database.Database, version: number): boolean {
+  const row = database
+    .prepare("SELECT 1 FROM schema_migrations WHERE version = ?")
+    .get(version) as { 1: number } | undefined;
+  return !!row;
+}
+
+function markMigration(database: Database.Database, version: number): void {
+  database
+    .prepare("INSERT OR REPLACE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .run(version, nowIso());
+}
+
+function applySchemaMigrations(database: Database.Database): void {
+  if (!hasMigration(database, 1)) {
+    markMigration(database, 1);
+  }
+  if (!hasMigration(database, 2)) {
+    const rows = database.prepare("SELECT id, api_key FROM saved_models WHERE api_key != ''").all() as Array<{
+      id: string;
+      api_key: string;
+    }>;
+    const update = database.prepare("UPDATE saved_models SET api_key = ?, updated_at = ? WHERE id = ?");
+    const tx = database.transaction(() => {
+      for (const row of rows) {
+        update.run(encodeSecret(row.api_key), Date.now(), row.id);
+      }
+      markMigration(database, 2);
+    });
+    tx();
+  }
+}
+
+function encodeSecret(value: unknown): string {
+  const text = String(value || "");
+  if (!text || text.startsWith("safe:v1:") || text.startsWith("plain:v1:")) return text;
+  if (safeStorage.isEncryptionAvailable()) {
+    return `safe:v1:${safeStorage.encryptString(text).toString("base64")}`;
+  }
+  return `plain:v1:${Buffer.from(text, "utf-8").toString("base64")}`;
+}
+
+function decodeSecret(value: unknown): string {
+  const text = String(value || "");
+  if (!text) return "";
+  if (text.startsWith("safe:v1:")) {
+    try {
+      return safeStorage.decryptString(Buffer.from(text.slice("safe:v1:".length), "base64"));
+    } catch {
+      return "";
+    }
+  }
+  if (text.startsWith("plain:v1:")) {
+    try {
+      return Buffer.from(text.slice("plain:v1:".length), "base64").toString("utf-8");
+    } catch {
+      return "";
+    }
+  }
+  return text;
 }
 
 function getMeta(database: Database.Database, key: string): string | null {
@@ -218,7 +287,7 @@ function migrateLegacyData(database: Database.Database): void {
       String(model.provider || ""),
       String(model.model || ""),
       String(model.baseUrl || ""),
-      String(model.apiKey || ""),
+      encodeSecret(model.apiKey),
       createdAt,
       Number(model.updatedAt || createdAt),
     );
@@ -372,7 +441,7 @@ export function loadDbSavedModels(): Array<Record<string, unknown>> {
     provider: row.provider,
     model: row.model,
     baseUrl: row.base_url,
-    apiKey: row.api_key,
+    apiKey: decodeSecret(row.api_key),
     createdAt: row.created_at,
   }));
 }
@@ -393,7 +462,7 @@ export function saveDbSavedModels(models: Array<Record<string, unknown>>): void 
         String(model.provider || ""),
         String(model.model || ""),
         String(model.baseUrl || ""),
-        String(model.apiKey || ""),
+        encodeSecret(model.apiKey),
         createdAt,
         Date.now(),
       );
@@ -539,7 +608,15 @@ function allRows(table: keyof AppDataExport["tables"]): Array<Record<string, unk
   return getAppDb().prepare(`SELECT * FROM ${table}`).all() as Array<Record<string, unknown>>;
 }
 
-export function exportAppDataBackup(outputDir = path.join(HERMES_HOME, "backups")): {
+function exportSavedModels(includeSecrets: boolean): Array<Record<string, unknown>> {
+  const rows = allRows("saved_models");
+  return rows.map((row) => ({
+    ...row,
+    api_key: includeSecrets ? decodeSecret(row.api_key) : "",
+  }));
+}
+
+export function exportAppDataBackup(outputDir = path.join(HERMES_HOME, "backups"), includeSecrets = false): {
   success: boolean;
   path?: string;
   error?: string;
@@ -554,7 +631,7 @@ export function exportAppDataBackup(outputDir = path.join(HERMES_HOME, "backups"
       tables: {
         settings: allRows("settings"),
         users: allRows("users"),
-        saved_models: allRows("saved_models"),
+        saved_models: exportSavedModels(includeSecrets),
         employees: allRows("employees"),
         skill_configs: allRows("skill_configs"),
         memories: allRows("memories"),
@@ -615,7 +692,7 @@ export function importAppDataBackup(filePath: string): { success: boolean; error
           row.provider,
           row.model,
           row.base_url || "",
-          row.api_key || "",
+          encodeSecret(row.api_key),
           row.created_at || Date.now(),
           row.updated_at || Date.now(),
         );
@@ -659,6 +736,31 @@ export function importAppDataBackup(filePath: string): { success: boolean; error
     });
     tx();
     return { success: true };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+export function exportEmployeeDesktopData(
+  profileName: string,
+  outputDir = path.join(HERMES_HOME, "backups"),
+): { success: boolean; path?: string; error?: string } {
+  try {
+    fs.mkdirSync(outputDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const safeProfile = profileName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const outputPath = path.join(outputDir, `lyhermes-employee-${safeProfile}-${stamp}.json`);
+    const database = getAppDb();
+    const data = {
+      version: 1,
+      exportedAt: nowIso(),
+      profileName,
+      employee: database.prepare("SELECT * FROM employees WHERE profile_name = ?").get(profileName) || null,
+      skillConfig: database.prepare("SELECT * FROM skill_configs WHERE profile_name = ?").get(profileName) || null,
+      memories: database.prepare("SELECT * FROM memories WHERE profile_name = ? ORDER BY kind").all(profileName),
+    };
+    fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), "utf-8");
+    return { success: true, path: outputPath };
   } catch (e: unknown) {
     return { success: false, error: (e as Error).message };
   }

@@ -25,6 +25,7 @@ import {
   loadDbMemory,
   saveDbEmployeeMeta,
   saveDbMemory,
+  exportEmployeeDesktopData,
 } from "./db";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
@@ -1194,10 +1195,20 @@ export function registerEmployeeIpcHandlers(
   ipcMain.handle("employee:export", async (_, name: string) => {
     if (!validateProfileName(name)) return { error: "无效的员工名称" };
     const output = runHermesCli(["profile", "export", name], "default");
+    const desktopExport = exportEmployeeDesktopData(name);
     if (output.includes("Error") || output.includes("error")) {
-      return { error: output };
+      return {
+        error: desktopExport.success
+          ? `${output}\n桌面端员工数据已导出: ${desktopExport.path}`
+          : output,
+      };
     }
-    return { success: true, output: output };
+    return {
+      success: true,
+      output: desktopExport.success
+        ? `${output}\n桌面端员工数据已导出: ${desktopExport.path}`
+        : `${output}\n桌面端员工数据导出失败: ${desktopExport.error || "unknown error"}`,
+    };
   });
 
   ipcMain.handle("employee:get-sessions", async (_, name: string) => {
