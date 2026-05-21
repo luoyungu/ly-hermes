@@ -420,6 +420,10 @@ function isExternalSessionSource(source?: string): boolean {
   return !!label && label !== '日程'
 }
 
+function isIncomingSessionSource(source?: string): boolean {
+  return !!sessionSourceLabel(source)
+}
+
 function formatMessageTime(date: number | Date): string {
   const d = new Date(date)
   const now = new Date()
@@ -1131,6 +1135,8 @@ export default function Chat(): React.ReactElement {
   streamStatesRef.current = streamStates
   const chatHistoriesRef = useRef(chatHistories)
   chatHistoriesRef.current = chatHistories
+  const externalSessionUpdatesRef = useRef(externalSessionUpdates)
+  externalSessionUpdatesRef.current = externalSessionUpdates
   const showHistoryRef = useRef(showHistory)
   showHistoryRef.current = showHistory
   const loadingLatestSessionRef = useRef<Record<string, boolean>>({})
@@ -1558,6 +1564,11 @@ export default function Chat(): React.ReactElement {
       const parsedMessages = parseSessionMessages(rawMessages as Record<string, unknown>[], sessionId)
       setChatHistories(prev => ({ ...prev, [employeeName]: parsedMessages }))
       setSessionIds(prev => ({ ...prev, [employeeName]: sessionId }))
+      setExternalSessionUpdates(prev => {
+        const current = prev[employeeName] || []
+        if (!current.includes(sessionId)) return prev
+        return { ...prev, [employeeName]: current.filter(id => id !== sessionId) }
+      })
       return true
     } catch {
       showToast('加载会话失败', 'error')
@@ -1585,37 +1596,61 @@ export default function Chat(): React.ReactElement {
   }, [chatHistories, loadSessionIntoChat])
 
   useEffect(() => {
-    const unsubSessionUpdated = window.hermesAPI.onSessionUpdated(async (data) => {
-      const employeeName = data.profileName
-      if (!employeeName || !data.sessionId) return
-
+    const openIncomingSession = async (
+      employeeName: string,
+      sessionId: string,
+      source?: string,
+      title?: string,
+    ): Promise<void> => {
       const streamState = streamStatesRef.current[employeeName] || DEFAULT_STREAM
       if (streamState.isStreaming || streamState.messageQueue.length > 0) return
 
       const isCurrentEmployee = currentEmployeeNameRef.current === employeeName
       const activeSessionId = sessionIdsRef.current[employeeName]
       const loadedHistory = chatHistoriesRef.current[employeeName] || []
+      const incoming = isIncomingSessionSource(source)
       const shouldRefreshVisibleSession =
-        activeSessionId === data.sessionId ||
+        activeSessionId === sessionId ||
+        (isCurrentEmployee && incoming) ||
         (isCurrentEmployee && (!activeSessionId || loadedHistory.length === 0))
 
       if (shouldRefreshVisibleSession) {
-        await loadSessionIntoChat(employeeName, data.sessionId)
-        if (isCurrentEmployee) setTimeout(() => scrollToBottomRef.current(), 20)
+        await loadSessionIntoChat(employeeName, sessionId)
+        if (isCurrentEmployee) {
+          setTimeout(() => scrollToBottomRef.current(), 20)
+          if (incoming && activeSessionId !== sessionId) {
+            showToast(`${sessionSourceLabel(source)}有新消息${title ? `：${title}` : ''}`, 'info')
+          }
+        }
         return
       }
 
       setExternalSessionUpdates(prev => {
         const current = prev[employeeName] || []
-        if (current.includes(data.sessionId)) return prev
-        return { ...prev, [employeeName]: [data.sessionId, ...current].slice(0, 20) }
+        if (current.includes(sessionId)) return prev
+        return { ...prev, [employeeName]: [sessionId, ...current].slice(0, 20) }
       })
 
       if (isCurrentEmployee && showHistoryRef.current) {
         setHistoryRefreshKey(value => value + 1)
       }
+    }
+
+    const unsubSessionUpdated = window.hermesAPI.onSessionUpdated(async (data) => {
+      const employeeName = data.profileName
+      if (!employeeName || !data.sessionId) return
+      await openIncomingSession(employeeName, data.sessionId, data.source, data.title)
     })
-    return () => unsubSessionUpdated()
+
+    const unsubCronSessionCreated = window.hermesAPI.onCronSessionCreated(async (data) => {
+      if (!data.profileName || !data.sessionId) return
+      await openIncomingSession(data.profileName, data.sessionId, 'cron', data.title)
+    })
+
+    return () => {
+      unsubSessionUpdated()
+      unsubCronSessionCreated()
+    }
   }, [loadSessionIntoChat])
 
   const selectEmployee = useCallback(async (employeeName: string) => {
@@ -1629,9 +1664,14 @@ export default function Chat(): React.ReactElement {
       wakeUpEmployee(employeeName)
     }
 
-    loadLatestSession(employeeName)
+    const pendingExternalSession = externalSessionUpdatesRef.current[employeeName]?.[0]
+    if (pendingExternalSession) {
+      await loadSessionIntoChat(employeeName, pendingExternalSession)
+    } else {
+      loadLatestSession(employeeName)
+    }
     inputRef.current?.focus()
-  }, [employees, loadLatestSession])
+  }, [employees, loadLatestSession, loadSessionIntoChat])
 
   const deleteCurrentSession = useCallback(async (): Promise<void> => {
     if (!currentEmployeeName) return

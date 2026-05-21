@@ -237,6 +237,21 @@ function sessionActivitySignature(session: SessionActivityNotification): string 
   ].join(":");
 }
 
+function isExternalActivitySource(source: string): boolean {
+  const value = source.toLowerCase();
+  return (
+    value === "cron" ||
+    value.includes("cron") ||
+    value.includes("feishu") ||
+    value.includes("lark") ||
+    value.includes("weixin") ||
+    value.includes("wechat") ||
+    value.includes("dingtalk") ||
+    value.includes("platform") ||
+    value.includes("external")
+  );
+}
+
 function startSessionActivityWatcher(getMainWindow: () => BrowserWindow | null): void {
   if (sessionActivityWatcher) return;
   for (const session of collectRecentSessionActivity()) {
@@ -252,7 +267,8 @@ function startSessionActivityWatcher(getMainWindow: () => BrowserWindow | null):
       const signature = sessionActivitySignature(session);
       const previous = knownSessionActivity.get(key);
       knownSessionActivity.set(key, signature);
-      if (!previous || previous === signature) continue;
+      if (previous === signature) continue;
+      if (!previous && !isExternalActivitySource(session.source)) continue;
 
       win.webContents.send("session-updated", {
         profileName: session.profileName,
