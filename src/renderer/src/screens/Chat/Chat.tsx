@@ -138,6 +138,108 @@ function extractToolResultSnippet(raw: string): string {
   }
 }
 
+function isLowValueToolResult(result?: string): boolean {
+  const text = (result || '').trim()
+  if (!text) return true
+  return ['已完成', '等待中...', '(no output)', 'null', 'undefined'].includes(text)
+}
+
+function summarizeToolCalls(toolCalls: ToolCallInfo[]): string {
+  const counts = new Map<string, number>()
+  for (const toolCall of toolCalls) {
+    counts.set(toolCall.name, (counts.get(toolCall.name) || 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([name, count]) => count > 1 ? `${name} x${count}` : name)
+    .join('、')
+}
+
+function shouldCompactToolCalls(toolCalls: ToolCallInfo[]): boolean {
+  if (toolCalls.length <= 1) return false
+  return toolCalls.every(tc => tc.status === 'done' && !tc.error && isLowValueToolResult(tc.result))
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)
+}
+
+function isMarkdownTableLike(line: string): boolean {
+  const trimmed = line.trim()
+  if (!trimmed || !trimmed.includes('|')) return false
+  if (trimmed.startsWith('```')) return false
+  const cells = trimmed.split('|').filter(cell => cell.trim().length > 0)
+  return cells.length >= 2
+}
+
+function markdownTableSeparatorFor(line: string): string {
+  const cellCount = Math.max(2, line.split('|').filter(cell => cell.trim().length > 0).length)
+  return `| ${Array.from({ length: cellCount }, () => '---').join(' | ')} |`
+}
+
+function normalizeMarkdown(content: string): string {
+  if (!content) return content
+
+  const sourceLines = content.replace(/\r\n/g, '\n').split('\n')
+  const normalizedLines: string[] = []
+  let inFence = false
+
+  for (const rawLine of sourceLines) {
+    const fenceLine = rawLine.trim().startsWith('```')
+    if (fenceLine) {
+      inFence = !inFence
+      normalizedLines.push(rawLine)
+      continue
+    }
+
+    if (!inFence && rawLine.includes('|') && rawLine.includes('||')) {
+      normalizedLines.push(...rawLine.split(/\|\|+/).map((part, index, parts) => {
+        const trimmed = part.trim()
+        if (!trimmed) return ''
+        const prefix = index === 0 && trimmed.startsWith('|') ? '' : '| '
+        const suffix = index === parts.length - 1 && trimmed.endsWith('|') ? '' : ' |'
+        return `${prefix}${trimmed}${suffix}`
+      }).filter(Boolean))
+      continue
+    }
+
+    normalizedLines.push(rawLine)
+  }
+
+  const out: string[] = []
+  inFence = false
+
+  for (let i = 0; i < normalizedLines.length; i += 1) {
+    const line = normalizedLines[i]
+    const trimmed = line.trim()
+    const fenceLine = trimmed.startsWith('```')
+    if (fenceLine) {
+      inFence = !inFence
+      out.push(line)
+      continue
+    }
+
+    if (!inFence && isMarkdownTableLike(line)) {
+      const prev = out[out.length - 1]
+      if (prev && prev.trim() !== '' && !isMarkdownTableLike(prev)) out.push('')
+      out.push(line)
+
+      const next = normalizedLines[i + 1] || ''
+      const startsTableBlock = !prev || prev.trim() === '' || !isMarkdownTableLike(prev)
+      if (startsTableBlock && !isMarkdownTableSeparator(next) && !isMarkdownTableSeparator(line)) {
+        out.push(markdownTableSeparatorFor(line))
+      }
+
+      const following = normalizedLines[i + 1] || ''
+      if (following && !isMarkdownTableLike(following)) out.push('')
+      continue
+    }
+
+    out.push(line)
+  }
+
+  return out.join('\n')
+}
+
 function extractThinkingFromContent(content: string): { thinking: string | undefined; content: string } {
   if (!content || typeof content !== 'string') return { thinking: undefined, content }
   const thinkMatch = content.match(/^\s*<think[^>]*>([\s\S]*?)<\/think[^>]*>\s*/)
@@ -302,6 +404,22 @@ function mapSession(r: Record<string, unknown>): SessionDisplay {
   }
 }
 
+function sessionSourceLabel(source?: string): string {
+  const value = (source || '').toLowerCase()
+  if (!value) return ''
+  if (value === 'cron' || value.includes('cron')) return '日程'
+  if (value.includes('feishu') || value.includes('lark')) return '飞书'
+  if (value.includes('weixin') || value.includes('wechat')) return '微信'
+  if (value.includes('dingtalk')) return '钉钉'
+  if (value.includes('platform') || value.includes('external')) return '外部'
+  return ''
+}
+
+function isExternalSessionSource(source?: string): boolean {
+  const label = sessionSourceLabel(source)
+  return !!label && label !== '日程'
+}
+
 function formatMessageTime(date: number | Date): string {
   const d = new Date(date)
   const now = new Date()
@@ -369,13 +487,17 @@ function CopyButton({ text }: { text: string }): React.ReactElement {
 
 function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement {
   const [expanded, setExpanded] = useState(false)
+  const hasUsefulResult = !isLowValueToolResult(toolCall.result) || !!toolCall.error || toolCall.status !== 'done'
   return (
     <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] overflow-hidden text-xs">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between w-full px-3.5 py-2.5 text-left hover:bg-[var(--bg-hover)] transition-colors gap-2"
+        className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-[var(--bg-hover)] transition-colors gap-2"
       >
-        <span className="flex items-center gap-2 font-medium text-[var(--accent)] text-[13px]">🔧 {toolCall.name}</span>
+        <span className="flex items-center gap-2 font-medium text-[var(--accent)] text-[12px]">
+          <Wrench size={13} />
+          {toolCall.name}
+        </span>
         <div className="flex items-center gap-2">
           <span className={`text-[11px] px-2.5 py-0.5 rounded-xl font-medium ${
             toolCall.status === 'running' ? 'bg-[var(--accent-glow)] text-[var(--accent)] animate-pulse-custom' :
@@ -384,7 +506,9 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
           }`}>
             {toolCall.status === 'running' ? '执行中' : toolCall.status === 'done' ? '完成' : '失败'}
           </span>
-          <ChevronDown size={10} className={`text-[var(--text-dim)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          {(toolCall.args || hasUsefulResult) && (
+            <ChevronDown size={10} className={`text-[var(--text-dim)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          )}
         </div>
       </button>
       {expanded && (
@@ -403,6 +527,57 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
               {toolCall.error ? <span style={{ color: 'var(--danger)' }}>{toolCall.error}</span> : toolCall.result || (toolCall.status === 'done' ? '已完成' : '等待中...')}
             </pre>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToolActivity({ toolCalls }: { toolCalls: ToolCallInfo[] }): React.ReactElement {
+  const [expanded, setExpanded] = useState(false)
+  const compact = shouldCompactToolCalls(toolCalls)
+  const hasErrors = toolCalls.some(tc => tc.status === 'error' || tc.error)
+  const runningCount = toolCalls.filter(tc => tc.status === 'running').length
+
+  if (!compact) {
+    return (
+      <>
+        {toolCalls.map((tc, i) => (
+          <ToolCard key={`${tc.name}-${i}`} toolCall={tc} />
+        ))}
+      </>
+    )
+  }
+
+  return (
+    <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] overflow-hidden text-xs">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-[var(--bg-hover)] transition-colors gap-2"
+      >
+        <span className="flex items-center gap-2 text-[12px] text-[var(--text-secondary)] min-w-0">
+          <Wrench size={13} className="text-[var(--accent)] shrink-0" />
+          <span className="truncate">
+            已执行 {toolCalls.length} 个工具：{summarizeToolCalls(toolCalls)}
+          </span>
+        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-[11px] px-2.5 py-0.5 rounded-xl font-medium ${
+            hasErrors ? 'bg-[rgba(239,68,68,0.12)] text-[var(--danger)]' :
+            runningCount > 0 ? 'bg-[var(--accent-glow)] text-[var(--accent)] animate-pulse-custom' :
+            'bg-[rgba(34,197,94,0.12)] text-[var(--success)]'
+          }`}>
+            {hasErrors ? '有异常' : runningCount > 0 ? '执行中' : '完成'}
+          </span>
+          <ChevronDown size={10} className={`text-[var(--text-dim)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+      {expanded && (
+        <div className="flex flex-col gap-2 p-2 border-t border-[var(--border)]">
+          {toolCalls.map((tc, i) => (
+            <ToolCard key={`${tc.name}-${i}`} toolCall={tc} />
+          ))}
         </div>
       )}
     </div>
@@ -480,9 +655,7 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
           )}
           {hasToolCalls && (
             <div className={`flex flex-col gap-2 ${hasContent ? 'mb-3 border-b border-[var(--border)] pb-3' : ''}`}>
-              {msg.toolCalls!.map((tc, i) => (
-                <ToolCard key={i} toolCall={tc} />
-              ))}
+              <ToolActivity toolCalls={msg.toolCalls!} />
             </div>
           )}
           {hasAttachments && (
@@ -497,7 +670,7 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
               {isUser ? (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
               ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeMarkdown(msg.content)}</ReactMarkdown>
               )}
               {isStreaming && <span className="inline-block w-[2px] h-[1em] bg-[var(--accent)] animate-blink align-text-bottom ml-0.5" />}
             </div>
@@ -757,14 +930,20 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
   )
 }
 
-function HistoryPanel({ employeeName, onClose, onViewSession }: { employeeName: string; onClose: () => void; onViewSession: (sessionId: string, messages: ChatMessage[]) => void }): React.ReactElement {
+function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = [], onClose, onViewSession }: {
+  employeeName: string
+  refreshKey?: number
+  highlightedSessionIds?: string[]
+  onClose: () => void
+  onViewSession: (sessionId: string, messages: ChatMessage[]) => void
+}): React.ReactElement {
   const [sessions, setSessions] = useState<SessionDisplay[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadSessions()
-  }, [employeeName])
+    loadSessions(searchQuery.trim() || undefined)
+  }, [employeeName, refreshKey])
 
   const loadSessions = async (query?: string): Promise<void> => {
     setLoading(true)
@@ -844,11 +1023,22 @@ function HistoryPanel({ employeeName, onClose, onViewSession }: { employeeName: 
             <div
               key={s.id}
               onClick={() => handleViewSession(s.id)}
-              className="px-3.5 py-3 rounded-[var(--radius)] transition-all hover:bg-[var(--bg-hover)] mb-0.5 cursor-pointer"
+              className={`px-3.5 py-3 rounded-[var(--radius)] transition-all hover:bg-[var(--bg-hover)] mb-0.5 cursor-pointer ${
+                highlightedSessionIds.includes(s.id) ? 'bg-[var(--accent-glow)] border border-[rgba(124,106,239,0.22)]' : 'border border-transparent'
+              }`}
             >
               <div className="flex items-center gap-1.5 min-w-0">
-                {s.source === 'cron' && (
-                  <span className="shrink-0 rounded bg-[var(--accent-glow)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">日程</span>
+                {sessionSourceLabel(s.source) && (
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    isExternalSessionSource(s.source)
+                      ? 'bg-[rgba(34,197,94,0.12)] text-[var(--success)]'
+                      : 'bg-[var(--accent-glow)] text-[var(--accent)]'
+                  }`}>
+                    {sessionSourceLabel(s.source)}
+                  </span>
+                )}
+                {highlightedSessionIds.includes(s.id) && (
+                  <span className="shrink-0 rounded bg-[rgba(234,179,8,0.14)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warning)]">新</span>
                 )}
                 <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || '未命名会话'}</div>
               </div>
@@ -894,6 +1084,8 @@ export default function Chat(): React.ReactElement {
   const [isComposing, setIsComposing] = useState(false)
   const [savedModels, setSavedModels] = useState<SavedModel[]>([])
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
+  const [externalSessionUpdates, setExternalSessionUpdates] = useState<Record<string, string[]>>({})
   const [showActivityDetails, setShowActivityDetails] = useState(() => {
     try {
       return localStorage.getItem('hermes:show-activity-details') === 'true'
@@ -933,6 +1125,14 @@ export default function Chat(): React.ReactElement {
 
   const currentEmployeeNameRef = useRef(currentEmployeeName)
   currentEmployeeNameRef.current = currentEmployeeName
+  const sessionIdsRef = useRef(sessionIds)
+  sessionIdsRef.current = sessionIds
+  const streamStatesRef = useRef(streamStates)
+  streamStatesRef.current = streamStates
+  const chatHistoriesRef = useRef(chatHistories)
+  chatHistoriesRef.current = chatHistories
+  const showHistoryRef = useRef(showHistory)
+  showHistoryRef.current = showHistory
   const loadingLatestSessionRef = useRef<Record<string, boolean>>({})
 
   const scrollToBottom = useCallback(() => {
@@ -948,6 +1148,7 @@ export default function Chat(): React.ReactElement {
   }, [streamStates, currentEmployeeName])
 
   const isStreaming = currentStream.isStreaming
+  const currentExternalSessionUpdates = currentEmployeeName ? (externalSessionUpdates[currentEmployeeName] || []) : []
 
   useEffect(() => {
     try {
@@ -1382,6 +1583,40 @@ export default function Chat(): React.ReactElement {
       loadingLatestSessionRef.current = { ...loadingLatestSessionRef.current, [employeeName]: false }
     }
   }, [chatHistories, loadSessionIntoChat])
+
+  useEffect(() => {
+    const unsubSessionUpdated = window.hermesAPI.onSessionUpdated(async (data) => {
+      const employeeName = data.profileName
+      if (!employeeName || !data.sessionId) return
+
+      const streamState = streamStatesRef.current[employeeName] || DEFAULT_STREAM
+      if (streamState.isStreaming || streamState.messageQueue.length > 0) return
+
+      const isCurrentEmployee = currentEmployeeNameRef.current === employeeName
+      const activeSessionId = sessionIdsRef.current[employeeName]
+      const loadedHistory = chatHistoriesRef.current[employeeName] || []
+      const shouldRefreshVisibleSession =
+        activeSessionId === data.sessionId ||
+        (isCurrentEmployee && (!activeSessionId || loadedHistory.length === 0))
+
+      if (shouldRefreshVisibleSession) {
+        await loadSessionIntoChat(employeeName, data.sessionId)
+        if (isCurrentEmployee) setTimeout(() => scrollToBottomRef.current(), 20)
+        return
+      }
+
+      setExternalSessionUpdates(prev => {
+        const current = prev[employeeName] || []
+        if (current.includes(data.sessionId)) return prev
+        return { ...prev, [employeeName]: [data.sessionId, ...current].slice(0, 20) }
+      })
+
+      if (isCurrentEmployee && showHistoryRef.current) {
+        setHistoryRefreshKey(value => value + 1)
+      }
+    })
+    return () => unsubSessionUpdated()
+  }, [loadSessionIntoChat])
 
   const selectEmployee = useCallback(async (employeeName: string) => {
     setCurrentEmployeeName(employeeName)
@@ -1828,8 +2063,20 @@ export default function Chat(): React.ReactElement {
                     <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white transition-transform ${showActivityDetails ? 'translate-x-3' : 'translate-x-0.5'}`} />
                   </span>
                 </button>
-                <button onClick={() => setShowHistory(!showHistory)} className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]" title="历史会话">
+                <button
+                  onClick={() => {
+                    setShowHistory(!showHistory)
+                    setHistoryRefreshKey(value => value + 1)
+                  }}
+                  className="relative w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]"
+                  title="历史会话"
+                >
                   <History size={14} />
+                  {currentExternalSessionUpdates.length > 0 && (
+                    <span className="absolute -right-1 -top-1 min-w-4 h-4 rounded-full bg-[var(--warning)] px-1 text-[10px] leading-4 text-black font-semibold">
+                      {currentExternalSessionUpdates.length > 9 ? '9+' : currentExternalSessionUpdates.length}
+                    </span>
+                  )}
                 </button>
                 <Popconfirm title="确认彻底删除当前会话？" confirmText="删除" onConfirm={deleteCurrentSession}>
                   <button className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--danger)]" title="删除当前会话">
@@ -2099,10 +2346,16 @@ export default function Chat(): React.ReactElement {
       {showHistory && currentEmployeeName && (
         <HistoryPanel
           employeeName={currentEmployeeName}
+          refreshKey={historyRefreshKey}
+          highlightedSessionIds={currentExternalSessionUpdates}
           onClose={() => setShowHistory(false)}
           onViewSession={(sessionId, messages) => {
             setChatHistories(prev => ({ ...prev, [currentEmployeeName]: messages }))
             setSessionIds(prev => ({ ...prev, [currentEmployeeName]: sessionId }))
+            setExternalSessionUpdates(prev => ({
+              ...prev,
+              [currentEmployeeName]: (prev[currentEmployeeName] || []).filter(id => id !== sessionId)
+            }))
             setShowHistory(false)
           }}
         />

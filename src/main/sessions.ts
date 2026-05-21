@@ -18,9 +18,21 @@ interface CronSessionNotification {
   startedAt: number;
 }
 
+interface SessionActivityNotification {
+  id: string;
+  profileName: string;
+  source: string;
+  title: string;
+  startedAt: number;
+  lastMessageAt: number;
+  messageCount: number;
+}
+
 let cronSessionWatcher: NodeJS.Timeout | null = null;
+let sessionActivityWatcher: NodeJS.Timeout | null = null;
 let lastCronStartedAt = 0;
 const notifiedCronSessionIds = new Set<string>();
+const knownSessionActivity = new Map<string, string>();
 
 export function escapeSql(val: unknown): string {
   if (val == null) return "";
@@ -191,6 +203,89 @@ function collectRecentCronSessions(): CronSessionNotification[] {
     }
   }
   return result.sort((a, b) => a.startedAt - b.startedAt);
+}
+
+function getRecentSessionActivity(profileName: string): SessionActivityNotification[] {
+  const sql =
+    "SELECT s.id, s.source, s.started_at, s.ended_at, s.message_count, s.title, " +
+      "COALESCE(MAX(m.timestamp), s.ended_at, s.started_at) as last_message_at " +
+      "FROM sessions s LEFT JOIN messages m ON m.session_id = s.id " +
+      "GROUP BY s.id " +
+      "ORDER BY last_message_at DESC LIMIT 30";
+  const sessions =
+    profileName === "default"
+      ? queryStateDb(sql)
+      : queryProfileStateDb(profileName, sql);
+  fillCronSessionTitles(sessions, profileName);
+  fillSessionTitles(sessions, (query, params) =>
+    profileName === "default"
+      ? queryStateDb(query, params)
+      : queryProfileStateDb(profileName, query, params),
+  );
+  return sessions
+    .map((session) => ({
+      id: String(session.id || ""),
+      profileName,
+      source: String(session.source || ""),
+      title: String(session.title || "未命名会话"),
+      startedAt: Number(session.started_at || 0),
+      lastMessageAt: Number(session.last_message_at || session.ended_at || session.started_at || 0),
+      messageCount: Number(session.message_count || 0),
+    }))
+    .filter((session) => session.id && session.startedAt > 0);
+}
+
+function collectRecentSessionActivity(): SessionActivityNotification[] {
+  const seen = new Set<string>();
+  const result: SessionActivityNotification[] = [];
+  for (const profileName of listProfileNamesWithStateDb()) {
+    for (const session of getRecentSessionActivity(profileName)) {
+      const key = `${session.profileName}:${session.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(session);
+    }
+  }
+  return result.sort((a, b) => a.lastMessageAt - b.lastMessageAt);
+}
+
+function sessionActivitySignature(session: SessionActivityNotification): string {
+  return [
+    session.lastMessageAt,
+    session.messageCount,
+    session.title,
+    session.source,
+  ].join(":");
+}
+
+function startSessionActivityWatcher(getMainWindow: () => BrowserWindow | null): void {
+  if (sessionActivityWatcher) return;
+  for (const session of collectRecentSessionActivity()) {
+    knownSessionActivity.set(`${session.profileName}:${session.id}`, sessionActivitySignature(session));
+  }
+
+  sessionActivityWatcher = setInterval(() => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+
+    for (const session of collectRecentSessionActivity()) {
+      const key = `${session.profileName}:${session.id}`;
+      const signature = sessionActivitySignature(session);
+      const previous = knownSessionActivity.get(key);
+      knownSessionActivity.set(key, signature);
+      if (!previous || previous === signature) continue;
+
+      win.webContents.send("session-updated", {
+        profileName: session.profileName,
+        sessionId: session.id,
+        source: session.source,
+        title: session.title,
+        startedAt: session.startedAt,
+        lastMessageAt: session.lastMessageAt,
+        messageCount: session.messageCount,
+      });
+    }
+  }, 3000);
 }
 
 function startCronSessionWatcher(getMainWindow: () => BrowserWindow | null): void {
@@ -411,6 +506,7 @@ export function getSessionMessages(
 
 export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | null): void {
   startCronSessionWatcher(getMainWindow);
+  startSessionActivityWatcher(getMainWindow);
 
   ipcMain.handle("get-session-messages", async (_, sessionId: string, profileName?: string) => {
     return getSessionMessages(sessionId, profileName);

@@ -365,6 +365,7 @@ interface HermesAPI {
   onEmployeeIdleTimeout: (callback: (data: { profileName: string }) => void) => () => void
   onNewConversation: (callback: (data: { employeeId: string; sessionId: string }) => void) => () => void
   onCronSessionCreated: (callback: (data: { profileName: string; sessionId: string; title: string; startedAt: number }) => void) => () => void
+  onSessionUpdated: (callback: (data: { profileName: string; sessionId: string; source?: string; title?: string; startedAt?: number; lastMessageAt?: number; messageCount?: number }) => void) => () => void
   onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void) => () => void
 
   windowMinimize: () => Promise<void>

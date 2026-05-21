@@ -684,6 +684,13 @@ const hermesAPI = {
     return () => ipcRenderer.removeListener('cron-session-created', handler)
   },
 
+  onSessionUpdated: (callback: (data: { profileName: string; sessionId: string; source?: string; title?: string; startedAt?: number; lastMessageAt?: number; messageCount?: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
+      callback(data as { profileName: string; sessionId: string; source?: string; title?: string; startedAt?: number; lastMessageAt?: number; messageCount?: number })
+    ipcRenderer.on('session-updated', handler)
+    return () => ipcRenderer.removeListener('session-updated', handler)
+  },
+
   onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
       callback(data as { status: string; version?: string; percent?: number; error?: string })
