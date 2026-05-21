@@ -29,11 +29,17 @@ interface SessionActivityNotification {
   messageCount: number;
 }
 
+interface SessionMergeResult {
+  sessionId: string;
+  merged: boolean;
+}
+
 let cronSessionWatcher: NodeJS.Timeout | null = null;
 let sessionActivityWatcher: NodeJS.Timeout | null = null;
 let lastCronStartedAt = 0;
 const notifiedCronSessionIds = new Set<string>();
 const knownSessionActivity = new Map<string, string>();
+const mergedIncomingSessionTargets = new Map<string, string>();
 
 export function validateSessionId(sid: string): boolean {
   if (!sid || typeof sid !== "string") return false;
@@ -72,6 +78,11 @@ function execSqliteDb(dbPath: string, sql: string, params?: unknown[]): boolean 
   } catch {
     return false;
   }
+}
+
+function getStateDbPathForProfile(profileName: string): string {
+  if (profileName === "default") return path.join(HERMES_HOME, "state.db");
+  return path.join(HERMES_HOME, "profiles", profileName, "state.db");
 }
 
 export function queryStateDb(
@@ -252,6 +263,77 @@ function isExternalActivitySource(source: string): boolean {
   );
 }
 
+function mergeIncomingSessionIntoLatest(
+  profileName: string,
+  incomingSessionId: string,
+  incomingSource: string,
+): SessionMergeResult {
+  const mergeKey = `${profileName}:${incomingSessionId}`;
+  const cachedTarget = mergedIncomingSessionTargets.get(mergeKey);
+  if (cachedTarget) return { sessionId: cachedTarget, merged: true };
+  if (!validateSessionId(incomingSessionId)) {
+    return { sessionId: incomingSessionId, merged: false };
+  }
+  if (!isExternalActivitySource(incomingSource) && !incomingSessionId.startsWith("cron_")) {
+    return { sessionId: incomingSessionId, merged: false };
+  }
+  const dbPath = getStateDbPathForProfile(profileName);
+  const fallbackDbPath = path.join(HERMES_HOME, "state.db");
+  const actualDbPath = fs.existsSync(dbPath) ? dbPath : fallbackDbPath;
+  if (!fs.existsSync(actualDbPath)) return { sessionId: incomingSessionId, merged: false };
+
+  try {
+    const db = new Database(actualDbPath, { fileMustExist: true });
+    try {
+      const incoming = db.prepare("SELECT id FROM sessions WHERE id = ?").get(incomingSessionId) as
+        | { id: string }
+        | undefined;
+      if (!incoming) return { sessionId: incomingSessionId, merged: false };
+
+      const target = db.prepare(
+        "SELECT s.id FROM sessions s " +
+          "LEFT JOIN messages m ON m.session_id = s.id " +
+          "WHERE s.id != ? " +
+          "AND LOWER(COALESCE(s.source, '')) NOT IN ('cron', 'feishu', 'lark', 'weixin', 'wechat', 'dingtalk') " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%cron%' " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%feishu%' " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%lark%' " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%weixin%' " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%wechat%' " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%dingtalk%' " +
+          "AND LOWER(COALESCE(s.source, '')) NOT LIKE '%external%' " +
+          "AND s.id NOT LIKE 'cron_%' " +
+          "GROUP BY s.id " +
+          "ORDER BY COALESCE(MAX(m.timestamp), s.ended_at, s.started_at) DESC LIMIT 1",
+      ).get(incomingSessionId) as { id: string } | undefined;
+      if (!target?.id || !validateSessionId(target.id)) {
+        return { sessionId: incomingSessionId, merged: false };
+      }
+
+      const merge = db.transaction((targetSessionId: string, sourceSessionId: string) => {
+        db.prepare("UPDATE messages SET session_id = ? WHERE session_id = ?").run(targetSessionId, sourceSessionId);
+        db.prepare(
+          "UPDATE sessions SET " +
+            "ended_at = COALESCE((SELECT MAX(timestamp) FROM messages WHERE session_id = ?), ended_at), " +
+            "message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?), " +
+            "tool_call_count = COALESCE((SELECT COUNT(*) FROM messages WHERE session_id = ? AND tool_name IS NOT NULL AND tool_name != ''), tool_call_count), " +
+            "input_tokens = COALESCE((SELECT SUM(token_count) FROM messages WHERE session_id = ? AND role = 'user'), input_tokens), " +
+            "output_tokens = COALESCE((SELECT SUM(token_count) FROM messages WHERE session_id = ? AND role = 'assistant'), output_tokens) " +
+            "WHERE id = ?",
+        ).run(targetSessionId, targetSessionId, targetSessionId, targetSessionId, targetSessionId, targetSessionId);
+        db.prepare("DELETE FROM sessions WHERE id = ?").run(sourceSessionId);
+      });
+      merge(target.id, incomingSessionId);
+      mergedIncomingSessionTargets.set(mergeKey, target.id);
+      return { sessionId: target.id, merged: true };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return { sessionId: incomingSessionId, merged: false };
+  }
+}
+
 function startSessionActivityWatcher(getMainWindow: () => BrowserWindow | null): void {
   if (sessionActivityWatcher) return;
   for (const session of collectRecentSessionActivity()) {
@@ -269,15 +351,17 @@ function startSessionActivityWatcher(getMainWindow: () => BrowserWindow | null):
       knownSessionActivity.set(key, signature);
       if (previous === signature) continue;
       if (!previous && !isExternalActivitySource(session.source)) continue;
+      const mergeResult = mergeIncomingSessionIntoLatest(session.profileName, session.id, session.source);
 
       win.webContents.send("session-updated", {
         profileName: session.profileName,
-        sessionId: session.id,
+        sessionId: mergeResult.sessionId,
         source: session.source,
         title: session.title,
         startedAt: session.startedAt,
         lastMessageAt: session.lastMessageAt,
         messageCount: session.messageCount,
+        mergedFromSessionId: mergeResult.merged ? session.id : undefined,
       });
     }
   }, 3000);
@@ -300,11 +384,13 @@ function startCronSessionWatcher(getMainWindow: () => BrowserWindow | null): voi
       notifiedCronSessionIds.add(key);
       lastCronStartedAt = Math.max(lastCronStartedAt, session.startedAt);
       const win = getMainWindow();
+      const mergeResult = mergeIncomingSessionIntoLatest(session.profileName, session.id, "cron");
       const payload = {
         profileName: session.profileName,
-        sessionId: session.id,
+        sessionId: mergeResult.sessionId,
         title: session.title,
         startedAt: session.startedAt,
+        mergedFromSessionId: mergeResult.merged ? session.id : undefined,
       };
       if (win && !win.isDestroyed()) {
         win.webContents.send("cron-session-created", payload);

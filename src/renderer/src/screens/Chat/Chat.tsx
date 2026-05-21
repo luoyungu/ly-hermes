@@ -420,10 +420,6 @@ function isExternalSessionSource(source?: string): boolean {
   return !!label && label !== '日程'
 }
 
-function isIncomingSessionSource(source?: string): boolean {
-  return !!sessionSourceLabel(source)
-}
-
 function formatMessageTime(date: number | Date): string {
   const d = new Date(date)
   const now = new Date()
@@ -1596,7 +1592,7 @@ export default function Chat(): React.ReactElement {
   }, [chatHistories, loadSessionIntoChat])
 
   useEffect(() => {
-    const openIncomingSession = async (
+    const refreshIncomingSession = async (
       employeeName: string,
       sessionId: string,
       source?: string,
@@ -1608,17 +1604,15 @@ export default function Chat(): React.ReactElement {
       const isCurrentEmployee = currentEmployeeNameRef.current === employeeName
       const activeSessionId = sessionIdsRef.current[employeeName]
       const loadedHistory = chatHistoriesRef.current[employeeName] || []
-      const incoming = isIncomingSessionSource(source)
       const shouldRefreshVisibleSession =
         activeSessionId === sessionId ||
-        (isCurrentEmployee && incoming) ||
         (isCurrentEmployee && (!activeSessionId || loadedHistory.length === 0))
 
       if (shouldRefreshVisibleSession) {
         await loadSessionIntoChat(employeeName, sessionId)
         if (isCurrentEmployee) {
           setTimeout(() => scrollToBottomRef.current(), 20)
-          if (incoming && activeSessionId !== sessionId) {
+          if (sessionSourceLabel(source)) {
             showToast(`${sessionSourceLabel(source)}有新消息${title ? `：${title}` : ''}`, 'info')
           }
         }
@@ -1639,12 +1633,12 @@ export default function Chat(): React.ReactElement {
     const unsubSessionUpdated = window.hermesAPI.onSessionUpdated(async (data) => {
       const employeeName = data.profileName
       if (!employeeName || !data.sessionId) return
-      await openIncomingSession(employeeName, data.sessionId, data.source, data.title)
+      await refreshIncomingSession(employeeName, data.sessionId, data.source, data.title)
     })
 
     const unsubCronSessionCreated = window.hermesAPI.onCronSessionCreated(async (data) => {
       if (!data.profileName || !data.sessionId) return
-      await openIncomingSession(data.profileName, data.sessionId, 'cron', data.title)
+      await refreshIncomingSession(data.profileName, data.sessionId, 'cron', data.title)
     })
 
     return () => {
