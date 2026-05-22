@@ -1598,10 +1598,45 @@ export default function Chat(): React.ReactElement {
       source?: string,
       title?: string,
     ): Promise<void> => {
+      const markExternalUpdate = (): void => {
+        setExternalSessionUpdates(prev => {
+          const current = prev[employeeName] || []
+          if (current.includes(sessionId)) return prev
+          return { ...prev, [employeeName]: [sessionId, ...current].slice(0, 20) }
+        })
+      }
+
       const streamState = streamStatesRef.current[employeeName] || DEFAULT_STREAM
-      if (streamState.isStreaming || streamState.messageQueue.length > 0) return
+      if (streamState.isStreaming || streamState.messageQueue.length > 0) {
+        markExternalUpdate()
+        return
+      }
 
       const isCurrentEmployee = currentEmployeeNameRef.current === employeeName
+      const isScheduleSession = sessionSourceLabel(source) === '日程'
+
+      if (isScheduleSession) {
+        const alreadyLoaded =
+          sessionIdsRef.current[employeeName] === sessionId &&
+          (chatHistoriesRef.current[employeeName] || []).length > 0
+        if (alreadyLoaded) {
+          if (!isCurrentEmployee) markExternalUpdate()
+          return
+        }
+        const loaded = await loadSessionIntoChat(employeeName, sessionId)
+        if (!loaded) return
+        if (isCurrentEmployee) {
+          setTimeout(() => scrollToBottomRef.current(), 20)
+          showToast(`日程有新消息${title ? `：${title}` : ''}`, 'info')
+        } else {
+          markExternalUpdate()
+        }
+        if (showHistoryRef.current) {
+          setHistoryRefreshKey(value => value + 1)
+        }
+        return
+      }
+
       const activeSessionId = sessionIdsRef.current[employeeName]
       const loadedHistory = chatHistoriesRef.current[employeeName] || []
       const shouldRefreshVisibleSession =
@@ -1619,11 +1654,7 @@ export default function Chat(): React.ReactElement {
         return
       }
 
-      setExternalSessionUpdates(prev => {
-        const current = prev[employeeName] || []
-        if (current.includes(sessionId)) return prev
-        return { ...prev, [employeeName]: [sessionId, ...current].slice(0, 20) }
-      })
+      markExternalUpdate()
 
       if (isCurrentEmployee && showHistoryRef.current) {
         setHistoryRefreshKey(value => value + 1)
@@ -2023,6 +2054,7 @@ export default function Chat(): React.ReactElement {
               const isActive = currentEmployeeName === emp.name
               const lastMsg = (chatHistories[emp.name] || []).slice(-1)[0]
               const empStreaming = (streamStates[emp.name] || DEFAULT_STREAM).isStreaming
+              const empExternalCount = externalSessionUpdates[emp.name]?.length || 0
               return (
                 <div
                   key={emp.name}
@@ -2041,6 +2073,11 @@ export default function Chat(): React.ReactElement {
                     {empStreaming && (
                       <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-[var(--accent)] animate-pulse-custom shadow-[0_0_6px_var(--accent)]" />
                     )}
+                    {empExternalCount > 0 && !empStreaming && (
+                      <span className="absolute -top-1 -left-1 min-w-4 h-4 rounded-full bg-[var(--danger)] px-1 text-[10px] leading-4 text-white font-semibold shadow-[0_0_8px_rgba(239,68,68,0.35)]">
+                        {empExternalCount > 9 ? '9+' : empExternalCount}
+                      </span>
+                    )}
                     {emp.petSlug && (
                       <span className="absolute -top-1.5 -right-1.5 text-[10px] leading-none">🐾</span>
                     )}
@@ -2049,6 +2086,7 @@ export default function Chat(): React.ReactElement {
                     <div className="text-sm font-medium text-[var(--text-primary)] truncate flex items-center gap-1.5">
                       <span className="truncate">{emp.displayName || emp.name}</span>
                       {empStreaming && <span className="text-[10px] text-[var(--accent)] animate-pulse-custom shrink-0">typing...</span>}
+                      {empExternalCount > 0 && !empStreaming && <span className="text-[10px] text-[var(--danger)] shrink-0">新消息</span>}
                     </div>
                     <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || lexicon.entities.defaultRole}</div>
                     {lastMsg && !empStreaming && (

@@ -36,7 +36,6 @@ interface SessionMergeResult {
 
 let cronSessionWatcher: NodeJS.Timeout | null = null;
 let sessionActivityWatcher: NodeJS.Timeout | null = null;
-let lastCronStartedAt = 0;
 const notifiedCronSessionIds = new Set<string>();
 const knownSessionActivity = new Map<string, string>();
 const mergedIncomingSessionTargets = new Map<string, string>();
@@ -371,18 +370,16 @@ function startCronSessionWatcher(getMainWindow: () => BrowserWindow | null): voi
   if (cronSessionWatcher) return;
   for (const session of collectRecentCronSessions()) {
     notifiedCronSessionIds.add(`${session.profileName}:${session.id}`);
-    lastCronStartedAt = Math.max(lastCronStartedAt, session.startedAt);
   }
 
   cronSessionWatcher = setInterval(() => {
     const freshSessions = collectRecentCronSessions().filter((session) => {
       const key = `${session.profileName}:${session.id}`;
-      return !notifiedCronSessionIds.has(key) && session.startedAt >= lastCronStartedAt;
+      return !notifiedCronSessionIds.has(key);
     });
     for (const session of freshSessions) {
       const key = `${session.profileName}:${session.id}`;
       notifiedCronSessionIds.add(key);
-      lastCronStartedAt = Math.max(lastCronStartedAt, session.startedAt);
       const win = getMainWindow();
       const mergeResult = mergeIncomingSessionIntoLatest(session.profileName, session.id, "cron");
       const payload = {
@@ -460,7 +457,7 @@ function getCronJobNameFromSessionId(sessionId: unknown, profileName?: string): 
   const match = sid.match(/^cron_([a-zA-Z0-9]+)_/);
   if (!match) return null;
   const jobId = match[1];
-  const cronDir = profileName && validateProfileName(profileName)
+  const cronDir = profileName && profileName !== "default" && validateProfileName(profileName)
     ? path.join(HERMES_HOME, "profiles", profileName, "cron")
     : path.join(HERMES_HOME, "cron");
   const jobsFile = path.join(cronDir, "jobs.json");
@@ -771,11 +768,12 @@ export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | 
     async (_, job: Record<string, unknown>) => {
       const args: string[] = ["cron", "create"];
       if (job.name) args.push("--name", String(job.name));
-      if (job.deliver) {
-        if (!isSafeDeliverTarget(job.deliver)) {
+      const deliver = job.deliver || "local";
+      if (deliver) {
+        if (!isSafeDeliverTarget(deliver)) {
           return { success: false, output: "不支持的投递目标" };
         }
-        args.push("--deliver", String(job.deliver).trim());
+        args.push("--deliver", String(deliver).trim());
       }
       args.push(String(job.schedule || ""));
       args.push(String(job.prompt || ""));

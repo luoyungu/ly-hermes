@@ -27,6 +27,7 @@ import {
   saveDbMemory,
   exportEmployeeDesktopData,
 } from "./db";
+import { ensureDesktopRuntimeDependencies } from "./installer";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -306,6 +307,11 @@ export async function wakeUpEmployee(
     HERMES_HOME: HERMES_HOME,
     API_SERVER_ENABLED: "true",
   });
+
+  const runtimeDeps = await ensureDesktopRuntimeDependencies();
+  if (!runtimeDeps.success) {
+    return { success: false, error: runtimeDeps.error || "桌面端运行依赖检查失败" };
+  }
 
   const hermesEnv = readHermesEnv(profileName);
   for (const [key, value] of Object.entries(hermesEnv)) {

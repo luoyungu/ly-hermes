@@ -320,7 +320,7 @@ export default function Schedule(): React.ReactElement {
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {filteredJobs.map(job => (
               <JobCard
                 key={job.profileName + ':' + job.id}
