@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
 import { spawn, type ChildProcess } from "child_process";
 import * as yaml from "./lib/yaml-simple";
 import {
@@ -78,8 +79,45 @@ export interface EmployeeInfo {
   hasEnv: boolean;
   gateway_port: number;
   idle_timeout: number;
+  webAccessEnabled: boolean;
+  webAccessToken: string;
   created_at: string;
   status?: string;
+}
+
+function createWebAccessToken(): string {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+function getWebAccessToken(meta: Record<string, unknown> | null | undefined): string {
+  return typeof meta?.web_access_token === "string" ? meta.web_access_token : "";
+}
+
+export function getEmployeeWebAccess(profileName: string): {
+  enabled: boolean;
+  token: string;
+} | null {
+  if (!validateProfileName(profileName)) return null;
+  const meta = readEmployeeMeta(profileName);
+  if (!meta) return null;
+  return {
+    enabled: meta.web_access_enabled === true,
+    token: getWebAccessToken(meta),
+  };
+}
+
+export function resetEmployeeWebAccessToken(profileName: string): {
+  success: boolean;
+  token?: string;
+  error?: string;
+} {
+  if (!validateProfileName(profileName)) return { success: false, error: "无效的员工名称" };
+  const meta = readEmployeeMeta(profileName);
+  if (!meta) return { success: false, error: "员工不存在" };
+  const token = createWebAccessToken();
+  meta.web_access_token = token;
+  writeEmployeeMeta(profileName, meta);
+  return { success: true, token };
 }
 
 export function readEmployeeMeta(
@@ -169,6 +207,8 @@ export function listEmployees(): EmployeeInfo[] {
     hasEnv: fs.existsSync(path.join(HERMES_HOME, ".env")),
     gateway_port: getApiPortForProfile("default") || DEFAULT_API_PORT,
     idle_timeout: (defaultMeta?.idle_timeout as number) || 30,
+    webAccessEnabled: defaultMeta?.web_access_enabled === true,
+    webAccessToken: getWebAccessToken(defaultMeta),
     created_at: (defaultMeta?.created_at as string) || "",
   });
 
@@ -211,6 +251,8 @@ export function listEmployees(): EmployeeInfo[] {
           hasEnv: fs.existsSync(path.join(profilePath, ".env")),
           gateway_port: getApiPortForProfile(dir) || DEFAULT_API_PORT,
           idle_timeout: (meta?.idle_timeout as number) || 30,
+          webAccessEnabled: meta?.web_access_enabled === true,
+          webAccessToken: getWebAccessToken(meta),
           created_at: (meta?.created_at as string) || "",
         });
       }
@@ -765,10 +807,20 @@ export function registerEmployeeIpcHandlers(
       if (changes.tags !== undefined) meta.tags = changes.tags;
       if (changes.idle_timeout !== undefined)
         meta.idle_timeout = changes.idle_timeout;
+      if (changes.webAccessEnabled !== undefined) {
+        meta.web_access_enabled = changes.webAccessEnabled === true;
+        if (meta.web_access_enabled && !getWebAccessToken(meta)) {
+          meta.web_access_token = createWebAccessToken();
+        }
+      }
       writeEmployeeMeta(name, meta);
       return { success: true };
     },
   );
+
+  ipcMain.handle("employee:reset-web-token", async (_, name: string) => {
+    return resetEmployeeWebAccessToken(name);
+  });
 
   ipcMain.handle("employee:delete", async (_, name: string) => {
     if (name === "default") return { error: "不能删除默认员工" };

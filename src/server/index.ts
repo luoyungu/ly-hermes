@@ -4,7 +4,7 @@ import path from "path";
 import { AuthService } from "../core/auth";
 import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
-import { loadAppConfig } from "../main/config";
+import { getApiPortForProfile, getEmployeeWebAccess } from "../main/employees";
 import { serverAuthStore } from "./auth-file-store";
 import { writeChatEvent, writeSseHeaders } from "./sse";
 
@@ -75,19 +75,9 @@ function handleEmbedStatic(url: URL, res: http.ServerResponse): boolean {
   return sendStaticFile(res, path.join(EMBED_DIST_DIR, relativePath));
 }
 
-function getConfiguredEmbedToken(): string {
-  try {
-    const config = loadAppConfig();
-    const webServer = config.web_server as Record<string, unknown> | undefined;
-    return typeof webServer?.embed_token === "string" ? webServer.embed_token : "";
-  } catch {
-    return "";
-  }
-}
-
-function isAuthorizedEmbedRequest(token: unknown): boolean {
-  const configuredToken = getConfiguredEmbedToken();
-  return !!configuredToken && typeof token === "string" && token === configuredToken;
+function isAuthorizedEmbedRequest(profileName: string, token: unknown): boolean {
+  const access = getEmployeeWebAccess(profileName);
+  return !!access?.enabled && !!access.token && typeof token === "string" && token === access.token;
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -132,11 +122,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === "POST" && url.pathname === "/api/chat/stream") {
     const body = await readJsonBody(req);
-    if (!isAuthorizedEmbedRequest(body.token)) {
+    const profileName = String(body.agent || body.profileName || "default").trim() || "default";
+    if (!isAuthorizedEmbedRequest(profileName, body.token)) {
       sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
       return;
     }
-    const profileName = String(body.agent || body.profileName || "default").trim() || "default";
+    const gatewayPort = Number(process.env.HERMES_API_PORT || getApiPortForProfile(profileName) || 0);
+    if (!gatewayPort) {
+      sendJson(res, 400, { error: "Agent gateway port is not configured", requestId: ctx.requestId });
+      return;
+    }
     writeSseHeaders(res);
     streamHermesGatewayChat(
       {
@@ -148,7 +143,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         resumeSessionId: typeof body.resumeSessionId === "string" ? body.resumeSessionId : undefined,
         model: typeof body.model === "string" ? body.model : undefined,
         host: process.env.HERMES_API_HOST || "127.0.0.1",
-        port: Number(process.env.HERMES_API_PORT || 8644),
+        port: gatewayPort,
       },
       (event) => {
         writeChatEvent(res, event);

@@ -28,6 +28,8 @@ export interface EmployeeInfo {
   hasEnv: boolean
   gateway_port: number
   idle_timeout: number
+  webAccessEnabled: boolean
+  webAccessToken: string
   created_at: string
   status?: string
 }
@@ -219,7 +221,6 @@ export interface DesktopWebServerStatus {
   running: boolean
   port: number
   url: string
-  token: string
   error?: string
 }
 
@@ -246,6 +247,7 @@ interface HermesAPI {
     wakeUp?: boolean
   }) => Promise<{ success: boolean; name?: string; error?: string }>
   updateEmployee: (name: string, changes: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
+  resetEmployeeWebToken: (name: string) => Promise<{ success: boolean; token?: string; error?: string }>
   deleteEmployee: (name: string) => Promise<{ success: boolean; error?: string }>
   wakeUpEmployee: (name: string) => Promise<{ success: boolean; status?: string; error?: string }>
   sleepEmployee: (name: string) => Promise<{ success: boolean }>
@@ -350,7 +352,6 @@ interface HermesAPI {
   setRuntimeConfig: (runtime: Record<string, unknown>) => Promise<{ success: boolean }>
   getDesktopWebServerStatus: () => Promise<DesktopWebServerStatus>
   setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }) => Promise<DesktopWebServerStatus>
-  resetDesktopWebServerToken: () => Promise<DesktopWebServerStatus>
   restartAllEngines: () => Promise<{ success: boolean; restarted: number; total?: number }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
   getHermesVersion: () => Promise<string | null>

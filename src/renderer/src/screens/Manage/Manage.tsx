@@ -19,9 +19,12 @@ import {
   Sparkles,
   Download,
   Plug,
-  MessageCircle
+  MessageCircle,
+  Globe,
+  Copy,
+  KeyRound
 } from 'lucide-react'
-import type { EmployeeInfo, InstalledSkill, BundledSkill } from '../../../../preload/index'
+import type { DesktopWebServerStatus, EmployeeInfo, InstalledSkill, BundledSkill } from '../../../../preload/index'
 import { showToast } from '../../App'
 import PetPicker from '../../components/PetPicker'
 import Popconfirm from '../../components/Popconfirm'
@@ -398,6 +401,9 @@ function EditEmployee({
   const [role, setRole] = useState(employee.role || '')
   const [avatar, setAvatar] = useState(employee.avatar || '🧑‍💼')
   const [petSlug, setPetSlug] = useState(employee.petSlug || '')
+  const [webAccessEnabled, setWebAccessEnabled] = useState(employee.webAccessEnabled === true)
+  const [webAccessToken, setWebAccessToken] = useState(employee.webAccessToken || '')
+  const [webServerStatus, setWebServerStatus] = useState<DesktopWebServerStatus | null>(null)
   const [showPetPicker, setShowPetPicker] = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const avatarPickerRef = useRef<HTMLDivElement>(null)
@@ -461,6 +467,13 @@ function EditEmployee({
 
   useEffect(() => {
     const ename = employee.name
+    setDisplayName(employee.displayName || '')
+    setRole(employee.role || '')
+    setAvatar(employee.avatar || '🧑‍💼')
+    setPetSlug(employee.petSlug || '')
+    setWebAccessEnabled(employee.webAccessEnabled === true)
+    setWebAccessToken(employee.webAccessToken || '')
+    window.hermesAPI.getDesktopWebServerStatus().then(setWebServerStatus).catch(() => setWebServerStatus(null))
     window.hermesAPI.getEmployeeSoul(ename).then((s) => { setSoulContent(s || ''); setSoulOriginal(s || '') }).catch(() => {})
     window.hermesAPI.getEmployeeTools(ename).then(setTools).catch(() => {})
     loadSkills()
@@ -500,7 +513,11 @@ function EditEmployee({
       setHasSavedDingtalkSecret(false)
       setDingtalkHomeChannel('')
     }).finally(() => setEnvLoading(false))
-  }, [employee.name, loadSkills])
+  }, [employee, loadSkills])
+
+  const webAccessUrl = webAccessToken
+    ? `${webServerStatus?.url || 'http://127.0.0.1:8787/embed'}?agent=${encodeURIComponent(employee.name)}&token=${encodeURIComponent(webAccessToken)}`
+    : ''
 
   const handleSaveBasic = async (): Promise<void> => {
     setSaving(true)
@@ -517,6 +534,64 @@ function EditEmployee({
       onRefresh()
     } catch { showToast('保存失败', 'error') }
     finally { setSaving(false) }
+  }
+
+  const refreshEmployeeWebAccess = async (): Promise<void> => {
+    const latest = await window.hermesAPI.getEmployee(employee.name)
+    if (!latest) return
+    setWebAccessEnabled(latest.webAccessEnabled === true)
+    setWebAccessToken(latest.webAccessToken || '')
+  }
+
+  const handleToggleWebAccess = async (enabled: boolean): Promise<void> => {
+    setSaving(true)
+    try {
+      const result = await window.hermesAPI.updateEmployee(employee.name, {
+        webAccessEnabled: enabled
+      })
+      if (!result.success) {
+        showToast(result.error || 'Web 访问设置失败', 'error')
+        return
+      }
+      await refreshEmployeeWebAccess()
+      showToast(enabled ? '已开启 Web 访问' : '已关闭 Web 访问')
+      onRefresh()
+    } catch {
+      showToast('Web 访问设置失败', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleResetWebAccessToken = async (): Promise<void> => {
+    setSaving(true)
+    try {
+      const result = await window.hermesAPI.resetEmployeeWebToken(employee.name)
+      if (!result.success) {
+        showToast(result.error || '重置 Token 失败', 'error')
+        return
+      }
+      setWebAccessToken(result.token || '')
+      showToast('员工 Web Token 已重置')
+      onRefresh()
+    } catch {
+      showToast('重置 Token 失败', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCopyWebAccessUrl = async (): Promise<void> => {
+    if (!webAccessEnabled || !webAccessUrl) {
+      showToast('请先开启 Web 访问', 'error')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(webAccessUrl)
+      showToast('员工访问链接已复制')
+    } catch {
+      showToast('复制失败', 'error')
+    }
   }
 
   const handleSaveSoul = async (): Promise<void> => {
@@ -778,6 +853,61 @@ function EditEmployee({
                     )}
                   </div>
                 </div>
+              </div>
+            </div>
+            <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Globe size={16} className="text-[var(--accent)]" />
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">Web 访问</span>
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                    开启后，这个员工可以通过内置 Web 服务的嵌入页面访问。
+                  </p>
+                </div>
+                <label className="tools-toggle shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={webAccessEnabled}
+                    disabled={saving}
+                    onChange={(e) => handleToggleWebAccess(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <span className={`tools-toggle-track ${webAccessEnabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
+                </label>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="mb-1.5 flex items-center gap-1.5 text-sm text-[var(--text-secondary)] font-medium">
+                    <MessageCircle size={14} /> 访问链接
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={webAccessEnabled && webAccessUrl ? webAccessUrl : '开启 Web 访问后自动生成'}
+                      readOnly
+                      className="min-w-0 flex-1 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none"
+                    />
+                    <button
+                      onClick={handleCopyWebAccessUrl}
+                      disabled={!webAccessEnabled || !webAccessUrl}
+                      className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3.5 py-2.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                    >
+                      <Copy size={14} /> 复制
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-[var(--text-dim)]">
+                    Web 服务状态：{webServerStatus?.running ? `运行中，端口 ${webServerStatus.port}` : '未运行，请先在设置中开启'}
+                  </p>
+                </div>
+                <button
+                  onClick={handleResetWebAccessToken}
+                  disabled={saving || !webAccessToken}
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3.5 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                  重置 Token
+                </button>
               </div>
             </div>
             <button onClick={handleSaveBasic} disabled={saving} className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 cursor-pointer transition-all">

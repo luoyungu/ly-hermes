@@ -24,6 +24,8 @@ export interface EmployeeInfo {
   hasEnv: boolean
   gateway_port: number
   idle_timeout: number
+  webAccessEnabled: boolean
+  webAccessToken: string
   created_at: string
   status?: string
 }
@@ -215,7 +217,6 @@ export interface DesktopWebServerStatus {
   running: boolean
   port: number
   url: string
-  token: string
   error?: string
 }
 
@@ -273,6 +274,11 @@ const hermesAPI = {
     changes: Record<string, unknown>
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('employee:update', name, changes),
+
+  resetEmployeeWebToken: (
+    name: string
+  ): Promise<{ success: boolean; token?: string; error?: string }> =>
+    ipcRenderer.invoke('employee:reset-web-token', name),
 
   deleteEmployee: (name: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('employee:delete', name),
@@ -566,9 +572,6 @@ const hermesAPI = {
 
   setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }): Promise<DesktopWebServerStatus> =>
     ipcRenderer.invoke('desktop-web-server:set-config', config),
-
-  resetDesktopWebServerToken: (): Promise<DesktopWebServerStatus> =>
-    ipcRenderer.invoke('desktop-web-server:reset-token'),
 
   saveWallpaperFile: (dataUrl: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('save-wallpaper-file', dataUrl),
