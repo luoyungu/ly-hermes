@@ -214,6 +214,14 @@ export interface TokenStats {
   agents: string[]
 }
 
+export interface DesktopWebServerStatus {
+  enabled: boolean
+  running: boolean
+  port: number
+  url: string
+  error?: string
+}
+
 interface HermesAPI {
   authLogin: (password: string) => Promise<{ success: boolean; error?: string; user?: { id: string; username: string; displayName: string } }>
   authLogout: () => Promise<{ success: boolean }>
@@ -339,6 +347,8 @@ interface HermesAPI {
   setAppConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>
   getRuntimeConfig: () => Promise<Record<string, unknown>>
   setRuntimeConfig: (runtime: Record<string, unknown>) => Promise<{ success: boolean }>
+  getDesktopWebServerStatus: () => Promise<DesktopWebServerStatus>
+  setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }) => Promise<DesktopWebServerStatus>
   restartAllEngines: () => Promise<{ success: boolean; restarted: number; total?: number }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
   getHermesVersion: () => Promise<string | null>

@@ -210,6 +210,14 @@ export interface TokenStats {
   agents: string[]
 }
 
+export interface DesktopWebServerStatus {
+  enabled: boolean
+  running: boolean
+  port: number
+  url: string
+  error?: string
+}
+
 export type ThemeMode = 'dark' | 'light' | 'auto'
 export type AccentColor = 'violet' | 'indigo' | 'blue' | 'green' | 'orange' | 'lavender' | 'rose' | 'slate'
 export type UiTheme = 'classic' | 'cultivation'
@@ -551,6 +559,12 @@ const hermesAPI = {
 
   setRuntimeConfig: (runtime: Record<string, unknown>): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('set-runtime-config', runtime),
+
+  getDesktopWebServerStatus: (): Promise<DesktopWebServerStatus> =>
+    ipcRenderer.invoke('desktop-web-server:get-status'),
+
+  setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }): Promise<DesktopWebServerStatus> =>
+    ipcRenderer.invoke('desktop-web-server:set-config', config),
 
   saveWallpaperFile: (dataUrl: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('save-wallpaper-file', dataUrl),

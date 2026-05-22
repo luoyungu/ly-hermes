@@ -10,6 +10,7 @@ afterPack: scripts/after-pack.cjs
 
 files:
   - out/**/*
+  - dist-web/**/*
   - package.json
   - '!**/._*'
   - '!**/.DS_Store'

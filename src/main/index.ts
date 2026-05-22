@@ -21,6 +21,7 @@ import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
 import { registerSessionIpcHandlers, readLogs as readHermesLogs, clearHermesLog } from "./sessions";
 import { registerPetsIpc } from "./pets";
+import { applyDesktopWebServerConfig, registerDesktopWebServerIpc } from "./server-manager";
 import { initUpdater } from "./updater";
 import { autoUpdater } from "electron-updater";
 import {
@@ -286,6 +287,7 @@ app.whenReady().then(() => {
   registerChatIpcHandlers(getMainWindow);
   registerSessionIpcHandlers(getMainWindow);
   registerPetsIpc();
+  registerDesktopWebServerIpc();
 
   initUpdater(getMainWindow);
 
@@ -320,6 +322,9 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
+  applyDesktopWebServerConfig().catch((error: unknown) => {
+    logError("server", "Failed to apply desktop web server config", error);
+  });
 
   logInfo("main", "Application ready");
 

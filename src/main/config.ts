@@ -952,6 +952,9 @@ export function registerConfigIpcHandlers(): void {
     "set-app-config",
     async (_, config: Record<string, unknown>) => {
       saveAppConfig(config);
+      import("./server-manager")
+        .then(({ applyDesktopWebServerConfig }) => applyDesktopWebServerConfig())
+        .catch(() => {});
       return { success: true };
     },
   );

@@ -30,14 +30,15 @@ import {
   Sun,
   Monitor,
   Sparkles,
-  Palette
+  Palette,
+  Globe
 } from 'lucide-react'
 import { PROVIDER_PRESETS, GLOBAL_CONFIG_FIELDS, getNestedValue, setNestedValue, type ConfigFieldDef } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
 import { showToast } from '../../App'
 import { THEME_PRESETS } from '../../theme/presets'
-import type { ThemeMode, AccentColor, UiTheme } from '../../../../preload/index'
+import type { ThemeMode, AccentColor, UiTheme, DesktopWebServerStatus } from '../../../../preload/index'
 
 type Section = 'basic' | 'appearance' | 'runtime' | 'models' | 'engine' | 'data' | 'logs'
 
@@ -67,6 +68,9 @@ export default function SettingsScreen(): React.ReactElement {
 
   const [idleTimeout, setIdleTimeout] = useState(60)
   const [maxOnline, setMaxOnline] = useState(5)
+  const [webServerStatus, setWebServerStatus] = useState<DesktopWebServerStatus | null>(null)
+  const [webServerPort, setWebServerPort] = useState(8787)
+  const [webServerSaving, setWebServerSaving] = useState(false)
 
   const [hermesVersion, setHermesVersion] = useState<string | null>(null)
   const [doctorOutput, setDoctorOutput] = useState<string | null>(null)
@@ -127,6 +131,10 @@ export default function SettingsScreen(): React.ReactElement {
       const d = c.defaults || {}
       setIdleTimeout((d.idle_timeout as number) || 60)
       setMaxOnline((d.max_online as number) || 5)
+    }).catch(() => {})
+    window.hermesAPI.getDesktopWebServerStatus().then((status) => {
+      setWebServerStatus(status)
+      setWebServerPort(status.port || 8787)
     }).catch(() => {})
   }, [])
 
@@ -306,6 +314,44 @@ export default function SettingsScreen(): React.ReactElement {
     } finally {
       setSaving(false)
       setTimeout(() => setSaveResult('idle'), 2000)
+    }
+  }
+
+  const handleToggleWebServer = async (enabled: boolean): Promise<void> => {
+    setWebServerSaving(true)
+    try {
+      const status = await window.hermesAPI.setDesktopWebServerConfig({
+        autoStart: enabled,
+        port: webServerPort,
+      })
+      setWebServerStatus(status)
+      setWebServerPort(status.port || webServerPort)
+      if (status.error) {
+        showToast(`Web 服务启动失败：${status.error}`, 'error')
+      } else {
+        showToast(enabled ? 'Web 服务已开启' : 'Web 服务已关闭')
+      }
+    } catch {
+      showToast('Web 服务设置失败', 'error')
+    } finally {
+      setWebServerSaving(false)
+    }
+  }
+
+  const handleSaveWebServerPort = async (): Promise<void> => {
+    setWebServerSaving(true)
+    try {
+      const status = await window.hermesAPI.setDesktopWebServerConfig({
+        autoStart: webServerStatus?.enabled === true,
+        port: webServerPort,
+      })
+      setWebServerStatus(status)
+      setWebServerPort(status.port || webServerPort)
+      showToast(status.error ? `Web 服务启动失败：${status.error}` : 'Web 服务配置已保存')
+    } catch {
+      showToast('Web 服务设置失败', 'error')
+    } finally {
+      setWebServerSaving(false)
     }
   }
 
@@ -562,6 +608,64 @@ export default function SettingsScreen(): React.ReactElement {
                         max={20}
                         className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                       />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-[var(--border)] pt-4 mt-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                          <Globe size={15} /> 内置 Web 服务
+                        </h4>
+                        <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                          开启后，桌面端启动时会自动提供嵌入式 Web 聊天入口。
+                        </p>
+                        {webServerStatus?.running && (
+                          <a
+                            href={webServerStatus.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-block text-xs text-[var(--accent)] hover:underline"
+                          >
+                            {webServerStatus.url}
+                          </a>
+                        )}
+                        {webServerStatus?.error && (
+                          <p className="mt-2 text-xs text-[var(--danger)]">{webServerStatus.error}</p>
+                        )}
+                      </div>
+                      <label className="tools-toggle shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={webServerStatus?.enabled === true}
+                          disabled={webServerSaving}
+                          onChange={(e) => handleToggleWebServer(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <span className={`tools-toggle-track ${webServerStatus?.enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
+                      </label>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={webServerPort}
+                        min={1024}
+                        max={65535}
+                        disabled={webServerSaving}
+                        onChange={(e) => setWebServerPort(Number(e.target.value) || 8787)}
+                        className="w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                      <button
+                        onClick={handleSaveWebServerPort}
+                        disabled={webServerSaving}
+                        className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
+                      >
+                        {webServerSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                        保存 Web 配置
+                      </button>
+                      <span className="text-xs text-[var(--text-dim)]">
+                        状态：{webServerStatus?.running ? '运行中' : '未运行'}
+                      </span>
                     </div>
                   </div>
 

@@ -5,10 +5,10 @@
   "main": "./out/main/index.js",
   "author": "luoyun",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run web:embed:build && electron-vite dev",
     "dev:debug": "HERMES_DEVTOOLS=1 electron-vite dev",
     "start": "electron-vite preview",
-    "build": "npm run typecheck && electron-vite build",
+    "build": "npm run typecheck && npm run web:embed:build && electron-vite build",
     "postbuild": "electron-builder install-app-deps",
     "pack": "npm run build && electron-builder --dir",
     "pack:win": "npm run build && electron-builder --win",
