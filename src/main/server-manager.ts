@@ -1,4 +1,5 @@
 import type http from "http";
+import crypto from "crypto";
 import { ipcMain } from "electron";
 import { createHermesServer } from "../server";
 import { loadAppConfig, saveAppConfig } from "./config";
@@ -9,6 +10,7 @@ export interface DesktopWebServerStatus {
   running: boolean;
   port: number;
   url: string;
+  token: string;
   error?: string;
 }
 
@@ -18,21 +20,38 @@ let server: http.Server | null = null;
 let currentPort = DEFAULT_WEB_SERVER_PORT;
 let lastError = "";
 
-function readWebServerConfig(): { autoStart: boolean; port: number } {
+function createEmbedToken(): string {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+function readWebServerConfig(): { autoStart: boolean; port: number; token: string } {
   const config = loadAppConfig();
   const raw = config.web_server as Record<string, unknown> | undefined;
+  const token = typeof raw?.embed_token === "string" && raw.embed_token
+    ? raw.embed_token
+    : createEmbedToken();
+  if (!raw?.embed_token) {
+    writeWebServerConfig({
+      autoStart: raw?.auto_start === true,
+      port: Number(raw?.port || DEFAULT_WEB_SERVER_PORT) || DEFAULT_WEB_SERVER_PORT,
+      token,
+    });
+  }
   return {
     autoStart: raw?.auto_start === true,
     port: Number(raw?.port || DEFAULT_WEB_SERVER_PORT) || DEFAULT_WEB_SERVER_PORT,
+    token,
   };
 }
 
-function writeWebServerConfig(next: { autoStart: boolean; port: number }): void {
+function writeWebServerConfig(next: { autoStart: boolean; port: number; token?: string }): void {
   const config = loadAppConfig();
+  const current = (config.web_server as Record<string, unknown> | undefined) || {};
   config.web_server = {
-    ...((config.web_server as Record<string, unknown> | undefined) || {}),
+    ...current,
     auto_start: next.autoStart,
     port: next.port,
+    embed_token: next.token || current.embed_token || createEmbedToken(),
   };
   saveAppConfig(config);
 }
@@ -44,7 +63,8 @@ export function getDesktopWebServerStatus(): DesktopWebServerStatus {
     enabled: config.autoStart,
     running: !!server,
     port,
-    url: `http://127.0.0.1:${port}/embed`,
+    token: config.token,
+    url: `http://127.0.0.1:${port}/embed?agent=default&token=${encodeURIComponent(config.token)}`,
     error: lastError || undefined,
   };
 }
@@ -144,4 +164,13 @@ export function registerDesktopWebServerIpc(): void {
       return applyDesktopWebServerConfig();
     },
   );
+  ipcMain.handle("desktop-web-server:reset-token", async () => {
+    const config = readWebServerConfig();
+    writeWebServerConfig({
+      autoStart: config.autoStart,
+      port: config.port,
+      token: createEmbedToken(),
+    });
+    return getDesktopWebServerStatus();
+  });
 }

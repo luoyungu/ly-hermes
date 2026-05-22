@@ -215,6 +215,7 @@ export interface DesktopWebServerStatus {
   running: boolean
   port: number
   url: string
+  token: string
   error?: string
 }
 
@@ -565,6 +566,9 @@ const hermesAPI = {
 
   setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }): Promise<DesktopWebServerStatus> =>
     ipcRenderer.invoke('desktop-web-server:set-config', config),
+
+  resetDesktopWebServerToken: (): Promise<DesktopWebServerStatus> =>
+    ipcRenderer.invoke('desktop-web-server:reset-token'),
 
   saveWallpaperFile: (dataUrl: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('save-wallpaper-file', dataUrl),

@@ -9,6 +9,9 @@ type Message = {
 };
 
 export default function EmbedChat(): React.ReactElement {
+  const params = new URLSearchParams(window.location.search);
+  const agent = params.get("agent") || "default";
+  const token = params.get("token") || "";
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [error, setError] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -39,7 +42,7 @@ export default function EmbedChat(): React.ReactElement {
       { id: assistantId, role: "assistant", content: "" },
     ]);
 
-    await streamChat(text, (event) => {
+    await streamChat(agent, token, text, (event) => {
       if (event.type === "chunk" || event.type === "thinking") {
         setMessages((items) =>
           items.map((item) =>
@@ -87,12 +90,14 @@ export default function EmbedChat(): React.ReactElement {
         <div>
           <div className="embed-title">Hermes Assistant</div>
           <div className="embed-subtitle">
-            {connection === "checking" ? "正在连接服务..." : connection === "online" ? "已连接" : error}
+            {connection === "checking" ? "正在连接服务..." : connection === "online" ? `已连接：${agent}` : error}
           </div>
         </div>
       </header>
       <section className="embed-body">
-        {messages.length === 0 ? (
+        {!token ? (
+          <div className="empty-state">访问地址缺少 token，无法连接智能体。</div>
+        ) : messages.length === 0 ? (
           <div className="empty-state">输入问题后，助手会通过服务器端 Hermes gateway 流式回复。</div>
         ) : (
           <div className="message-list">
@@ -107,14 +112,14 @@ export default function EmbedChat(): React.ReactElement {
       <footer className="embed-composer">
         <input
           value={input}
-          disabled={connection !== "online" || isSending}
+          disabled={!token || connection !== "online" || isSending}
           placeholder={connection === "online" ? "询问智能体..." : "服务未连接"}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") handleSend().catch(() => {});
           }}
         />
-        <button disabled={connection !== "online" || isSending || !input.trim()} onClick={() => handleSend()}>
+        <button disabled={!token || connection !== "online" || isSending || !input.trim()} onClick={() => handleSend()}>
           发送
         </button>
       </footer>

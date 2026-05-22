@@ -4,6 +4,7 @@ import path from "path";
 import { AuthService } from "../core/auth";
 import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
+import { loadAppConfig } from "../main/config";
 import { serverAuthStore } from "./auth-file-store";
 import { writeChatEvent, writeSseHeaders } from "./sse";
 
@@ -74,6 +75,21 @@ function handleEmbedStatic(url: URL, res: http.ServerResponse): boolean {
   return sendStaticFile(res, path.join(EMBED_DIST_DIR, relativePath));
 }
 
+function getConfiguredEmbedToken(): string {
+  try {
+    const config = loadAppConfig();
+    const webServer = config.web_server as Record<string, unknown> | undefined;
+    return typeof webServer?.embed_token === "string" ? webServer.embed_token : "";
+  } catch {
+    return "";
+  }
+}
+
+function isAuthorizedEmbedRequest(token: unknown): boolean {
+  const configuredToken = getConfiguredEmbedToken();
+  return !!configuredToken && typeof token === "string" && token === configuredToken;
+}
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const ctx = createRequestContext("server", { source: "http" });
@@ -116,10 +132,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === "POST" && url.pathname === "/api/chat/stream") {
     const body = await readJsonBody(req);
+    if (!isAuthorizedEmbedRequest(body.token)) {
+      sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
+      return;
+    }
+    const profileName = String(body.agent || body.profileName || "default").trim() || "default";
     writeSseHeaders(res);
     streamHermesGatewayChat(
       {
-        profileName: String(body.profileName || "default"),
+        profileName,
         message: String(body.message || ""),
         history: Array.isArray(body.history)
           ? body.history as Array<{ role: string; content: string }>

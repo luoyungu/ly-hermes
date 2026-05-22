@@ -40,6 +40,8 @@ function parseSseBlock(block: string): EmbedChatEvent | null {
 }
 
 export async function streamChat(
+  agent: string,
+  token: string,
   message: string,
   onEvent: (event: EmbedChatEvent) => void,
 ): Promise<void> {
@@ -47,7 +49,7 @@ export async function streamChat(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profileName: "default", message }),
+    body: JSON.stringify({ agent, token, message }),
   });
   if (!response.ok || !response.body) {
     onEvent({

@@ -219,6 +219,7 @@ export interface DesktopWebServerStatus {
   running: boolean
   port: number
   url: string
+  token: string
   error?: string
 }
 
@@ -349,6 +350,7 @@ interface HermesAPI {
   setRuntimeConfig: (runtime: Record<string, unknown>) => Promise<{ success: boolean }>
   getDesktopWebServerStatus: () => Promise<DesktopWebServerStatus>
   setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }) => Promise<DesktopWebServerStatus>
+  resetDesktopWebServerToken: () => Promise<DesktopWebServerStatus>
   restartAllEngines: () => Promise<{ success: boolean; restarted: number; total?: number }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
   getHermesVersion: () => Promise<string | null>

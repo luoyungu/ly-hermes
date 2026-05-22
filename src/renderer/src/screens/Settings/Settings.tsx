@@ -355,6 +355,30 @@ export default function SettingsScreen(): React.ReactElement {
     }
   }
 
+  const handleCopyWebServerUrl = async (): Promise<void> => {
+    if (!webServerStatus?.url) return
+    try {
+      await navigator.clipboard.writeText(webServerStatus.url)
+      showToast('访问地址已复制')
+    } catch {
+      showToast('复制失败', 'error')
+    }
+  }
+
+  const handleResetWebServerToken = async (): Promise<void> => {
+    setWebServerSaving(true)
+    try {
+      const status = await window.hermesAPI.resetDesktopWebServerToken()
+      setWebServerStatus(status)
+      setWebServerPort(status.port || webServerPort)
+      showToast('访问 Token 已重置')
+    } catch {
+      showToast('重置 Token 失败', 'error')
+    } finally {
+      setWebServerSaving(false)
+    }
+  }
+
   const updateRuntimeField = (key: string, value: unknown): void => {
     setRuntimeObj(prev => setNestedValue(prev, key, value))
   }
@@ -621,14 +645,22 @@ export default function SettingsScreen(): React.ReactElement {
                           开启后，桌面端启动时会自动提供嵌入式 Web 聊天入口。
                         </p>
                         {webServerStatus?.running && (
-                          <a
-                            href={webServerStatus.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-2 inline-block text-xs text-[var(--accent)] hover:underline"
-                          >
-                            {webServerStatus.url}
-                          </a>
+                          <div className="mt-2 flex items-center gap-2">
+                            <a
+                              href={webServerStatus.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="min-w-0 truncate text-xs text-[var(--accent)] hover:underline"
+                            >
+                              {webServerStatus.url}
+                            </a>
+                            <button
+                              onClick={handleCopyWebServerUrl}
+                              className="shrink-0 rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                            >
+                              复制
+                            </button>
+                          </div>
                         )}
                         {webServerStatus?.error && (
                           <p className="mt-2 text-xs text-[var(--danger)]">{webServerStatus.error}</p>
@@ -662,6 +694,13 @@ export default function SettingsScreen(): React.ReactElement {
                       >
                         {webServerSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                         保存 Web 配置
+                      </button>
+                      <button
+                        onClick={handleResetWebServerToken}
+                        disabled={webServerSaving}
+                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
+                      >
+                        重置 Token
                       </button>
                       <span className="text-xs text-[var(--text-dim)]">
                         状态：{webServerStatus?.running ? '运行中' : '未运行'}
