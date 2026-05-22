@@ -109,6 +109,13 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         provider: preset.id,
         baseUrl: preset.baseUrl,
       })
+      await window.hermesAPI.addSavedModel(
+        `${preset.label} · ${savedModelId}`,
+        preset.id,
+        savedModelId,
+        preset.baseUrl,
+        apiKey.trim()
+      )
       if (apiKey.trim()) {
         const envObj: Record<string, string> = {}
         envObj[envInfo.envKey] = apiKey.trim()
@@ -195,9 +202,9 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="w-16 h-16 rounded-2xl bg-[var(--accent-glow)] flex items-center justify-center">
                     <Download size={28} className="text-[var(--accent)]" />
                   </div>
-                  <p className="text-sm text-[var(--text-secondary)] text-center">未检测到 Hermes Agent。安装前请确保系统已安装 Python 3.11+；Windows 下会自动检测并尝试安装 Git。</p>
+                  <p className="text-sm text-[var(--text-secondary)] text-center">未检测到 Hermes Agent。Windows 下会自动检测并尝试安装 Python 3.12 与 Git。</p>
                   <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--text-dim)]">
-                    Windows 用户安装 Python 时请勾选 Add python.exe to PATH；如果缺少 Git，安装器会优先通过 winget 静默安装 Git for Windows，失败时会降级为压缩包安装 Agent。
+                    如果自动安装 Python 失败，请手动安装 Python 3.11+ 并勾选 Add python.exe to PATH；如果缺少 Git，安装器会优先通过 winget 静默安装 Git for Windows，失败时会降级为压缩包安装 Agent。
                   </div>
                   <button onClick={handleInstall} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
                     <Download size={16} /> 开始安装

@@ -262,6 +262,11 @@ function isExternalActivitySource(source: string): boolean {
   );
 }
 
+function isCronSession(sessionId: string, source?: string): boolean {
+  const value = (source || "").toLowerCase();
+  return value === "cron" || value.includes("cron") || sessionId.startsWith("cron_");
+}
+
 function mergeIncomingSessionIntoLatest(
   profileName: string,
   incomingSessionId: string,
@@ -349,6 +354,7 @@ function startSessionActivityWatcher(getMainWindow: () => BrowserWindow | null):
       const previous = knownSessionActivity.get(key);
       knownSessionActivity.set(key, signature);
       if (previous === signature) continue;
+      if (isCronSession(session.id, session.source)) continue;
       if (!previous && !isExternalActivitySource(session.source)) continue;
       const mergeResult = mergeIncomingSessionIntoLatest(session.profileName, session.id, session.source);
 
@@ -381,13 +387,11 @@ function startCronSessionWatcher(getMainWindow: () => BrowserWindow | null): voi
       const key = `${session.profileName}:${session.id}`;
       notifiedCronSessionIds.add(key);
       const win = getMainWindow();
-      const mergeResult = mergeIncomingSessionIntoLatest(session.profileName, session.id, "cron");
       const payload = {
         profileName: session.profileName,
-        sessionId: mergeResult.sessionId,
+        sessionId: session.id,
         title: session.title,
         startedAt: session.startedAt,
-        mergedFromSessionId: mergeResult.merged ? session.id : undefined,
       };
       if (win && !win.isDestroyed()) {
         win.webContents.send("cron-session-created", payload);
@@ -856,7 +860,7 @@ export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | 
       const off = Math.max(parseInt(String(offset), 10) || 0, 0);
       return queryStateDb(
         "SELECT id, source, model, started_at, ended_at, message_count, tool_call_count, title " +
-          "FROM sessions WHERE source = 'cron' ORDER BY started_at DESC LIMIT ? OFFSET ?",
+          "FROM sessions WHERE source = 'cron' OR id LIKE 'cron_%' ORDER BY started_at DESC LIMIT ? OFFSET ?",
         [lim, off],
       );
     },

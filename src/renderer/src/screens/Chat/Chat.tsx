@@ -1616,21 +1616,10 @@ export default function Chat(): React.ReactElement {
       const isScheduleSession = sessionSourceLabel(source) === '日程'
 
       if (isScheduleSession) {
-        const alreadyLoaded =
-          sessionIdsRef.current[employeeName] === sessionId &&
-          (chatHistoriesRef.current[employeeName] || []).length > 0
-        if (alreadyLoaded) {
-          if (!isCurrentEmployee) markExternalUpdate()
-          return
-        }
-        const loaded = await loadSessionIntoChat(employeeName, sessionId)
-        if (!loaded) return
         if (isCurrentEmployee) {
-          setTimeout(() => scrollToBottomRef.current(), 20)
           showToast(`日程有新消息${title ? `：${title}` : ''}`, 'info')
-        } else {
-          markExternalUpdate()
         }
+        markExternalUpdate()
         if (showHistoryRef.current) {
           setHistoryRefreshKey(value => value + 1)
         }

@@ -14,6 +14,7 @@ import { get } from "https";
 import { get as httpGet } from "http";
 import { join, delimiter, dirname, basename } from "path";
 import { homedir } from "os";
+import { TextDecoder } from "util";
 
 import { HERMES_HOME } from "./config";
 import * as yaml from "./lib/yaml-simple";
@@ -92,6 +93,31 @@ const STAGES = [
   "安装依赖",
   "完成安装",
 ];
+
+function decodeProcessOutput(buffer: Buffer): string {
+  if (buffer.length === 0) return "";
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  if (process.platform !== "win32" || !utf8.includes("\uFFFD")) return utf8;
+  try {
+    return new TextDecoder("gb18030", { fatal: false }).decode(buffer);
+  } catch {
+    return utf8;
+  }
+}
+
+function cleanInstallOutput(text: string): string {
+  return stripAnsi(text)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function tailInstallOutput(text: string, maxLength: number): string {
+  const cleaned = cleanInstallOutput(text);
+  if (cleaned.length <= maxLength) return cleaned;
+  return cleaned.slice(-maxLength);
+}
 
 function getPythonVersion(cmd: string): { ok: boolean; version?: string } {
   try {
@@ -232,7 +258,17 @@ export async function verifyInstall(): Promise<boolean> {
 function findSystemPython(): string | null {
   const candidates: string[] = [];
   if (process.platform === "win32") {
-    candidates.push("python", "python3", "py");
+    const home = homedir();
+    const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+    candidates.push(
+      "python",
+      "python3",
+      "py",
+      join(localAppData, "Programs", "Python", "Python312", "python.exe"),
+      join(localAppData, "Programs", "Python", "Python311", "python.exe"),
+      join(localAppData, "Microsoft", "WindowsApps", "python.exe"),
+      join(localAppData, "Microsoft", "WindowsApps", "python3.exe"),
+    );
   } else {
     candidates.push("python3", "python");
   }
@@ -243,8 +279,57 @@ function findSystemPython(): string | null {
   return null;
 }
 
-function findPython(): string | null {
-  return findSystemPython();
+async function ensureSystemPython(
+  env: Record<string, string>,
+  emit: (step: number, detail: string) => void,
+): Promise<{ python: string | null; installed: boolean; warning?: string }> {
+  const existing = findSystemPython();
+  if (existing) return { python: existing, installed: false };
+
+  if (process.platform !== "win32") {
+    return {
+      python: null,
+      installed: false,
+      warning: getPythonMissingMessage(),
+    };
+  }
+
+  const winget = findWinget();
+  if (!winget) {
+    return {
+      python: null,
+      installed: false,
+      warning: `${getPythonMissingMessage()} 未检测到 winget，无法自动安装 Python。`,
+    };
+  }
+
+  emit(1, "未检测到 Python 3.11+，正在通过 Windows winget 安装 Python 3.12...");
+  const installR = await runStep(
+    winget,
+    [
+      "install",
+      "--id",
+      "Python.Python.3.12",
+      "-e",
+      "--source",
+      "winget",
+      "--silent",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+    ],
+    HERMES_HOME,
+    env,
+    600000,
+  );
+
+  const python = findSystemPython();
+  if (python) return { python, installed: true };
+
+  return {
+    python: null,
+    installed: false,
+    warning: `Python 自动安装未完成。${getPythonMissingMessage()} winget 输出：${tailInstallOutput(installR.stderr || installR.stdout, 500)}`,
+  };
 }
 
 function getPythonMissingMessage(): string {
@@ -359,7 +444,7 @@ async function ensureSystemGit(
   return {
     git: null,
     installed: false,
-    warning: `Git 自动安装未完成，将使用压缩包方式准备 Agent。winget 输出：${(installR.stderr || installR.stdout).slice(-400)}`,
+    warning: `Git 自动安装未完成，将使用压缩包方式准备 Agent。winget 输出：${tailInstallOutput(installR.stderr || installR.stdout, 400)}`,
   };
 }
 
@@ -405,7 +490,8 @@ function getPipPackageInstallArgs(packages: string[], useChinaMirror: boolean): 
   return args;
 }
 
-function ensureDesktopManagedHermesFiles(): void {
+function ensureDesktopManagedHermesFiles(): string[] {
+  const warnings: string[] = [];
   ensureDir(HERMES_HOME);
   if (!existsSync(HERMES_ENV_FILE)) {
     writeFileSync(
@@ -475,12 +561,18 @@ function ensureDesktopManagedHermesFiles(): void {
   const repoSkillsDir = join(HERMES_REPO, "skills");
   const targetSkillsDir = join(HERMES_HOME, "skills");
   for (const skill of DEFAULT_DESKTOP_SKILLS) {
-    const source = join(repoSkillsDir, skill);
-    const target = join(targetSkillsDir, skill);
-    if (!existsSync(join(source, "SKILL.md")) || existsSync(target)) continue;
-    ensureDir(dirname(target));
-    cpSync(source, target, { recursive: true });
+    try {
+      const source = join(repoSkillsDir, skill);
+      const target = join(targetSkillsDir, skill);
+      if (!existsSync(join(source, "SKILL.md")) || existsSync(target)) continue;
+      ensureDir(dirname(target));
+      cpSync(source, target, { recursive: true, errorOnExist: false });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`默认技能 ${skill} 复制失败，已跳过：${cleanInstallOutput(message) || "权限受限"}`);
+    }
   }
+  return warnings;
 }
 
 async function getMissingDesktopRuntimePackages(env: Record<string, string>): Promise<string[]> {
@@ -531,7 +623,7 @@ export async function ensureDesktopRuntimeDependencies(): Promise<{ success: boo
 
   return {
     success: false,
-    error: `桌面端运行依赖安装失败：${officialR.stderr.slice(-500) || mirrorR.stderr.slice(-500)}`,
+    error: `桌面端运行依赖安装失败：${tailInstallOutput(officialR.stderr, 500) || tailInstallOutput(mirrorR.stderr, 500)}`,
   };
 }
 
@@ -543,26 +635,38 @@ function runStep(
   timeoutMs: number,
 ): Promise<{ success: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
+    const stepEnv = Object.assign({}, env, {
+      PYTHONUTF8: "1",
+      PYTHONIOENCODING: "utf-8",
+      PIP_NO_COLOR: "1",
+    });
     const proc = spawn(cmd, args, {
       cwd,
-      env,
+      env: stepEnv,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    const readOutput = (): { stdout: string; stderr: string } => ({
+      stdout: decodeProcessOutput(Buffer.concat(stdoutChunks)),
+      stderr: decodeProcessOutput(Buffer.concat(stderrChunks)),
+    });
+    proc.stdout?.on("data", (d: Buffer) => { stdoutChunks.push(d); });
+    proc.stderr?.on("data", (d: Buffer) => { stderrChunks.push(d); });
     const timer = setTimeout(() => {
       try { proc.kill(); } catch { /* ignore */ }
+      const { stdout, stderr } = readOutput();
       resolve({ success: false, stdout, stderr: stderr + "\n(超时)" });
     }, timeoutMs);
     proc.on("close", (code) => {
       clearTimeout(timer);
+      const { stdout, stderr } = readOutput();
       resolve({ success: code === 0, stdout, stderr });
     });
     proc.on("error", (err) => {
       clearTimeout(timer);
+      const { stdout } = readOutput();
       resolve({ success: false, stdout, stderr: err.message });
     });
   });
@@ -770,7 +874,7 @@ async function downloadRepoZip(pythonCmd: string, env: Record<string, string>, e
   ensureDir(extractDir);
   const unzip = await runStep(pythonCmd, ["-m", "zipfile", "-e", zipPath, extractDir], tmpRoot, env, 120000);
   if (!unzip.success) {
-    return { success: false, error: `仓库解压失败：${unzip.stderr.slice(-300)}` };
+    return { success: false, error: `仓库解压失败：${tailInstallOutput(unzip.stderr, 300)}` };
   }
 
   // 找到解压后的实际仓库目录（可能是单级子目录或多级如 YanPro-ly-hermes-agent-xxx）
@@ -836,19 +940,18 @@ export async function runInstall(
   return new Promise((resolve) => {
     emit(1, "正在检查系统环境...");
 
-    const pythonCmd = findPython();
-    if (!pythonCmd) {
-      const msg = getPythonMissingMessage();
-      fail(resolve, msg);
-      return;
-    }
-
-    emit(1, "系统 Python 已就绪，正在检查 Git...");
-
     ensureDir(dirname(HERMES_REPO));
     ensureDir(HERMES_HOME);
 
     (async () => {
+      const pythonCheck = await ensureSystemPython(installEnv, emit);
+      const pythonCmd = pythonCheck.python;
+      if (!pythonCmd) {
+        fail(resolve, pythonCheck.warning || getPythonMissingMessage());
+        return;
+      }
+      emit(1, pythonCheck.installed ? "Python 3.12 安装完成，正在检查 Git..." : "系统 Python 已就绪，正在检查 Git...");
+
       const gitCheck = await ensureSystemGit(installEnv, emit);
       const sysGit = gitCheck.git;
       if (sysGit) {
@@ -890,7 +993,7 @@ export async function runInstall(
             emit(3, `Git 克隆失败，尝试压缩包安装...`);
             const zipR = await downloadRepoZip(pythonCmd, installEnv, emit);
             if (!zipR.success) {
-              fail(resolve, zipR.error || `仓库准备失败：${cloneR.stderr.slice(-300)}`);
+              fail(resolve, zipR.error || `仓库准备失败：${tailInstallOutput(cloneR.stderr, 300)}`);
               return;
             }
           } else {
@@ -920,7 +1023,7 @@ export async function runInstall(
       }
       const venvR = await runStep(pythonCmd, ["-m", "venv", HERMES_VENV], dirname(HERMES_REPO), installEnv, 120000);
       if (!venvR.success) {
-        fail(resolve, `虚拟环境创建失败：${venvR.stderr.slice(-300)}`);
+        fail(resolve, `虚拟环境创建失败：${tailInstallOutput(venvR.stderr, 300)}`);
         return;
       }
       emit(4, `虚拟环境创建成功`);
@@ -930,7 +1033,7 @@ export async function runInstall(
         emit(5, `pip 未随虚拟环境安装，正在通过 ensurepip 安装...`);
         const ensureR = await runStep(HERMES_PYTHON, ["-m", "ensurepip", "--upgrade"], HERMES_REPO, installEnv, 60000);
         if (!ensureR.success) {
-          fail(resolve, `pip 安装失败：${ensureR.stderr.slice(-300)}。请确保系统 Python 安装了 ensurepip 模块。`);
+          fail(resolve, `pip 安装失败：${tailInstallOutput(ensureR.stderr, 300)}。请确保系统 Python 安装了 ensurepip 模块。`);
           return;
         }
       }
@@ -938,11 +1041,11 @@ export async function runInstall(
       emit(5, `正在安装 Python 依赖（优先使用国内 PyPI 镜像与本地缓存）...`);
       const installR = await runStep(HERMES_PYTHON, getPipInstallArgs(true), HERMES_REPO, installEnv, 600000);
       if (!installR.success) {
-        const stderrTail = installR.stderr.slice(-500);
+        const stderrTail = tailInstallOutput(installR.stderr || installR.stdout, 500);
         emit(5, `国内 PyPI 镜像安装失败，尝试官方 PyPI...`);
         const officialR = await runStep(HERMES_PYTHON, getPipInstallArgs(false), HERMES_REPO, installEnv, 600000);
         if (!officialR.success) {
-          fail(resolve, `依赖安装失败：${officialR.stderr.slice(-500) || stderrTail}`);
+          fail(resolve, `依赖安装失败：${tailInstallOutput(officialR.stderr || officialR.stdout, 500) || stderrTail || "请检查网络、Python/pip 与代理设置后重试"}`);
           return;
         }
         emit(5, `依赖安装成功（官方 PyPI）`);
@@ -950,7 +1053,13 @@ export async function runInstall(
         emit(5, `依赖安装成功（清华镜像）`);
       }
 
-      ensureDesktopManagedHermesFiles();
+      const skillWarnings = ensureDesktopManagedHermesFiles();
+      for (const warning of skillWarnings.slice(0, 3)) {
+        emit(totalSteps, warning);
+      }
+      if (skillWarnings.length > 3) {
+        emit(totalSteps, `还有 ${skillWarnings.length - 3} 个默认技能复制失败，安装完成后可在技能库中重新安装。`);
+      }
       _verifyCache = null;
       emit(totalSteps, "Hermes Agent 安装完成！");
 
