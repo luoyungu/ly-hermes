@@ -1,4 +1,6 @@
 import http from "http";
+import fs from "fs";
+import path from "path";
 import { AuthService } from "../core/auth";
 import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
@@ -6,6 +8,20 @@ import { serverAuthStore } from "./auth-file-store";
 import { writeChatEvent, writeSseHeaders } from "./sse";
 
 const authService = new AuthService(serverAuthStore);
+const EMBED_DIST_DIR = path.resolve(__dirname, "../../dist-web/embed");
+
+const MIME_TYPES: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
+};
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
@@ -31,6 +47,31 @@ function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown
     });
     req.on("error", () => resolve({}));
   });
+}
+
+function sendStaticFile(res: http.ServerResponse, filePath: string): boolean {
+  const root = path.resolve(EMBED_DIST_DIR);
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(root + path.sep) && resolved !== root) return false;
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
+  const ext = path.extname(resolved).toLowerCase();
+  res.writeHead(200, {
+    "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+    "Cache-Control": ext === ".html" ? "no-store" : "public, max-age=31536000, immutable",
+  });
+  fs.createReadStream(resolved).pipe(res);
+  return true;
+}
+
+function handleEmbedStatic(url: URL, res: http.ServerResponse): boolean {
+  if (url.pathname !== "/" && url.pathname !== "/embed" && !url.pathname.startsWith("/assets/")) {
+    return false;
+  }
+  const relativePath =
+    url.pathname === "/" || url.pathname === "/embed"
+      ? "index.html"
+      : url.pathname.slice(1);
+  return sendStaticFile(res, path.join(EMBED_DIST_DIR, relativePath));
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -93,6 +134,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         if (event.type === "done" || event.type === "error") res.end();
       },
     );
+    return;
+  }
+
+  if (req.method === "GET" && handleEmbedStatic(url, res)) {
     return;
   }
 
