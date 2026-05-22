@@ -1817,24 +1817,21 @@ export default function Chat(): React.ReactElement {
 
     setStreamStates(prev => ({ ...prev, [empName]: { ...DEFAULT_STREAM, isStreaming: true } }))
 
-    setChatHistories(prev => {
-      const currentHistory = prev[empName] || []
-      const historyForApiSource =
-        !skip &&
-        currentHistory.length > 0 &&
-        currentHistory[currentHistory.length - 1].role === 'user' &&
-        currentHistory[currentHistory.length - 1].content === text
-          ? currentHistory.slice(0, -1)
-          : currentHistory
-      const historyForApi = historyForApiSource.map(m => ({ role: m.role, content: m.content }))
-      window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIds[empName] || undefined, sendAttachments).catch(() => {
-        setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
-        void refreshEmployeeStatus(empName)
-        showToast('发送失败', 'error')
-      })
-      return prev
+    const currentHistory = chatHistoriesRef.current[empName] || []
+    const historyForApiSource =
+      !skip &&
+      currentHistory.length > 0 &&
+      currentHistory[currentHistory.length - 1].role === 'user' &&
+      currentHistory[currentHistory.length - 1].content === text
+        ? currentHistory.slice(0, -1)
+        : currentHistory
+    const historyForApi = historyForApiSource.map(m => ({ role: m.role, content: m.content }))
+    window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIdsRef.current[empName] || undefined, sendAttachments).catch(() => {
+      setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
+      void refreshEmployeeStatus(empName)
+      showToast('发送失败', 'error')
     })
-  }, [currentEmployeeName, refreshEmployeeStatus, sessionIds])
+  }, [currentEmployeeName, refreshEmployeeStatus])
 
   const handleSend = useCallback(() => {
     const text = input.trim()
