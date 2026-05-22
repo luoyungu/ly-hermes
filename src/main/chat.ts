@@ -27,6 +27,8 @@ import type { BrowserWindow } from "electron";
 import type { Attachment } from "../shared/attachments";
 import { escapeXmlAttr } from "../shared/attachments";
 import { stageAttachment } from "./attachment-staging";
+import { ChatService, type ChatEventSink } from "../core/chat";
+import { sendChatEventToWebContents } from "./ipc/chat-events";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -98,7 +100,7 @@ export function buildUserContent(
 export function sendMessageViaApi(
   profileName: string,
   message: string,
-  event: IpcMainInvokeEvent,
+  emit: ChatEventSink,
   history: Array<{ role: string; content: string }> | undefined,
   mainWindow: BrowserWindow | null,
   resumeSessionId?: string,
@@ -106,7 +108,7 @@ export function sendMessageViaApi(
 ): void {
   const port = getApiPortForProfile(profileName);
   if (!port) {
-    event.sender.send("chat-error", { profileName, error: "员工未配置端口" });
+    emit({ type: "error", data: { profileName, error: "员工未配置端口" } });
     return;
   }
 
@@ -153,17 +155,11 @@ export function sendMessageViaApi(
     if (finished) return;
     finished = true;
     delete _currentChatReqs[profileName];
-    event.sender.send("employee-status-changed", {
-      profileName,
-      status: "online",
-    });
+    emit({ type: "employee_status", data: { profileName, status: "online" } });
     if (error) {
-      event.sender.send("chat-error", { profileName, error });
+      emit({ type: "error", data: { profileName, error } });
     } else {
-      event.sender.send("chat-done", {
-        profileName,
-        sessionId: sessionId || undefined,
-      });
+      emit({ type: "done", data: { profileName, sessionId: sessionId || undefined } });
       const emp = listEmployees().find((e) => e.name === profileName);
       const displayName = emp ? emp.displayName : profileName;
       showChatNotification(displayName, "聊天完成", mainWindow);
@@ -190,25 +186,22 @@ export function sendMessageViaApi(
       const choice = parsed.choices && parsed.choices[0];
       const delta = choice && choice.delta;
       if (parsed.usage) {
-        event.sender.send("chat-usage", {
-          profileName,
-          promptTokens: parsed.usage.prompt_tokens || 0,
-          completionTokens: parsed.usage.completion_tokens || 0,
-          totalTokens: parsed.usage.total_tokens || 0,
+        emit({
+          type: "usage",
+          data: {
+            profileName,
+            promptTokens: parsed.usage.prompt_tokens || 0,
+            completionTokens: parsed.usage.completion_tokens || 0,
+            totalTokens: parsed.usage.total_tokens || 0,
+          },
         });
       }
       if (delta && delta.content) {
         hasContent = true;
-        event.sender.send("chat-chunk", {
-          profileName,
-          chunk: delta.content,
-        });
+        emit({ type: "chunk", data: { profileName, chunk: delta.content } });
       }
       if (delta && delta.reasoning_content) {
-        event.sender.send("chat-thinking", {
-          profileName,
-          chunk: delta.reasoning_content,
-        });
+        emit({ type: "thinking", data: { profileName, chunk: delta.reasoning_content } });
       }
     } catch {
       /* skip malformed */
@@ -279,14 +272,17 @@ export function sendMessageViaApi(
         const payload = JSON.parse(dataLine);
         const label = payload.label || payload.tool || "";
         const emoji = payload.emoji || "";
-        event.sender.send("chat-tool-progress", {
-          profileName,
-          tool: emoji ? emoji + " " + label : label,
-          toolName: payload.tool || payload.name || label,
-          args: payload.args || payload.arguments || null,
-          result: payload.result || null,
-          error: payload.error || null,
-          status: payload.status || "running",
+        emit({
+          type: "tool_progress",
+          data: {
+            profileName,
+            tool: emoji ? emoji + " " + label : label,
+            toolName: payload.tool || payload.name || label,
+            args: payload.args || payload.arguments || null,
+            result: payload.result || null,
+            error: payload.error || null,
+            status: payload.status || "running",
+          },
         });
       } catch {
         /* skip */
@@ -296,10 +292,13 @@ export function sendMessageViaApi(
     if (eventType === "hermes.tool.start") {
       try {
         const payload = JSON.parse(dataLine);
-        event.sender.send("chat-tool-start", {
-          profileName,
-          toolName: payload.tool || payload.name || "",
-          args: payload.args || payload.arguments || null,
+        emit({
+          type: "tool_start",
+          data: {
+            profileName,
+            toolName: payload.tool || payload.name || "",
+            args: payload.args || payload.arguments || null,
+          },
         });
       } catch {
         /* skip */
@@ -309,11 +308,14 @@ export function sendMessageViaApi(
     if (eventType === "hermes.tool.end") {
       try {
         const payload = JSON.parse(dataLine);
-        event.sender.send("chat-tool-end", {
-          profileName,
-          toolName: payload.tool || payload.name || "",
-          result: payload.result || null,
-          error: payload.error || null,
+        emit({
+          type: "tool_end",
+          data: {
+            profileName,
+            toolName: payload.tool || payload.name || "",
+            result: payload.result || null,
+            error: payload.error || null,
+          },
         });
       } catch {
         /* skip */
@@ -331,14 +333,17 @@ export function sendMessageViaApi(
           payload,
           ts: Date.now(),
         };
-        event.sender.send("chat-approval-request", {
-          profileName,
-          approvalId,
-          tool: payload.tool || payload.name || "",
-          command:
-            payload.command ||
-            (payload.args ? JSON.stringify(payload.args) : ""),
-          risk: payload.risk || "medium",
+        emit({
+          type: "approval_request",
+          data: {
+            profileName,
+            approvalId,
+            tool: payload.tool || payload.name || "",
+            command:
+              payload.command ||
+              (payload.args ? JSON.stringify(payload.args) : ""),
+            risk: payload.risk || "medium",
+          },
         });
       } catch {
         /* skip */
@@ -434,7 +439,7 @@ export function sendMessageViaApi(
 export function sendMessageViaCli(
   profileName: string,
   message: string,
-  event: IpcMainInvokeEvent,
+  emit: ChatEventSink,
   mainWindow: BrowserWindow | null,
   attachments?: Attachment[],
 ): ChildProcess {
@@ -548,7 +553,7 @@ export function sendMessageViaCli(
     const output = result.join("\n");
     if (output) {
       hasOutput = true;
-      event.sender.send("chat-chunk", { profileName, chunk: output });
+      emit({ type: "chunk", data: { profileName, chunk: output } });
     }
   });
 
@@ -567,22 +572,16 @@ export function sendMessageViaCli(
       )
     ) {
       hasOutput = true;
-      event.sender.send("chat-chunk", { profileName, chunk: text });
+      emit({ type: "chunk", data: { profileName, chunk: text } });
     } else {
       stderrBuffer += text;
     }
   });
 
   proc.on("close", (code: number | null) => {
-    event.sender.send("employee-status-changed", {
-      profileName,
-      status: "online",
-    });
+    emit({ type: "employee_status", data: { profileName, status: "online" } });
     if (code === 0 || hasOutput) {
-      event.sender.send("chat-done", {
-        profileName,
-        sessionId: capturedSessionId || undefined,
-      });
+      emit({ type: "done", data: { profileName, sessionId: capturedSessionId || undefined } });
       const emp = listEmployees().find((e) => e.name === profileName);
       showChatNotification(
         emp ? emp.displayName : profileName,
@@ -591,17 +590,20 @@ export function sendMessageViaCli(
       );
     } else {
       const detail = stderrBuffer.trim();
-      event.sender.send("chat-error", {
-        profileName,
-        error: detail
-          ? "Hermes 退出码 " + code + ": " + detail
-          : "Hermes 退出码 " + code + "，请检查模型配置和 API Key",
+      emit({
+        type: "error",
+        data: {
+          profileName,
+          error: detail
+            ? "Hermes 退出码 " + code + ": " + detail
+            : "Hermes 退出码 " + code + "，请检查模型配置和 API Key",
+        },
       });
     }
   });
 
   proc.on("error", (err: Error) => {
-    event.sender.send("chat-error", { profileName, error: err.message });
+    emit({ type: "error", data: { profileName, error: err.message } });
   });
 
   return proc;
@@ -610,6 +612,34 @@ export function sendMessageViaCli(
 export function registerChatIpcHandlers(
   getMainWindow: () => BrowserWindow | null,
 ): void {
+  const chatService = new ChatService({
+    validateProfileName,
+    getEmployeeStatus,
+    wakeUpEmployee: async (profileName: string) => {
+      return wakeUpEmployee(profileName, getMainWindow());
+    },
+    sendOnline: (input, emit) => {
+      sendMessageViaApi(
+        input.profileName,
+        input.message,
+        emit,
+        input.history,
+        getMainWindow(),
+        input.resumeSessionId,
+        input.attachments,
+      );
+    },
+    sendFallback: (input, emit) => {
+      sendMessageViaCli(
+        input.profileName,
+        input.message,
+        emit,
+        getMainWindow(),
+        input.attachments,
+      );
+    },
+  });
+
   ipcMain.handle(
     "send-message",
     async (
@@ -620,44 +650,19 @@ export function registerChatIpcHandlers(
       resumeSessionId?: string,
       attachments?: Attachment[],
     ) => {
-      if (!validateProfileName(profileName) && profileName !== "default") {
-        event.sender.send("chat-error", {
-          profileName,
-          error: "无效的员工名称",
-        });
-        return;
-      }
-      let status = await getEmployeeStatus(profileName);
-
-      if (status === "idle" || status === "error") {
-        const wakeResult = await wakeUpEmployee(profileName, getMainWindow());
-        if (wakeResult.success && wakeResult.status === "online") {
-          status = "online";
-        }
-      }
-
-      if (status === "starting") {
-        for (let i = 0; i < 30; i++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          status = await getEmployeeStatus(profileName);
-          if (status === "online" || status === "idle") break;
-        }
-      }
-
-      if (status === "online") {
-        sendMessageViaApi(
+      const emit: ChatEventSink = (chatEvent) => {
+        sendChatEventToWebContents(event.sender, chatEvent);
+      };
+      await chatService.sendMessage(
+        {
           profileName,
           message,
-          event,
           history,
-          getMainWindow(),
           resumeSessionId,
           attachments,
-        );
-        return;
-      }
-
-      sendMessageViaCli(profileName, message, event, getMainWindow(), attachments);
+        },
+        emit,
+      );
     },
   );
 

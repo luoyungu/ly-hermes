@@ -1,6 +1,9 @@
 node_modules/
 out/
 dist/
+dist-server/
+dist-web/
+videos/
 build/runtime/python/
 .DS_Store
 ._*

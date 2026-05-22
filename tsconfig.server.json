@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.node.json",
+  "include": ["src/core/**/*", "src/server/**/*", "src/shared/**/*"],
+  "compilerOptions": {
+    "composite": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "target": "ES2022",
+    "rootDir": "src",
+    "outDir": "dist-server",
+    "types": ["node"],
+    "isolatedModules": false
+  }
+}
