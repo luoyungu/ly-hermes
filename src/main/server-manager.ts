@@ -87,16 +87,39 @@ export async function stopDesktopWebServer(): Promise<DesktopWebServerStatus> {
   const activeServer = server;
   server = null;
   return new Promise((resolve) => {
-    activeServer.close((error?: Error) => {
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
       if (error) {
         lastError = error.message;
-        logError("server", "Desktop web server failed to stop", error);
+        logError("server", "Desktop web server failed to stop cleanly", error);
       } else {
         lastError = "";
         logInfo("server", "Desktop web server stopped");
       }
       resolve(getDesktopWebServerStatus());
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        activeServer.closeAllConnections?.();
+      } catch {
+        /* ignore */
+      }
+      finish();
+    }, 1500);
+
+    activeServer.close((error?: Error) => {
+      clearTimeout(timer);
+      finish(error);
     });
+    try {
+      activeServer.closeIdleConnections?.();
+      activeServer.closeAllConnections?.();
+    } catch {
+      /* ignore */
+    }
   });
 }
 
