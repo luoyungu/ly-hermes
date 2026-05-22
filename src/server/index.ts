@@ -1,5 +1,6 @@
 import http from "http";
 import { AuthService } from "../core/auth";
+import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
 import { serverAuthStore } from "./auth-file-store";
 import { writeChatEvent, writeSseHeaders } from "./sse";
@@ -69,6 +70,29 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       data: { profileName: "default", sessionId: ctx.requestId },
     });
     res.end();
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/chat/stream") {
+    const body = await readJsonBody(req);
+    writeSseHeaders(res);
+    streamHermesGatewayChat(
+      {
+        profileName: String(body.profileName || "default"),
+        message: String(body.message || ""),
+        history: Array.isArray(body.history)
+          ? body.history as Array<{ role: string; content: string }>
+          : [],
+        resumeSessionId: typeof body.resumeSessionId === "string" ? body.resumeSessionId : undefined,
+        model: typeof body.model === "string" ? body.model : undefined,
+        host: process.env.HERMES_API_HOST || "127.0.0.1",
+        port: Number(process.env.HERMES_API_PORT || 8644),
+      },
+      (event) => {
+        writeChatEvent(res, event);
+        if (event.type === "done" || event.type === "error") res.end();
+      },
+    );
     return;
   }
 
