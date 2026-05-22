@@ -337,6 +337,106 @@ function prepareHermesVersionCheck(): void {
   clearHermesCliUpdateCache();
 }
 
+function readGiteeMainSha(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const req = https.get(
+      HERMES_GITEE_BRANCH_API,
+      { timeout: 10000, headers: { "User-Agent": "HermesDesktop" } },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+        res.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            resolve(data?.commit?.sha || data?.commit?.id || null);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => { req.destroy(); resolve(null); });
+  });
+}
+
+function compareGiteeCommits(localCommit: string, remoteSha: string): Promise<number> {
+  return new Promise((resolve) => {
+    const req = https.get(
+      `${HERMES_GITEE_COMPARE_API}/${localCommit}...${remoteSha}`,
+      { timeout: 10000, headers: { "User-Agent": "HermesDesktop" } },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+        res.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            const commits = data?.commits;
+            resolve(Array.isArray(commits) ? commits.length : (data?.total_commits || 0));
+          } catch {
+            resolve(0);
+          }
+        });
+      },
+    );
+    req.on("error", () => resolve(0));
+    req.on("timeout", () => { req.destroy(); resolve(0); });
+  });
+}
+
+async function getHermesGiteeUpdateInfo(): Promise<string> {
+  try {
+    const canUseGit = hasSystemGit() && fs.existsSync(path.join(HERMES_REPO_DIR, ".git"));
+    const localCommit = canUseGit
+      ? execFileSync("git", ["rev-parse", "HEAD"], { cwd: HERMES_REPO_DIR, timeout: 10000 }).toString().trim()
+      : readDesktopSourceCommit();
+    const remoteSha = await readGiteeMainSha();
+    if (!remoteSha) return "";
+    if (localCommit && localCommit === remoteSha) return "\nUp to date";
+
+    if (localCommit && canUseGit) {
+      let behindCount = 0;
+      try {
+        execFileSync("git", ["fetch", "origin", "main", "--quiet"], {
+          cwd: HERMES_REPO_DIR,
+          timeout: 30000,
+        });
+        behindCount = Number(
+          execFileSync("git", ["rev-list", "--count", "HEAD..origin/main"], {
+            cwd: HERMES_REPO_DIR,
+            timeout: 10000,
+          }).toString().trim(),
+        ) || 0;
+      } catch {
+        behindCount = await compareGiteeCommits(localCommit, remoteSha);
+      }
+      if (behindCount > 0) return `\nUpdate available: ${behindCount} commits behind ${remoteSha.slice(0, 8)}`;
+      return localCommit === remoteSha ? "\nUp to date" : `\nUpdate available: Gitee sync available ${remoteSha.slice(0, 8)}`;
+    }
+
+    return `\nUpdate available: Gitee sync available ${remoteSha.slice(0, 8)}`;
+  } catch {
+    return "";
+  }
+}
+
+function getHermesSourceInfo(): string {
+  try {
+    if (hasSystemGit() && fs.existsSync(path.join(HERMES_REPO_DIR, ".git"))) {
+      const commit = execFileSync("git", ["rev-parse", "--short=8", "HEAD"], {
+        cwd: HERMES_REPO_DIR,
+        timeout: 10000,
+      }).toString().trim();
+      if (commit) return `\nCommit: ${commit}`;
+    }
+    const markerCommit = readDesktopSourceCommit();
+    if (markerCommit) return `\nCommit: ${markerCommit.slice(0, 8)}`;
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
 function getHermesVenvPython(): string {
   return process.platform === "win32"
     ? path.join(HERMES_REPO_DIR, "venv", "Scripts", "python.exe")
@@ -998,8 +1098,7 @@ export function registerConfigIpcHandlers(): void {
   let _cachedVersion: string | null = null;
 
   ipcMain.handle("get-hermes-version", async () => {
-    if (_cachedVersion !== null) return _cachedVersion;
-    return new Promise((resolve) => {
+    const versionText = await new Promise<string | null>((resolve) => {
       const appConfig = loadAppConfig();
       const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
       const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
@@ -1012,12 +1111,14 @@ export function registerConfigIpcHandlers(): void {
           if (error) {
             resolve(null);
           } else {
-            _cachedVersion = stripHermesCliUpdateInfo(stdout.toString());
-            resolve(_cachedVersion);
+            resolve(stripHermesCliUpdateInfo(stdout.toString()));
           }
         },
       );
     });
+    const updateInfo = await getHermesGiteeUpdateInfo();
+    _cachedVersion = (versionText || "") + getHermesSourceInfo() + updateInfo || null;
+    return _cachedVersion;
   });
 
   ipcMain.handle("refresh-hermes-version", async () => {
@@ -1036,56 +1137,8 @@ export function registerConfigIpcHandlers(): void {
         else resolve(stripHermesCliUpdateInfo(stdout.toString()));
       });
     });
-    let updateInfo = "";
-    try {
-      const canUseGit = hasSystemGit() && fs.existsSync(path.join(HERMES_REPO_DIR, ".git"));
-      const localCommit = canUseGit
-        ? execFileSync("git", ["rev-parse", "HEAD"], { cwd: HERMES_REPO_DIR, timeout: 10000 }).toString().trim()
-        : readDesktopSourceCommit();
-      const remoteSha = await new Promise<string | null>((resolve) => {
-        const req = https.get(HERMES_GITEE_BRANCH_API, { timeout: 10000 }, (res) => {
-          let body = "";
-          res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-          res.on("end", () => {
-            try {
-              const data = JSON.parse(body);
-              resolve(data?.commit?.sha || data?.commit?.id || null);
-            } catch { resolve(null); }
-          });
-        });
-        req.on("error", () => resolve(null));
-        req.on("timeout", () => { req.destroy(); resolve(null); });
-      });
-      if (remoteSha) {
-        if (localCommit && localCommit === remoteSha) {
-          updateInfo = "\nUp to date";
-        } else if (localCommit && canUseGit) {
-          const behindCount = await new Promise<number>((resolve) => {
-            const req = https.get(`${HERMES_GITEE_COMPARE_API}/${localCommit}...${remoteSha}`, { timeout: 10000 }, (res) => {
-              let body = "";
-              res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-              res.on("end", () => {
-                try {
-                  const data = JSON.parse(body);
-                  const commits = data?.commits;
-                  resolve(Array.isArray(commits) ? commits.length : (data?.total_commits || 0));
-                } catch { resolve(0); }
-              });
-            });
-            req.on("error", () => resolve(0));
-            req.on("timeout", () => { req.destroy(); resolve(0); });
-          });
-          if (behindCount > 0) {
-            updateInfo = `\nUpdate available: ${behindCount} commits behind ${remoteSha.slice(0, 8)}`;
-          } else {
-            updateInfo = "\nUp to date";
-          }
-        } else {
-          updateInfo = `\nUpdate available: Gitee sync available ${remoteSha.slice(0, 8)}`;
-        }
-      }
-    } catch { /* ignore */ }
-    _cachedVersion = (versionText || "") + updateInfo || null;
+    const updateInfo = await getHermesGiteeUpdateInfo();
+    _cachedVersion = (versionText || "") + getHermesSourceInfo() + updateInfo || null;
     return _cachedVersion;
   });
 

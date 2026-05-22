@@ -86,6 +86,7 @@ export interface InstallProgress {
 
 const STAGES = [
   "检查 Python",
+  "检查 Git",
   "准备 Agent",
   "创建虚拟环境",
   "安装依赖",
@@ -136,10 +137,19 @@ export function getEnhancedPath(): string {
       join(home, ".cargo", "bin"),
     );
   } else {
+    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+    const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+    const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
     extraPaths.push(
-      join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "Programs", "Python", "Python312"),
-      join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "Programs", "Python", "Python311"),
-      join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "Programs", "Python", "Python310"),
+      join(localAppData, "Programs", "Python", "Python312"),
+      join(localAppData, "Programs", "Python", "Python311"),
+      join(localAppData, "Programs", "Python", "Python310"),
+      join(programFiles, "Git", "cmd"),
+      join(programFiles, "Git", "bin"),
+      join(programFilesX86, "Git", "cmd"),
+      join(programFilesX86, "Git", "bin"),
+      join(localAppData, "Programs", "Git", "cmd"),
+      join(localAppData, "Programs", "Git", "bin"),
       join(home, "AppData", "Local", "Microsoft", "WindowsApps"),
       join(home, ".cargo", "bin"),
     );
@@ -249,16 +259,108 @@ function getPythonMissingMessage(): string {
 }
 
 function findSystemGit(): string | null {
-  try {
-    execFileSync("git", ["--version"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      env: Object.assign({}, process.env, { PATH: getEnhancedPath() }),
-    });
-    return "git";
-  } catch {
-    return null;
+  const candidates = ["git"];
+  if (process.platform === "win32") {
+    const home = homedir();
+    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+    const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+    const localAppData = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
+    candidates.push(
+      join(programFiles, "Git", "cmd", "git.exe"),
+      join(programFiles, "Git", "bin", "git.exe"),
+      join(programFilesX86, "Git", "cmd", "git.exe"),
+      join(programFilesX86, "Git", "bin", "git.exe"),
+      join(localAppData, "Programs", "Git", "cmd", "git.exe"),
+      join(localAppData, "Programs", "Git", "bin", "git.exe"),
+    );
   }
+  for (const candidate of candidates) {
+    try {
+      execFileSync(candidate, ["--version"], {
+        encoding: "utf-8",
+        timeout: 5000,
+        env: Object.assign({}, process.env, { PATH: getEnhancedPath() }),
+      });
+      return candidate;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+function findWinget(): string | null {
+  if (process.platform !== "win32") return null;
+  const home = homedir();
+  const candidates = [
+    "winget",
+    join(home, "AppData", "Local", "Microsoft", "WindowsApps", "winget.exe"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      execFileSync(candidate, ["--version"], {
+        encoding: "utf-8",
+        timeout: 5000,
+        env: Object.assign({}, process.env, { PATH: getEnhancedPath() }),
+      });
+      return candidate;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+async function ensureSystemGit(
+  env: Record<string, string>,
+  emit: (step: number, detail: string) => void,
+): Promise<{ git: string | null; installed: boolean; warning?: string }> {
+  const existing = findSystemGit();
+  if (existing) return { git: existing, installed: false };
+
+  if (process.platform !== "win32") {
+    return {
+      git: null,
+      installed: false,
+      warning: "未检测到 Git；当前系统暂不支持自动安装，将使用压缩包方式准备 Agent。",
+    };
+  }
+
+  const winget = findWinget();
+  if (!winget) {
+    return {
+      git: null,
+      installed: false,
+      warning: "未检测到 Git，也未检测到 winget；将使用压缩包方式准备 Agent。建议安装 Git for Windows 以获得更稳定的更新能力。",
+    };
+  }
+
+  emit(2, "未检测到 Git，正在通过 Windows winget 安装 Git for Windows...");
+  const installR = await runStep(
+    winget,
+    [
+      "install",
+      "--id",
+      "Git.Git",
+      "-e",
+      "--source",
+      "winget",
+      "--silent",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+    ],
+    HERMES_HOME,
+    env,
+    600000,
+  );
+  const git = findSystemGit();
+  if (git) return { git, installed: true };
+
+  return {
+    git: null,
+    installed: false,
+    warning: `Git 自动安装未完成，将使用压缩包方式准备 Agent。winget 输出：${(installR.stderr || installR.stdout).slice(-400)}`,
+  };
 }
 
 function getPipInstallArgs(useChinaMirror: boolean): string[] {
@@ -648,7 +750,7 @@ async function downloadRepoZip(pythonCmd: string, env: Record<string, string>, e
   removeDir(tmpRoot);
   ensureDir(tmpRoot);
 
-  emit(2, "未检测到 Git，正在下载 Hermes Agent 压缩包...");
+  emit(3, "未检测到 Git，正在下载 Hermes Agent 压缩包...");
   const download = await downloadFile(HERMES_REPO_ZIP_URL, zipPath, 300000);
   if (!download.success) {
     return { success: false, error: `仓库下载失败：${download.error || "网络错误，请检查是否能访问 gitee.com"}` };
@@ -664,7 +766,7 @@ async function downloadRepoZip(pythonCmd: string, env: Record<string, string>, e
     return { success: false, error: "ZIP 文件校验失败" };
   }
 
-  emit(2, "仓库压缩包下载完成，正在解压...");
+  emit(3, "仓库压缩包下载完成，正在解压...");
   ensureDir(extractDir);
   const unzip = await runStep(pythonCmd, ["-m", "zipfile", "-e", zipPath, extractDir], tmpRoot, env, 120000);
   if (!unzip.success) {
@@ -695,7 +797,7 @@ async function downloadRepoZip(pythonCmd: string, env: Record<string, string>, e
   renameSync(repoRoot, HERMES_REPO);
   writeDesktopSourceMarker(await getGiteeMainSha(), "zip");
   removeDir(tmpRoot);
-  emit(2, `仓库准备完成（${basename(HERMES_REPO)}）`);
+  emit(3, `仓库准备完成（${basename(HERMES_REPO)}）`);
   return { success: true };
 }
 
@@ -741,31 +843,39 @@ export async function runInstall(
       return;
     }
 
-    const sysGit = findSystemGit();
-    emit(1, `系统 Python 已就绪，${sysGit ? "Git 已就绪" : "将使用压缩包安装"}，开始安装 Hermes Agent...`);
+    emit(1, "系统 Python 已就绪，正在检查 Git...");
 
     ensureDir(dirname(HERMES_REPO));
+    ensureDir(HERMES_HOME);
 
     (async () => {
-      emit(1, "正在停止旧的 Hermes 运行进程...");
+      const gitCheck = await ensureSystemGit(installEnv, emit);
+      const sysGit = gitCheck.git;
+      if (sysGit) {
+        emit(2, gitCheck.installed ? "Git 安装完成，开始准备 Hermes Agent..." : "Git 已就绪，开始准备 Hermes Agent...");
+      } else {
+        emit(2, gitCheck.warning || "未检测到 Git，将使用压缩包方式准备 Agent。");
+      }
+
+      emit(3, "正在停止旧的 Hermes 运行进程...");
       await stopHermesRuntimeProcesses();
 
       const cloneExist = existsSync(join(HERMES_REPO, ".git"));
       if (cloneExist && sysGit) {
-        emit(2, `正在更新已有 Hermes Agent 仓库...`);
+        emit(3, `正在更新已有 Hermes Agent 仓库...`);
         const pullR = await runStep(sysGit, ["pull", "--ff-only", HERMES_REPO_URL, "main"], HERMES_REPO, installEnv, 120000);
         if (!pullR.success) {
-          emit(2, `仓库已存在但更新失败，将重新克隆...`);
+          emit(3, `仓库已存在但更新失败，将重新克隆...`);
           if (!(await removeDirWithRetries(HERMES_REPO))) {
             fail(resolve, "旧 Agent 目录正在被占用，请关闭正在运行的 Hermes 后重试");
             return;
           }
         } else {
-          emit(2, `仓库已更新到最新版本`);
+          emit(3, `仓库已更新到最新版本`);
           writeDesktopSourceMarker(await getGiteeMainSha(), "git");
         }
       } else if (existsSync(HERMES_REPO) && !cloneExist) {
-        emit(2, `检测到已有 Agent 目录，将重新准备...`);
+        emit(3, `检测到已有 Agent 目录，将重新准备...`);
         if (!(await removeDirWithRetries(HERMES_REPO))) {
           fail(resolve, "旧 Agent 目录正在被占用，请关闭正在运行的 Hermes 后重试");
           return;
@@ -774,17 +884,17 @@ export async function runInstall(
 
       if (!existsSync(join(HERMES_REPO, ".git"))) {
         if (sysGit) {
-          emit(2, `正在从 Gitee 克隆仓库到 ${HERMES_REPO} ...`);
+          emit(3, `正在从 Gitee 克隆仓库到 ${HERMES_REPO} ...`);
           const cloneR = await runStep(sysGit, ["clone", HERMES_REPO_URL, HERMES_REPO], dirname(HERMES_REPO), installEnv, 300000);
           if (!cloneR.success) {
-            emit(2, `Git 克隆失败，尝试压缩包安装...`);
+            emit(3, `Git 克隆失败，尝试压缩包安装...`);
             const zipR = await downloadRepoZip(pythonCmd, installEnv, emit);
             if (!zipR.success) {
               fail(resolve, zipR.error || `仓库准备失败：${cloneR.stderr.slice(-300)}`);
               return;
             }
           } else {
-            emit(2, `仓库克隆成功`);
+            emit(3, `仓库克隆成功`);
             writeDesktopSourceMarker(await getGiteeMainSha(), "git");
           }
         } else {
@@ -797,7 +907,7 @@ export async function runInstall(
       }
 
       if (existsSync(HERMES_VENV)) {
-        emit(3, `正在替换旧 Python 虚拟环境...`);
+        emit(4, `正在替换旧 Python 虚拟环境...`);
         if (!(await moveAsideDirWithRetries(HERMES_VENV))) {
           await stopHermesRuntimeProcesses();
           if (!(await moveAsideDirWithRetries(HERMES_VENV))) {
@@ -806,18 +916,18 @@ export async function runInstall(
           }
         }
       } else {
-        emit(3, `正在创建 Python 虚拟环境...`);
+        emit(4, `正在创建 Python 虚拟环境...`);
       }
       const venvR = await runStep(pythonCmd, ["-m", "venv", HERMES_VENV], dirname(HERMES_REPO), installEnv, 120000);
       if (!venvR.success) {
         fail(resolve, `虚拟环境创建失败：${venvR.stderr.slice(-300)}`);
         return;
       }
-      emit(3, `虚拟环境创建成功`);
+      emit(4, `虚拟环境创建成功`);
 
       const hasPip = await runStep(HERMES_PYTHON, ["-m", "pip", "--version"], HERMES_REPO, installEnv, 10000);
       if (!hasPip.success) {
-        emit(4, `pip 未随虚拟环境安装，正在通过 ensurepip 安装...`);
+        emit(5, `pip 未随虚拟环境安装，正在通过 ensurepip 安装...`);
         const ensureR = await runStep(HERMES_PYTHON, ["-m", "ensurepip", "--upgrade"], HERMES_REPO, installEnv, 60000);
         if (!ensureR.success) {
           fail(resolve, `pip 安装失败：${ensureR.stderr.slice(-300)}。请确保系统 Python 安装了 ensurepip 模块。`);
@@ -825,19 +935,19 @@ export async function runInstall(
         }
       }
 
-      emit(4, `正在安装 Python 依赖（优先使用国内 PyPI 镜像与本地缓存）...`);
+      emit(5, `正在安装 Python 依赖（优先使用国内 PyPI 镜像与本地缓存）...`);
       const installR = await runStep(HERMES_PYTHON, getPipInstallArgs(true), HERMES_REPO, installEnv, 600000);
       if (!installR.success) {
         const stderrTail = installR.stderr.slice(-500);
-        emit(4, `国内 PyPI 镜像安装失败，尝试官方 PyPI...`);
+        emit(5, `国内 PyPI 镜像安装失败，尝试官方 PyPI...`);
         const officialR = await runStep(HERMES_PYTHON, getPipInstallArgs(false), HERMES_REPO, installEnv, 600000);
         if (!officialR.success) {
           fail(resolve, `依赖安装失败：${officialR.stderr.slice(-500) || stderrTail}`);
           return;
         }
-        emit(4, `依赖安装成功（官方 PyPI）`);
+        emit(5, `依赖安装成功（官方 PyPI）`);
       } else {
-        emit(4, `依赖安装成功（清华镜像）`);
+        emit(5, `依赖安装成功（清华镜像）`);
       }
 
       ensureDesktopManagedHermesFiles();

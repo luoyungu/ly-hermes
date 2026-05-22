@@ -73,6 +73,7 @@ export default function SettingsScreen(): React.ReactElement {
   const [webServerSaving, setWebServerSaving] = useState(false)
 
   const [hermesVersion, setHermesVersion] = useState<string | null>(null)
+  const [hermesVersionRefreshing, setHermesVersionRefreshing] = useState(false)
   const [doctorOutput, setDoctorOutput] = useState<string | null>(null)
   const [doctorRunning, setDoctorRunning] = useState(false)
   const [updating, setUpdating] = useState(false)
@@ -198,17 +199,27 @@ export default function SettingsScreen(): React.ReactElement {
     const date = v.match(/\(([\d.]+)\)/)?.[1] || ''
     const python = v.match(/Python:\s*([\d.]+)/)?.[1] || ''
     const sdk = v.match(/OpenAI SDK:\s*([\d.]+)/)?.[1] || ''
+    const commit = v.match(/Commit:\s*([0-9a-f]{7,40})/i)?.[1] || ''
     const updateMatch = v.match(/Update available:\s*(.+?)$/m)
     const updateInfo = updateMatch?.[1]?.trim() || null
     const isUpToDate = /Up to date/.test(v)
-    return { version, date, python, sdk, updateInfo, isUpToDate }
+    return { version, date, python, sdk, commit, updateInfo, isUpToDate }
   })()
 
-  const refreshVersion = (): void => {
-    window.hermesAPI.refreshHermesVersion().then((v) => {
-      setHermesVersion(v)
-    })
-  }
+  const refreshVersion = useCallback((): void => {
+    setHermesVersionRefreshing(true)
+    window.hermesAPI.refreshHermesVersion()
+      .then((v) => {
+        setHermesVersion(v)
+      })
+      .finally(() => setHermesVersionRefreshing(false))
+  }, [])
+
+  useEffect(() => {
+    if (section === 'engine') {
+      refreshVersion()
+    }
+  }, [section, refreshVersion])
 
   const handleDoctor = async (): Promise<void> => {
     setDoctorRunning(true)
@@ -1251,7 +1262,7 @@ export default function SettingsScreen(): React.ReactElement {
                       <div>
                         <span className="text-xs text-[var(--text-dim)]">引擎版本</span>
                         <div className="text-sm text-[var(--text-primary)] mt-0.5">
-                          {hermesVersion === null ? '检测中...' : parsedVersion ? `v${parsedVersion.version}` : '未检测到'}
+                          {hermesVersion === null || hermesVersionRefreshing ? '检测中...' : parsedVersion ? `v${parsedVersion.version}` : '未检测到'}
                         </div>
                       </div>
                       <div>
@@ -1270,6 +1281,12 @@ export default function SettingsScreen(): React.ReactElement {
                         <span className="text-xs text-[var(--text-dim)]">OpenAI SDK</span>
                         <div className="text-sm text-[var(--text-primary)] mt-0.5">
                           {parsedVersion?.sdk || '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-xs text-[var(--text-dim)]">引擎提交</span>
+                        <div className="text-sm text-[var(--text-primary)] mt-0.5 font-mono">
+                          {parsedVersion?.commit || '—'}
                         </div>
                       </div>
                     </div>
