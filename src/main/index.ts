@@ -21,7 +21,8 @@ import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
 import { registerSessionIpcHandlers, readLogs as readHermesLogs, clearHermesLog } from "./sessions";
 import { registerPetsIpc } from "./pets";
-import { applyDesktopWebServerConfig, registerDesktopWebServerIpc } from "./server-manager";
+import { applyDesktopWebServerConfig, registerDeploymentIpc, registerDesktopWebServerIpc } from "./server-manager";
+import { registerRemoteIpcHandlers } from "./ipc/remote-handle";
 import { initUpdater } from "./updater";
 import { autoUpdater } from "electron-updater";
 import {
@@ -31,6 +32,7 @@ import {
   getHermesVersion,
 } from "./installer";
 import { logInfo, logError, readLogs as readAppLogs, clearLogs, getLogFilePath } from "./logger";
+import { webIpc } from "./ipc/web-api-ipc";
 
 process.on("uncaughtException", (err) => {
   logError("main", "Uncaught exception", err);
@@ -95,7 +97,7 @@ function createWindow(): void {
           frame: false,
           autoHideMenuBar: true,
         }),
-    backgroundColor: "#000000",
+    backgroundColor: "#f5f5f7",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -240,8 +242,8 @@ app.whenReady().then(() => {
 
   ensureApiServerConfig();
 
-  ipcMain.handle("check-install", () => checkInstallStatus());
-  ipcMain.handle("verify-install", async () => {
+  webIpc("check-install", () => checkInstallStatus());
+  webIpc("verify-install", async () => {
     const ok = await verifyInstall();
     if (ok) {
       const version = await getHermesVersion();
@@ -249,7 +251,7 @@ app.whenReady().then(() => {
     }
     return { installed: false, error: "验证失败" };
   });
-  ipcMain.handle("start-install", async () => {
+  webIpc("start-install", async () => {
     return await runInstall((progress) => {
       const win = getMainWindow();
       if (win && !win.isDestroyed()) {
@@ -287,11 +289,18 @@ app.whenReady().then(() => {
   registerChatIpcHandlers(getMainWindow);
   registerSessionIpcHandlers(getMainWindow);
   registerPetsIpc();
+  registerRemoteIpcHandlers();
   registerDesktopWebServerIpc();
+  registerDeploymentIpc(getMainWindow);
+
+  import("./ipc/remote-events").then(({ startRemoteEventBridge, startRemoteConnectionMonitor }) => {
+    startRemoteEventBridge(getMainWindow);
+    startRemoteConnectionMonitor(getMainWindow);
+  });
 
   initUpdater(getMainWindow);
 
-  ipcMain.handle("get-app-logs", (_, options?: { level?: string; lines?: number }) => {
+  webIpc("get-app-logs", (_, options?: { level?: string; lines?: number }) => {
     switch (options?.level) {
       case "debug":
       case "info":
@@ -303,20 +312,20 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle("clear-app-logs", () => {
+  webIpc("clear-app-logs", () => {
     clearLogs();
     return { success: true };
   });
 
-  ipcMain.handle("get-log-file-path", () => {
+  webIpc("get-log-file-path", () => {
     return getLogFilePath();
   });
 
-  ipcMain.handle("read-logs", (_, logFile?: string, lines?: number) => {
+  webIpc("read-logs", (_, logFile?: string, lines?: number) => {
     return readHermesLogs(logFile, lines);
   });
 
-  ipcMain.handle("clear-logs", (_, logFile?: string) => {
+  webIpc("clear-logs", (_, logFile?: string) => {
     return clearHermesLog(logFile);
   });
 

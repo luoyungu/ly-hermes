@@ -29,6 +29,9 @@ import { escapeXmlAttr } from "../shared/attachments";
 import { stageAttachment } from "./attachment-staging";
 import { ChatService, type ChatEventSink } from "../core/chat";
 import { sendChatEventToWebContents } from "./ipc/chat-events";
+import { isClientOnlyMode, getRemoteConnection } from "./deployment";
+import { remoteStreamChat, remoteJsonRequest, testRemoteConnection } from "../core/remote/remote-client";
+import { ipcHandle } from "./ipc/remote-handle";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -619,6 +622,19 @@ export function registerChatIpcHandlers(
       return wakeUpEmployee(profileName, getMainWindow());
     },
     sendOnline: (input, emit) => {
+      if (isClientOnlyMode()) {
+        remoteStreamChat(
+          getRemoteConnection(),
+          {
+            profileName: input.profileName,
+            message: input.message,
+            history: input.history,
+            resumeSessionId: input.resumeSessionId,
+          },
+          emit,
+        );
+        return;
+      }
       sendMessageViaApi(
         input.profileName,
         input.message,
@@ -630,6 +646,16 @@ export function registerChatIpcHandlers(
       );
     },
     sendFallback: (input, emit) => {
+      if (isClientOnlyMode()) {
+        emit({
+          type: "error",
+          data: {
+            profileName: input.profileName,
+            error: "远程模式不支持本地 CLI 回退",
+          },
+        });
+        return;
+      }
       sendMessageViaCli(
         input.profileName,
         input.message,
@@ -666,14 +692,14 @@ export function registerChatIpcHandlers(
     },
   );
 
-  ipcMain.handle(
+  ipcHandle(
     "stage-attachment",
     (_, sessionId: string, filename: string, base64Bytes: string) => {
       return stageAttachment(sessionId, filename, base64Bytes);
     },
   );
 
-  ipcMain.handle("abort-chat", async (_, profileName: string) => {
+  ipcHandle("abort-chat", async (_, profileName: string) => {
     if (profileName && _currentChatReqs[profileName]) {
       _currentChatReqs[profileName].abort();
       delete _currentChatReqs[profileName];
@@ -693,6 +719,21 @@ export function registerChatIpcHandlers(
       const pending = _pendingApprovals[key];
       if (!pending) return { error: "审批请求不存在或已过期" };
       delete _pendingApprovals[key];
+
+      if (isClientOnlyMode()) {
+        const conn = getRemoteConnection();
+        const res = await remoteJsonRequest<{ success?: boolean; error?: string }>(
+          conn,
+          "POST",
+          `/api/v1/chat/approval/${encodeURIComponent(approvalId)}`,
+          { profileName, approved },
+        );
+        if (res.status === 200 && res.data?.success !== false) {
+          return { success: true };
+        }
+        return { error: res.error || res.data?.error || "远程审批失败" };
+      }
+
       const port = getApiPortForProfile(profileName);
       if (!port) return { error: "员工未配置端口" };
       const safeApprovalId = String(approvalId).replace(
@@ -731,6 +772,10 @@ export function registerChatIpcHandlers(
   );
 
   ipcMain.handle("health-check", async (_, profileName: string) => {
+    if (isClientOnlyMode()) {
+      const test = await testRemoteConnection(getRemoteConnection());
+      return { online: test.success };
+    }
     if (!validateProfileName(profileName) && profileName !== "default")
       return { online: false };
     const port = getApiPortForProfile(profileName);

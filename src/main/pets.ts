@@ -1,9 +1,9 @@
-import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import https from "https";
 import { APP_DATA_DIR } from "./config";
 import { ensureDir as ensureDirUtil } from "./utils";
+import { webIpc } from "./ipc/web-api-ipc";
 
 const PETDEX_MANIFEST_URL = "https://petdex.crafter.run/api/manifest";
 const PETS_DIR = path.join(APP_DATA_DIR, "pets");
@@ -144,7 +144,7 @@ async function ensureSpritesheet(slug: string, url: string): Promise<string> {
 }
 
 export function registerPetsIpc(): void {
-  ipcMain.handle("pets:list", async () => {
+  webIpc("pets:list", async () => {
     try {
       const manifest = await getManifest();
       return manifest.map((p): PetInfo => ({
@@ -163,7 +163,7 @@ export function registerPetsIpc(): void {
     }
   });
 
-  ipcMain.handle("pets:get-spritesheet", async (_, slug: string) => {
+  webIpc("pets:get-spritesheet", async (_, slug: string) => {
     try {
       let local = petSpritesheetPath(slug);
       if (!fs.existsSync(local)) {
@@ -181,7 +181,7 @@ export function registerPetsIpc(): void {
     }
   });
 
-  ipcMain.handle("pets:refresh-manifest", async () => {
+  webIpc("pets:refresh-manifest", async () => {
     try {
       if (fs.existsSync(MANIFEST_CACHE_PATH)) {
         fs.unlinkSync(MANIFEST_CACHE_PATH);

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { MessageSquare, Settings, Info, LogOut, Users, Calendar, BarChart3 } from 'lucide-react'
+import { MessageSquare, Settings, Info, LogOut, Users, Calendar, BarChart3, Menu, X } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import Chat from '../Chat/Chat'
 import SettingsScreen from '../Settings/Settings'
@@ -8,7 +8,9 @@ import Manage from '../Manage/Manage'
 import Schedule from '../Schedule/Schedule'
 import { TokenStats } from '../Chat/TokenStats'
 import WindowControls from '../../components/WindowControls'
+import ConnectionStatus from '../../components/ConnectionStatus'
 import { useTheme } from '../../components/ThemeProvider'
+import { useDeploymentMode } from '../../hooks/useDeploymentMode'
 
 type ViewId = 'chat' | 'manage' | 'schedule' | 'settings' | 'about' | 'token-stats'
 
@@ -33,12 +35,20 @@ interface LayoutProps {
 
 export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
   const { lexicon } = useTheme()
+  const deploymentMode = useDeploymentMode()
   const [currentView, setCurrentView] = useState<ViewId>('chat')
   const [visitedViews, setVisitedViews] = useState(() => new Set<ViewId>(['chat']))
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const isWeb = typeof window !== 'undefined' && !window.navigator.userAgent.includes('Electron')
+  const isWindows = navigator.userAgent.includes('Windows')
+  const showConnectionBar = deploymentMode === 'client_only'
+  const showWindowChrome = isWindows && !isWeb
+  const showTopBar = showConnectionBar || showWindowChrome
 
   const handleNavClick = useCallback((id: ViewId) => {
     setVisitedViews(new Set([...visitedViews, id]))
     setCurrentView(id)
+    setMobileNavOpen(false)
   }, [visitedViews])
 
   const handleLogout = useCallback(async () => {
@@ -55,7 +65,17 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
       <div className="theme-atmosphere fixed inset-0 z-0 pointer-events-none" />
       <div id="wallpaperLayer" className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500 pointer-events-none" style={{ opacity: 0 }} />
       <div id="wallpaperOverlay" className="fixed inset-0 z-0 bg-[var(--bg-primary)] pointer-events-none" style={{ opacity: 0 }} />
-      <aside className="flex w-[80px] min-w-[80px] flex-col items-center glass-medium border-r border-[var(--border)] z-10 relative" style={{ paddingTop: 40, paddingBottom: 16 }}>
+
+      {isWeb && mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="关闭导航"
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
+      <aside className={`flex w-[80px] min-w-[80px] flex-col items-center glass-medium border-r border-[var(--border)] z-30 relative transition-transform max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:shadow-xl ${mobileNavOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`} style={{ paddingTop: showWindowChrome ? 40 : 16, paddingBottom: 16 }}>
         <img src={logoImg} alt="落云.Hermes" className="w-14 h-14 mb-4 rounded-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(124,106,239,0.25))' }} />
         <nav className="flex flex-1 flex-col items-center gap-1.5">
           {NAV_ITEMS.map((item) => (
@@ -91,11 +111,42 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-hidden relative z-10 glass-medium flex flex-col">
-        {navigator.userAgent.includes('Windows') && (
-          <div className="drag-region flex items-center justify-end shrink-0 h-9 border-b border-[var(--border)] bg-[var(--bg-surface)]">
-            <WindowControls />
+      <main className="flex-1 overflow-hidden relative z-10 glass-medium flex flex-col min-w-0">
+        {showTopBar && (
+        <div className={`flex items-center shrink-0 h-9 border-b border-[var(--border)] bg-[var(--bg-surface)] px-2 ${showWindowChrome ? 'drag-region justify-between' : 'justify-start'}`}>
+          {showConnectionBar && (
+          <div className="flex items-center gap-2 no-drag">
+            {isWeb && (
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen((v) => !v)}
+                className="rounded-lg p-1.5 text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:hidden"
+                aria-label="打开导航"
+              >
+                {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
+              </button>
+            )}
+            <ConnectionStatus compact />
           </div>
+          )}
+          {showWindowChrome && (
+            <div className={showConnectionBar ? 'no-drag' : 'ml-auto no-drag'}>
+              <WindowControls />
+            </div>
+          )}
+        </div>
+        )}
+        {isWeb && !showConnectionBar && (
+        <div className="flex md:hidden items-center shrink-0 h-9 border-b border-[var(--border)] bg-[var(--bg-surface)] px-2">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen((v) => !v)}
+            className="rounded-lg p-1.5 text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            aria-label="打开导航"
+          >
+            {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+        </div>
         )}
         <div className="flex-1 overflow-hidden relative">
         {visitedViews.has('chat') && (

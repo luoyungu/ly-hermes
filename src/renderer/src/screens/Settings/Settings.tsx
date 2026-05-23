@@ -35,10 +35,11 @@ import {
 } from 'lucide-react'
 import { PROVIDER_PRESETS, GLOBAL_CONFIG_FIELDS, getNestedValue, setNestedValue, type ConfigFieldDef } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
+import ConnectionStatus from '../../components/ConnectionStatus'
 import { useTheme } from '../../components/ThemeProvider'
 import { showToast } from '../../App'
 import { THEME_PRESETS } from '../../theme/presets'
-import type { ThemeMode, AccentColor, UiTheme, DesktopWebServerStatus } from '../../../../preload/index'
+import type { ThemeMode, AccentColor, UiTheme, DesktopWebServerStatus, DeploymentMode, RemoteConnection } from '../../../../preload/index'
 
 type Section = 'basic' | 'appearance' | 'runtime' | 'models' | 'engine' | 'data' | 'logs'
 
@@ -71,6 +72,17 @@ export default function SettingsScreen(): React.ReactElement {
   const [webServerStatus, setWebServerStatus] = useState<DesktopWebServerStatus | null>(null)
   const [webServerPort, setWebServerPort] = useState(8787)
   const [webServerSaving, setWebServerSaving] = useState(false)
+  const [deploymentMode, setDeploymentMode] = useState<DeploymentMode>('local')
+  const [remoteConnection, setRemoteConnection] = useState<RemoteConnection>({
+    name: '',
+    host: '',
+    port: 8787,
+    api_token: '',
+  })
+  const [remoteSaving, setRemoteSaving] = useState(false)
+  const [remoteServerEnabled, setRemoteServerEnabled] = useState(false)
+  const [remoteServerToken, setRemoteServerToken] = useState('')
+  const [remoteServerSaving, setRemoteServerSaving] = useState(false)
 
   const [hermesVersion, setHermesVersion] = useState<string | null>(null)
   const [hermesVersionRefreshing, setHermesVersionRefreshing] = useState(false)
@@ -136,6 +148,14 @@ export default function SettingsScreen(): React.ReactElement {
     window.hermesAPI.getDesktopWebServerStatus().then((status) => {
       setWebServerStatus(status)
       setWebServerPort(status.port || 8787)
+      setRemoteServerEnabled(status.remoteEnabled === true)
+      setRemoteServerToken(status.apiToken || '')
+    }).catch(() => {})
+    window.hermesAPI.getDeploymentMode().then((mode) => {
+      if (mode) setDeploymentMode(mode)
+    }).catch(() => {})
+    window.hermesAPI.getRemoteConnection().then((conn) => {
+      setRemoteConnection(conn)
     }).catch(() => {})
   }, [])
 
@@ -358,11 +378,87 @@ export default function SettingsScreen(): React.ReactElement {
       })
       setWebServerStatus(status)
       setWebServerPort(status.port || webServerPort)
+      setRemoteServerToken(status.apiToken || remoteServerToken)
       showToast(status.error ? `Web 服务启动失败：${status.error}` : 'Web 服务配置已保存')
     } catch {
       showToast('Web 服务设置失败', 'error')
     } finally {
       setWebServerSaving(false)
+    }
+  }
+
+  const handleToggleRemoteServer = async (enabled: boolean): Promise<void> => {
+    setRemoteServerSaving(true)
+    try {
+      const status = await window.hermesAPI.setRemoteServerConfig({ enabled, port: webServerPort })
+      setWebServerStatus(status)
+      setRemoteServerEnabled(status.remoteEnabled === true)
+      setRemoteServerToken(status.apiToken || '')
+      showToast(enabled ? '已允许远程连接' : '已关闭远程连接')
+    } catch {
+      showToast('远程连接设置失败', 'error')
+    } finally {
+      setRemoteServerSaving(false)
+    }
+  }
+
+  const handleRotateRemoteToken = async (): Promise<void> => {
+    setRemoteServerSaving(true)
+    try {
+      const result = await window.hermesAPI.rotateRemoteServerToken()
+      setRemoteServerToken(result.api_token)
+      setWebServerStatus(result.status)
+      showToast('API Token 已轮换')
+    } catch {
+      showToast('Token 轮换失败', 'error')
+    } finally {
+      setRemoteServerSaving(false)
+    }
+  }
+
+  const handleSaveRemoteConnection = async (): Promise<void> => {
+    if (!remoteConnection.host.trim() || !remoteConnection.api_token.trim()) {
+      showToast('请填写主机地址和 API Token', 'error')
+      return
+    }
+    setRemoteSaving(true)
+    try {
+      const result = await window.hermesAPI.saveRemoteConnection(remoteConnection)
+      if (result.success) {
+        showToast('远程连接已保存')
+      } else {
+        showToast(result.error || '连接失败', 'error')
+      }
+    } catch {
+      showToast('保存失败', 'error')
+    } finally {
+      setRemoteSaving(false)
+    }
+  }
+
+  const handleTestRemoteConnection = async (): Promise<void> => {
+    setRemoteSaving(true)
+    try {
+      const result = await window.hermesAPI.testRemoteConnection(remoteConnection)
+      if (result.success) {
+        showToast('连接成功')
+      } else {
+        showToast(result.error || '连接失败', 'error')
+      }
+    } catch {
+      showToast('测试失败', 'error')
+    } finally {
+      setRemoteSaving(false)
+    }
+  }
+
+  const handleSwitchToLocal = async (): Promise<void> => {
+    try {
+      await window.hermesAPI.switchToLocalMode()
+      window.dispatchEvent(new Event('hermes:deployment-changed'))
+      showToast('已切换为本机模式，请完成 Agent 安装')
+    } catch {
+      showToast('切换失败', 'error')
     }
   }
 
@@ -554,11 +650,15 @@ export default function SettingsScreen(): React.ReactElement {
   const sectionItems: { key: Section; label: string; icon: React.ReactNode }[] = [
     { key: 'basic', label: '基础设置', icon: <SettingsIcon size={16} /> },
     { key: 'appearance', label: '外观', icon: <Palette size={16} /> },
-    { key: 'runtime', label: '运行参数', icon: <Wrench size={16} /> },
-    { key: 'models', label: '模型管理', icon: <Box size={16} /> },
-    { key: 'engine', label: '引擎管理', icon: <Terminal size={16} /> },
-    { key: 'data', label: '数据管理', icon: <Download size={16} /> },
-    { key: 'logs', label: '系统日志', icon: <FileText size={16} /> }
+    ...(deploymentMode === 'local'
+      ? [
+          { key: 'runtime' as Section, label: '运行参数', icon: <Wrench size={16} /> },
+          { key: 'models' as Section, label: '模型管理', icon: <Box size={16} /> },
+          { key: 'engine' as Section, label: '引擎管理', icon: <Terminal size={16} /> },
+          { key: 'data' as Section, label: '数据管理', icon: <Download size={16} /> },
+          { key: 'logs' as Section, label: '系统日志', icon: <FileText size={16} /> },
+        ]
+      : []),
   ]
 
   return (
@@ -593,6 +693,7 @@ export default function SettingsScreen(): React.ReactElement {
               <section className="animate-fade-in">
                 <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">基础设置</h3>
                 <div className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
+                  {deploymentMode === 'local' && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="mb-1.5 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
@@ -621,7 +722,100 @@ export default function SettingsScreen(): React.ReactElement {
                       />
                     </div>
                   </div>
+                  )}
 
+                  {deploymentMode === 'client_only' && (
+                  <div className="space-y-4">
+                    <ConnectionStatus />
+                    <div>
+                      <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                        <Globe size={15} /> 远程节点连接
+                      </h4>
+                      <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                        连接远程 Hermes 节点以管理员工和聊天。
+                      </p>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 text-sm text-[var(--text-secondary)]">节点名称</label>
+                      <input
+                        type="text"
+                        value={remoteConnection.name}
+                        onChange={(e) => setRemoteConnection((prev) => ({ ...prev, name: e.target.value }))}
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">主机地址</label>
+                        <input
+                          type="text"
+                          value={remoteConnection.host}
+                          onChange={(e) => setRemoteConnection((prev) => ({ ...prev, host: e.target.value }))}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                        />
+                      </div>
+                      <div className="w-28">
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">端口</label>
+                        <input
+                          type="number"
+                          value={remoteConnection.port}
+                          onChange={(e) => setRemoteConnection((prev) => ({ ...prev, port: Number(e.target.value) || 8787 }))}
+                          min={1024}
+                          max={65535}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 text-sm text-[var(--text-secondary)]">API Token</label>
+                      <input
+                        type="password"
+                        value={remoteConnection.api_token}
+                        onChange={(e) => setRemoteConnection((prev) => ({ ...prev, api_token: e.target.value }))}
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleTestRemoteConnection}
+                        disabled={remoteSaving}
+                        className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
+                      >
+                        {remoteSaving ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                        测试连接
+                      </button>
+                      <button
+                        onClick={handleSaveRemoteConnection}
+                        disabled={remoteSaving}
+                        className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
+                      >
+                        {remoteSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                        保存连接
+                      </button>
+                    </div>
+                    <div className="border-t border-[var(--border)] pt-4">
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">切换部署模式</h4>
+                      <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                        切换为本机模式后，需在本机安装 Hermes Agent 才能运行员工。
+                      </p>
+                      <Popconfirm
+                        title="确认切换为本机模式？将清除远程连接并进入 Agent 安装引导。"
+                        confirmText="确认切换"
+                        onConfirm={handleSwitchToLocal}
+                      >
+                        <button
+                          type="button"
+                          className="mt-3 flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                        >
+                          <Monitor size={14} />
+                          切换为本机模式
+                        </button>
+                      </Popconfirm>
+                    </div>
+                  </div>
+                  )}
+
+                  {deploymentMode === 'local' && (
                   <div className="border-t border-[var(--border)] pt-4 mt-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
@@ -672,6 +866,62 @@ export default function SettingsScreen(): React.ReactElement {
                       </span>
                     </div>
                   </div>
+                  )}
+
+                  {deploymentMode === 'local' && (
+                  <div className="border-t border-[var(--border)] pt-4 mt-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                          <Globe size={15} /> 允许远程连接
+                        </h4>
+                        <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                          开启后，其他 Hermes 客户端可通过 API Token 远程管理本机员工。
+                        </p>
+                      </div>
+                      <label className="tools-toggle shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={remoteServerEnabled}
+                          disabled={remoteServerSaving}
+                          onChange={(e) => handleToggleRemoteServer(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <span className={`tools-toggle-track ${remoteServerEnabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
+                      </label>
+                    </div>
+                    {remoteServerEnabled && remoteServerToken && (
+                      <div className="mt-4 space-y-2">
+                        <label className="text-xs text-[var(--text-dim)]">API Token（提供给远程客户端）</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={remoteServerToken}
+                            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] outline-none"
+                          />
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(remoteServerToken)
+                              showToast('已复制 Token')
+                            }}
+                            className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                          >
+                            <Copy size={12} /> 复制
+                          </button>
+                          <button
+                            onClick={handleRotateRemoteToken}
+                            disabled={remoteServerSaving}
+                            className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                          >
+                            {remoteServerSaving ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                            轮换
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  )}
 
                   <div className="border-t border-[var(--border)] pt-4 mt-4">
                     <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-3">修改密码</h4>
@@ -716,6 +966,7 @@ export default function SettingsScreen(): React.ReactElement {
                 </div>
 
                 <div className="mt-8 flex items-center gap-3 border-t border-[var(--border)] pt-6">
+                  {deploymentMode === 'local' && (
                   <button
                     onClick={handleSave}
                     disabled={saving}
@@ -732,6 +983,7 @@ export default function SettingsScreen(): React.ReactElement {
                     )}
                     {saving ? '保存中...' : saveResult === 'success' ? '✓ 已保存' : saveResult === 'error' ? '保存失败' : '保存设置'}
                   </button>
+                  )}
                   <button
                     onClick={handleLogout}
                     className="flex items-center gap-2 rounded-lg border border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.1)] px-5 py-2.5 text-sm font-medium text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.15)]"

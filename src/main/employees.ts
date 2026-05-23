@@ -1,4 +1,3 @@
-import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -29,6 +28,9 @@ import {
   exportEmployeeDesktopData,
 } from "./db";
 import { ensureDesktopRuntimeDependencies } from "./installer";
+import { notifyRenderer } from "./ipc/desktop-events";
+import { ipcHandle } from "./ipc/remote-handle";
+import { updateEmployeeProfile, renameEmployeeProfile } from "./services/employee-api";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -478,12 +480,10 @@ export async function wakeUpEmployee(
   proc.on("close", () => {
     delete _gatewayProcesses[profileName];
     clearIdleTimer(profileName);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("employee-status-changed", {
-        profileName,
-        status: "idle",
-      });
-    }
+    notifyRenderer(mainWindow, "employee-status-changed", {
+      profileName,
+      status: "idle",
+    });
   });
 
   const startupTimeout =
@@ -494,12 +494,10 @@ export async function wakeUpEmployee(
     const ready = await isApiServerReady(port);
     if (ready) {
       resetIdleTimer(profileName, mainWindow);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("employee-status-changed", {
-          profileName,
-          status: "online",
-        });
-      }
+      notifyRenderer(mainWindow, "employee-status-changed", {
+        profileName,
+        status: "online",
+      });
       return { success: true, status: "online" };
     }
   }
@@ -538,12 +536,10 @@ export function putEmployeeToSleep(
   }
 
   if (!hadManagedProcess) {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("employee-status-changed", {
-        profileName,
-        status: "idle",
-      });
-    }
+    notifyRenderer(mainWindow, "employee-status-changed", {
+      profileName,
+      status: "idle",
+    });
   }
 
   return { success: true };
@@ -564,9 +560,7 @@ export function resetIdleTimer(
   clearIdleTimer(profileName);
   _idleTimers[profileName] = setTimeout(() => {
     putEmployeeToSleep(profileName, mainWindow);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("employee-idle-timeout", { profileName });
-    }
+    notifyRenderer(mainWindow, "employee-idle-timeout", { profileName });
   }, timeout * 60 * 1000);
 }
 
@@ -577,51 +571,73 @@ export function clearIdleTimer(profileName: string): void {
   }
 }
 
+export async function restartAllEngines(
+  getMainWindow: () => BrowserWindow | null,
+): Promise<{ success: boolean; restarted: number; total: number }> {
+  const onlineNames = Object.keys(_gatewayProcesses).filter(
+    (k) => _gatewayProcesses[k] && !_gatewayProcesses[k].killed,
+  );
+  if (onlineNames.length === 0) {
+    return { success: true, restarted: 0, total: 0 };
+  }
+  const mainWindow = getMainWindow();
+  for (const name of onlineNames) {
+    putEmployeeToSleep(name, mainWindow);
+  }
+  await new Promise((r) => setTimeout(r, 2000));
+  let restarted = 0;
+  for (const name of onlineNames) {
+    const result = await wakeUpEmployee(name, mainWindow);
+    if (result.success) restarted++;
+  }
+  return { success: true, restarted, total: onlineNames.length };
+}
+
 export function registerEmployeeIpcHandlers(
   getMainWindow: () => BrowserWindow | null,
 ): void {
   // Skills handlers
-  ipcMain.handle("skills:listInstalled", async (_, profile?: string) => {
+  ipcHandle("skills:listInstalled", async (_, profile?: string) => {
     const { listInstalledSkills } = await import("./skills");
     return listInstalledSkills(profile);
   });
 
-  ipcMain.handle("skills:listBundled", async (_, profile?: string) => {
+  ipcHandle("skills:listBundled", async (_, profile?: string) => {
     const { listBundledSkills } = await import("./skills");
     return listBundledSkills(profile);
   });
 
-  ipcMain.handle("skills:getContent", async (_, skillPath: string) => {
+  ipcHandle("skills:getContent", async (_, skillPath: string) => {
     const { getSkillContent } = await import("./skills");
     return getSkillContent(skillPath);
   });
 
-  ipcMain.handle("skills:install", async (_, identifier: string, profile?: string) => {
+  ipcHandle("skills:install", async (_, identifier: string, profile?: string) => {
     const { installSkill } = await import("./skills");
     return installSkill(identifier, profile);
   });
 
-  ipcMain.handle("skills:uninstall", async (_, name: string, profile?: string) => {
+  ipcHandle("skills:uninstall", async (_, name: string, profile?: string) => {
     const { uninstallSkill } = await import("./skills");
     return uninstallSkill(name, profile);
   });
 
-  ipcMain.handle("skills:getConfig", async (_, profile?: string) => {
+  ipcHandle("skills:getConfig", async (_, profile?: string) => {
     const { getSkillConfig } = await import("./skills");
     return getSkillConfig(profile);
   });
 
-  ipcMain.handle("skills:setEnabled", async (_, skillId: string, enabled: boolean, profile?: string) => {
+  ipcHandle("skills:setEnabled", async (_, skillId: string, enabled: boolean, profile?: string) => {
     const { setSkillEnabled } = await import("./skills");
     return setSkillEnabled(skillId, enabled, profile);
   });
 
-  ipcMain.handle("skills:recordUsage", async (_, skillId: string, success: boolean, profile?: string) => {
+  ipcHandle("skills:recordUsage", async (_, skillId: string, success: boolean, profile?: string) => {
     const { recordSkillUsage } = await import("./skills");
     return recordSkillUsage(skillId, success, profile);
   });
 
-  ipcMain.handle("employee:list", async () => {
+  ipcHandle("employee:list", async () => {
     const employees = listEmployees();
     const result: EmployeeInfo[] = [];
     for (const emp of employees) {
@@ -631,7 +647,7 @@ export function registerEmployeeIpcHandlers(
     return result;
   });
 
-  ipcMain.handle("employee:get", async (_, name: string) => {
+  ipcHandle("employee:get", async (_, name: string) => {
     const employees = listEmployees();
     const emp = employees.find((e) => e.name === name);
     if (!emp) return null;
@@ -639,7 +655,7 @@ export function registerEmployeeIpcHandlers(
     return { ...emp, status };
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:create",
     async (_, config: Record<string, unknown>) => {
       const name = config.name as string;
@@ -788,41 +804,24 @@ export function registerEmployeeIpcHandlers(
       }
 
       const win = getMainWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("employee-list-changed", { action: "created", name });
-      }
+      notifyRenderer(win, "employee-list-changed", { action: "created", name });
 
       return { success: true, name };
     },
   );
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:update",
     async (_, name: string, changes: Record<string, unknown>) => {
-      const meta = readEmployeeMeta(name) || {};
-      if (changes.displayName !== undefined) meta.name = changes.displayName;
-      if (changes.role !== undefined) meta.role = changes.role;
-      if (changes.avatar !== undefined) meta.avatar = changes.avatar;
-      if (changes.color !== undefined) meta.color = changes.color;
-      if (changes.tags !== undefined) meta.tags = changes.tags;
-      if (changes.idle_timeout !== undefined)
-        meta.idle_timeout = changes.idle_timeout;
-      if (changes.webAccessEnabled !== undefined) {
-        meta.web_access_enabled = changes.webAccessEnabled === true;
-        if (meta.web_access_enabled && !getWebAccessToken(meta)) {
-          meta.web_access_token = createWebAccessToken();
-        }
-      }
-      writeEmployeeMeta(name, meta);
-      return { success: true };
+      return updateEmployeeProfile(name, changes, getMainWindow);
     },
   );
 
-  ipcMain.handle("employee:reset-web-token", async (_, name: string) => {
+  ipcHandle("employee:reset-web-token", async (_, name: string) => {
     return resetEmployeeWebAccessToken(name);
   });
 
-  ipcMain.handle("employee:delete", async (_, name: string) => {
+  ipcHandle("employee:delete", async (_, name: string) => {
     if (name === "default") return { error: "不能删除默认员工" };
     await putEmployeeToSleep(name, getMainWindow());
     const output = runHermesCli(
@@ -832,51 +831,32 @@ export function registerEmployeeIpcHandlers(
     const success = !output.includes("Error");
     if (success) {
       const win = getMainWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("employee-list-changed", { action: "deleted", name });
-      }
+      notifyRenderer(win, "employee-list-changed", { action: "deleted", name });
     }
     return { success };
   });
 
-  ipcMain.handle("employee:wake-up", async (_, name: string) => {
+  ipcHandle("employee:wake-up", async (_, name: string) => {
     return wakeUpEmployee(name, getMainWindow());
   });
 
-  ipcMain.handle("employee:sleep", async (_, name: string) => {
+  ipcHandle("employee:sleep", async (_, name: string) => {
     return putEmployeeToSleep(name, getMainWindow());
   });
 
-  ipcMain.handle("employee:restart", async (_, name: string) => {
+  ipcHandle("employee:restart", async (_, name: string) => {
     putEmployeeToSleep(name, getMainWindow());
     await new Promise((r) => setTimeout(r, 2000));
     return wakeUpEmployee(name, getMainWindow());
   });
 
-  ipcMain.handle("restart-all-engines", async () => {
-    const onlineNames = Object.keys(_gatewayProcesses).filter(
-      (k) => _gatewayProcesses[k] && !_gatewayProcesses[k].killed,
-    );
-    if (onlineNames.length === 0) {
-      return { success: true, restarted: 0 };
-    }
-    for (const name of onlineNames) {
-      putEmployeeToSleep(name, getMainWindow());
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-    let restarted = 0;
-    for (const name of onlineNames) {
-      const result = await wakeUpEmployee(name, getMainWindow());
-      if (result.success) restarted++;
-    }
-    return { success: true, restarted, total: onlineNames.length };
-  });
+  ipcHandle("restart-all-engines", async () => restartAllEngines(getMainWindow));
 
-  ipcMain.handle("employee:status", async (_, name: string) => {
+  ipcHandle("employee:status", async (_, name: string) => {
     return getEmployeeStatus(name);
   });
 
-  ipcMain.handle("employee:get-soul", async (_, name: string) => {
+  ipcHandle("employee:get-soul", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default") return "";
     const soulPath = path.join(getProfilePath(name), "SOUL.md");
     if (!fs.existsSync(soulPath)) return "";
@@ -887,7 +867,7 @@ export function registerEmployeeIpcHandlers(
     }
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:set-soul",
     async (_, name: string, content: string) => {
       if (!validateProfileName(name) && name !== "default")
@@ -899,7 +879,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle("employee:reset-soul", async (_, name: string) => {
+  ipcHandle("employee:reset-soul", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default")
       return { error: "无效的员工名称" };
     const defaultSoul =
@@ -912,7 +892,7 @@ export function registerEmployeeIpcHandlers(
     return { success: true, soul: defaultSoul };
   });
 
-  ipcMain.handle("employee:get-config", async (_, name: string) => {
+  ipcHandle("employee:get-config", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default") return null;
     const configPath = path.join(getProfilePath(name), "config.yaml");
     if (!fs.existsSync(configPath)) return null;
@@ -923,7 +903,7 @@ export function registerEmployeeIpcHandlers(
     }
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:set-config",
     async (_, name: string, configObj: Record<string, unknown>) => {
       if (!validateProfileName(name) && name !== "default")
@@ -943,7 +923,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle("employee:get-env", async (_, name: string) => {
+  ipcHandle("employee:get-env", async (_, name: string) => {
     const env = readHermesEnv(name);
     const result: Record<string, string> = {};
     for (const [key, val] of Object.entries(env)) {
@@ -960,7 +940,7 @@ export function registerEmployeeIpcHandlers(
     return result;
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:set-env",
     async (_, name: string, envObj: Record<string, string>) => {
       if (!validateProfileName(name) && name !== "default")
@@ -987,7 +967,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle("employee:get-skills", async (_, name: string) => {
+  ipcHandle("employee:get-skills", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default") return [];
     const skillsDir = path.join(getProfilePath(name), "skills");
     if (!fs.existsSync(skillsDir)) return [];
@@ -1005,7 +985,7 @@ export function registerEmployeeIpcHandlers(
     }
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:install-skill",
     async (_, name: string, url: string) => {
       const output = runHermesCli(
@@ -1019,7 +999,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:remove-skill",
     async (_, name: string, skillName: string) => {
       const skillDir = path.join(getProfilePath(name), "skills", skillName);
@@ -1035,7 +1015,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle("employee:get-tools", async (_, name: string) => {
+  ipcHandle("employee:get-tools", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default") return [];
     const configPath = path.join(getProfilePath(name), "config.yaml");
     if (!fs.existsSync(configPath)) return DEFAULT_DESKTOP_TOOLS;
@@ -1059,7 +1039,7 @@ export function registerEmployeeIpcHandlers(
     }
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:set-tools",
     async (_, name: string, tools: string[]) => {
       if (!validateProfileName(name) && name !== "default")
@@ -1083,7 +1063,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:toggle-tool",
     async (_, name: string, toolKey: string, enabled: boolean) => {
       if (!validateProfileName(name) && name !== "default")
@@ -1127,7 +1107,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle("employee:get-memory", async (_, name: string) => {
+  ipcHandle("employee:get-memory", async (_, name: string) => {
     if (!validateProfileName(name) && name !== "default")
       return { memory: [], user: "", stats: {} };
     try {
@@ -1160,7 +1140,7 @@ export function registerEmployeeIpcHandlers(
     }
   });
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:add-memory",
     async (_, name: string, content: string) => {
       if (!validateProfileName(name) && name !== "default")
@@ -1182,7 +1162,7 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:delete-memory",
     async (_, name: string, index: number) => {
       if (!validateProfileName(name) && name !== "default")
@@ -1205,52 +1185,19 @@ export function registerEmployeeIpcHandlers(
     },
   );
 
-  ipcMain.handle(
+  ipcHandle(
     "employee:rename",
-    async (_, oldName: string, newName: string) => {
-      if (!validateProfileName(oldName) || !validateProfileName(newName)) {
-        return { error: "无效的员工名称" };
-      }
-      if (!/^[a-zA-Z0-9_-]+$/.test(newName)) {
-        return { error: "新名称只能包含英文字母、数字、下划线和连字符" };
-      }
-      if (oldName === "default") {
-        return { error: "不能重命名默认员工" };
-      }
-      const newProfilePath = path.join(PROFILES_DIR, newName);
-      if (fs.existsSync(newProfilePath)) {
-        return { error: "员工 " + newName + " 已存在" };
-      }
-      const output = runHermesCli(
-        ["profile", "rename", oldName, newName],
-        "default",
-      );
-      if (output.includes("Error") || output.includes("error")) {
-        return { error: output };
-      }
-      const meta = readEmployeeMeta(newName) || readEmployeeMeta(oldName);
-      if (meta) {
-        meta.name = meta.name === oldName ? newName : meta.name;
-        writeEmployeeMeta(newName, meta);
-      }
-      return { success: true };
-    },
+    async (_, oldName: string, newName: string) =>
+      renameEmployeeProfile(oldName, newName, getMainWindow),
   );
 
-  ipcMain.handle("employee:set-pet", async (_, name: string, petSlug: string) => {
+  ipcHandle("employee:set-pet", async (_, name: string, petSlug: string) => {
     if (!validateProfileName(name)) return { error: "无效的员工名称" };
-    const meta = readEmployeeMeta(name);
-    if (!meta) return { error: "员工不存在" };
-    meta.petSlug = petSlug;
-    writeEmployeeMeta(name, meta);
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("employee-list-changed", { action: "updated", name });
-    }
-    return { success: true };
+    if (!readEmployeeMeta(name)) return { error: "员工不存在" };
+    return updateEmployeeProfile(name, { petSlug }, getMainWindow);
   });
 
-  ipcMain.handle("employee:export", async (_, name: string) => {
+  ipcHandle("employee:export", async (_, name: string) => {
     if (!validateProfileName(name)) return { error: "无效的员工名称" };
     const output = runHermesCli(["profile", "export", name], "default");
     const desktopExport = exportEmployeeDesktopData(name);
@@ -1269,7 +1216,7 @@ export function registerEmployeeIpcHandlers(
     };
   });
 
-  ipcMain.handle("employee:get-sessions", async (_, name: string) => {
+  ipcHandle("employee:get-sessions", async (_, name: string) => {
     if (!validateProfileName(name)) return [];
     return getEmployeeSessions(name, 20);
   });

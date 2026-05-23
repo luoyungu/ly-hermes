@@ -1,31 +1,31 @@
-import { ipcMain } from "electron";
 import { desktopAuthService } from "../core/auth-store";
+import { webIpc } from "./web-api-ipc";
 
 export function registerAuthIpcHandlers(): void {
-  ipcMain.handle("auth-login", async (_, password: string) => {
+  webIpc("auth-login", async (_, password: string) => {
     return desktopAuthService.login(password);
   });
 
-  ipcMain.handle("auth-logout", async () => {
+  webIpc("auth-logout", async () => {
     return desktopAuthService.logout();
   });
 
-  ipcMain.handle("auth-get-current", async () => {
+  webIpc("auth-get-current", async () => {
     return desktopAuthService.getCurrentUser();
   });
 
-  ipcMain.handle(
+  webIpc(
     "auth-change-password",
     async (_, oldPassword: string, newPassword: string) => {
       return desktopAuthService.changePassword(oldPassword, newPassword);
     },
   );
 
-  ipcMain.handle("auth-setup-password", async (_, password: string) => {
+  webIpc("auth-setup-password", async (_, password: string) => {
     return desktopAuthService.setupPassword(password);
   });
 
-  ipcMain.handle("check-initialized", async () => {
+  webIpc("check-initialized", async () => {
     return desktopAuthService.checkInitialized();
   });
 }

@@ -1,4 +1,3 @@
-import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -8,6 +7,7 @@ import https from "https";
 import * as yaml from "./lib/yaml-simple";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 import { getSetting, loadDbSavedModels, saveDbSavedModels, setSetting } from "./db";
+import { webIpc } from "./ipc/web-api-ipc";
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -667,7 +667,7 @@ function saveSavedModels(models: Array<Record<string, unknown>>): void {
 }
 
 export function registerConfigIpcHandlers(): void {
-  ipcMain.handle("get-config", async () => {
+  webIpc("get-config", async () => {
     const configPath = path.join(HERMES_HOME, "config.yaml");
     if (!fs.existsSync(configPath)) return null;
     try {
@@ -677,7 +677,7 @@ export function registerConfigIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("get-env", async () => {
+  webIpc("get-env", async () => {
     const env = readHermesEnv("default");
     const result: Record<string, string> = {};
     for (const [key, val] of Object.entries(env)) {
@@ -694,11 +694,11 @@ export function registerConfigIpcHandlers(): void {
     return result;
   });
 
-  ipcMain.handle("get-hermes-home", async () => {
+  webIpc("get-hermes-home", async () => {
     return HERMES_HOME;
   });
 
-  ipcMain.handle("check-hermes-install", async () => {
+  webIpc("check-hermes-install", async () => {
     const result: Record<string, unknown> = {
       installed: false,
       configured: false,
@@ -733,7 +733,7 @@ export function registerConfigIpcHandlers(): void {
     return result;
   });
 
-  ipcMain.handle("get-model-config", async () => {
+  webIpc("get-model-config", async () => {
     const model = getModelFromProfile("default");
     const configPath = path.join(HERMES_HOME, "config.yaml");
     let provider = "";
@@ -753,7 +753,7 @@ export function registerConfigIpcHandlers(): void {
     return { provider, model, baseUrl };
   });
 
-  ipcMain.handle("get-available-models", async () => {
+  webIpc("get-available-models", async () => {
     const { getApiPortForProfile } = await import("./employees");
     const port = getApiPortForProfile("default");
     if (!port) return { models: [] };
@@ -788,7 +788,7 @@ export function registerConfigIpcHandlers(): void {
     });
   });
 
-  ipcMain.handle("set-model", async (_, modelName: string) => {
+  webIpc("set-model", async (_, modelName: string) => {
     const configPath = path.join(HERMES_HOME, "config.yaml");
     try {
       let cfg: Record<string, unknown> = {};
@@ -805,7 +805,7 @@ export function registerConfigIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("set-model-config", async (_, modelConfig: { model?: string; provider?: string; baseUrl?: string }) => {
+  webIpc("set-model-config", async (_, modelConfig: { model?: string; provider?: string; baseUrl?: string }) => {
     const configPath = path.join(HERMES_HOME, "config.yaml");
     try {
       let cfg: Record<string, unknown> = {};
@@ -825,11 +825,11 @@ export function registerConfigIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("list-saved-models", async () => {
+  webIpc("list-saved-models", async () => {
     return loadSavedModels();
   });
 
-  ipcMain.handle(
+  webIpc(
     "add-saved-model",
     async (
       _,
@@ -861,7 +861,7 @@ export function registerConfigIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle("remove-saved-model", async (_, id: string) => {
+  webIpc("remove-saved-model", async (_, id: string) => {
     const models = loadSavedModels();
     const filtered = models.filter((m) => m.id !== id);
     if (filtered.length === models.length) return false;
@@ -869,7 +869,7 @@ export function registerConfigIpcHandlers(): void {
     return true;
   });
 
-  ipcMain.handle(
+  webIpc(
     "update-saved-model",
     async (
       _,
@@ -897,7 +897,7 @@ export function registerConfigIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle(
+  webIpc(
     "apply-saved-model",
     async (_, id: string, profileName?: string) => {
       const models = loadSavedModels();
@@ -956,7 +956,7 @@ export function registerConfigIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle("get-plugins", async () => {
+  webIpc("get-plugins", async () => {
     const pluginsDir = path.join(HERMES_HOME, "plugins");
     if (!fs.existsSync(pluginsDir)) return [];
     try {
@@ -969,7 +969,7 @@ export function registerConfigIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("get-plugin-info", async (_, pluginName: string) => {
+  webIpc("get-plugin-info", async (_, pluginName: string) => {
     const pluginDir = path.join(HERMES_HOME, "plugins", pluginName);
     if (!fs.existsSync(pluginDir)) return { error: "插件不存在" };
     const metaFiles = [
@@ -991,15 +991,15 @@ export function registerConfigIpcHandlers(): void {
     return { name: pluginName, error: "未找到元数据文件" };
   });
 
-  ipcMain.handle("get-theme-mode", async () => {
+  webIpc("get-theme-mode", async () => {
     const prefs = loadPreferences();
     if (prefs.theme_mode) return prefs.theme_mode as string;
-    const oldTheme = (prefs.theme as string) || "dark";
+    const oldTheme = (prefs.theme as string) || "light";
     if (oldTheme.endsWith("-light") || oldTheme === "light") return "light";
     return "dark";
   });
 
-  ipcMain.handle("set-theme-mode", async (_, mode: string) => {
+  webIpc("set-theme-mode", async (_, mode: string) => {
     const prefs = loadPreferences();
     prefs.theme_mode = mode;
     delete prefs.theme;
@@ -1007,7 +1007,7 @@ export function registerConfigIpcHandlers(): void {
     return { success: true };
   });
 
-  ipcMain.handle("get-accent-color", async () => {
+  webIpc("get-accent-color", async () => {
     const prefs = loadPreferences();
     if (prefs.accent_color) return prefs.accent_color as string;
     const oldTheme = (prefs.theme as string) || "dark";
@@ -1024,7 +1024,7 @@ export function registerConfigIpcHandlers(): void {
     return mapping[oldTheme] || "violet";
   });
 
-  ipcMain.handle("set-accent-color", async (_, accent: string) => {
+  webIpc("set-accent-color", async (_, accent: string) => {
     const prefs = loadPreferences();
     prefs.accent_color = accent;
     delete prefs.theme;
@@ -1032,23 +1032,23 @@ export function registerConfigIpcHandlers(): void {
     return { success: true };
   });
 
-  ipcMain.handle("get-ui-theme", async () => {
+  webIpc("get-ui-theme", async () => {
     const prefs = loadPreferences();
     return (prefs.ui_theme as string) || "classic";
   });
 
-  ipcMain.handle("set-ui-theme", async (_, theme: string) => {
+  webIpc("set-ui-theme", async (_, theme: string) => {
     const prefs = loadPreferences();
     prefs.ui_theme = theme;
     savePreferences(prefs);
     return { success: true };
   });
 
-  ipcMain.handle("get-app-config", async () => {
+  webIpc("get-app-config", async () => {
     return loadAppConfig();
   });
 
-  ipcMain.handle(
+  webIpc(
     "set-app-config",
     async (_, config: Record<string, unknown>) => {
       saveAppConfig(config);
@@ -1059,13 +1059,13 @@ export function registerConfigIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle("get-runtime-config", async () => {
+  webIpc("get-runtime-config", async () => {
     const appConfig = loadAppConfig();
     const userRuntime = (appConfig.runtime || {}) as Record<string, unknown>;
     return deepMergeDefaults(userRuntime, RUNTIME_DEFAULTS);
   });
 
-  ipcMain.handle(
+  webIpc(
     "set-runtime-config",
     async (_, runtime: Record<string, unknown>) => {
       const appConfig = loadAppConfig();
@@ -1075,7 +1075,7 @@ export function registerConfigIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle(
+  webIpc(
     "save-wallpaper-file",
     async (_, dataUrl: string) => {
       try {
@@ -1097,7 +1097,7 @@ export function registerConfigIpcHandlers(): void {
 
   let _cachedVersion: string | null = null;
 
-  ipcMain.handle("get-hermes-version", async () => {
+  webIpc("get-hermes-version", async () => {
     const versionText = await new Promise<string | null>((resolve) => {
       const appConfig = loadAppConfig();
       const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
@@ -1121,7 +1121,7 @@ export function registerConfigIpcHandlers(): void {
     return _cachedVersion;
   });
 
-  ipcMain.handle("refresh-hermes-version", async () => {
+  webIpc("refresh-hermes-version", async () => {
     _cachedVersion = null;
     const appConfig = loadAppConfig();
     const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
@@ -1142,7 +1142,7 @@ export function registerConfigIpcHandlers(): void {
     return _cachedVersion;
   });
 
-  ipcMain.handle("run-hermes-doctor", async () => {
+  webIpc("run-hermes-doctor", async () => {
     try {
       return runHermesCli(["doctor"], undefined, 60000);
     } catch {
@@ -1150,7 +1150,7 @@ export function registerConfigIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("run-hermes-update", async (event) => {
+  webIpc("run-hermes-update", async (event) => {
     const appConfig = loadAppConfig();
     const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
     const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePlatform } from '../../hooks/usePlatform'
+import { useDeploymentMode } from '../../hooks/useDeploymentMode'
+import { useRemoteConnectionStatus } from '../../hooks/useRemoteConnectionStatus'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -394,6 +396,8 @@ function EditEmployee({
   onWakeUp: () => void
   onRestart: () => void
 }): React.ReactElement {
+  const deploymentMode = useDeploymentMode()
+  const { connection: remoteConnection } = useRemoteConnectionStatus(deploymentMode === 'client_only')
   const [tab, setTab] = useState<EditTab>('basic')
   const [saving, setSaving] = useState(false)
 
@@ -473,7 +477,11 @@ function EditEmployee({
     setPetSlug(employee.petSlug || '')
     setWebAccessEnabled(employee.webAccessEnabled === true)
     setWebAccessToken(employee.webAccessToken || '')
-    window.hermesAPI.getDesktopWebServerStatus().then(setWebServerStatus).catch(() => setWebServerStatus(null))
+    if (deploymentMode !== 'client_only') {
+      window.hermesAPI.getDesktopWebServerStatus().then(setWebServerStatus).catch(() => setWebServerStatus(null))
+    } else {
+      setWebServerStatus(null)
+    }
     window.hermesAPI.getEmployeeSoul(ename).then((s) => { setSoulContent(s || ''); setSoulOriginal(s || '') }).catch(() => {})
     window.hermesAPI.getEmployeeTools(ename).then(setTools).catch(() => {})
     loadSkills()
@@ -513,10 +521,18 @@ function EditEmployee({
       setHasSavedDingtalkSecret(false)
       setDingtalkHomeChannel('')
     }).finally(() => setEnvLoading(false))
-  }, [employee, loadSkills])
+  }, [employee, loadSkills, deploymentMode])
 
-  const webAccessUrl = webAccessToken
-    ? `${webServerStatus?.url || 'http://127.0.0.1:8787/embed'}?agent=${encodeURIComponent(employee.name)}&token=${encodeURIComponent(webAccessToken)}`
+  const isWebClient = typeof navigator !== 'undefined' && !navigator.userAgent.includes('Electron')
+
+  const embedOrigin = deploymentMode === 'client_only'
+    ? (isWebClient
+      ? window.location.origin.replace(/\/$/, '')
+      : (remoteConnection?.host ? `http://${remoteConnection.host}:${remoteConnection.port}` : ''))
+    : (webServerStatus?.url || 'http://127.0.0.1:8787').replace(/\/(embed|app)\/?.*$/, '').replace(/\/$/, '')
+
+  const webAccessUrl = webAccessToken && embedOrigin
+    ? `${embedOrigin}/embed?agent=${encodeURIComponent(employee.name)}&token=${encodeURIComponent(webAccessToken)}`
     : ''
 
   const handleSaveBasic = async (): Promise<void> => {
@@ -863,7 +879,9 @@ function EditEmployee({
                     <span className="text-sm font-semibold text-[var(--text-primary)]">Web 访问</span>
                   </div>
                   <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                    开启后，这个员工可以通过内置 Web 服务的嵌入页面访问。
+                    {deploymentMode === 'client_only'
+                      ? '开启后，可通过远程节点的嵌入页面访问该员工。'
+                      : '开启后，这个员工可以通过内置 Web 服务的嵌入页面访问。'}
                   </p>
                 </div>
                 <label className="tools-toggle shrink-0">
@@ -897,7 +915,11 @@ function EditEmployee({
                     </button>
                   </div>
                   <p className="mt-1.5 text-xs text-[var(--text-dim)]">
-                    Web 服务状态：{webServerStatus?.running ? `运行中，端口 ${webServerStatus.port}` : '未运行，请先在设置中开启'}
+                    {deploymentMode === 'client_only'
+                      ? (remoteConnection?.host
+                        ? `远程节点：${remoteConnection.name || remoteConnection.host}:${remoteConnection.port}`
+                        : '请先在设置中配置远程连接')
+                      : `Web 服务状态：${webServerStatus?.running ? `运行中，端口 ${webServerStatus.port}` : '未运行，请先在设置中开启'}`}
                   </p>
                 </div>
                 <button

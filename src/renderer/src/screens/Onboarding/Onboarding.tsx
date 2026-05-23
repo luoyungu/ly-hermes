@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Download, Check, ChevronRight, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react'
+import { Download, Check, ChevronRight, Eye, EyeOff, AlertCircle, Loader2, Server, Monitor } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
+import loginBg from '../../assets/login-bg.jpg'
 import { PROVIDER_PRESETS, PROVIDER_API_KEY_MAP } from '../../shared/employee-shared'
 import { showToast } from '../../App'
 import WindowControls from '../../components/WindowControls'
+
+import type { DeploymentMode } from '../../../../preload/index'
 
 interface InstallProgress {
   step: number
@@ -17,7 +20,7 @@ interface OnboardingProps {
   onComplete: () => void
 }
 
-type Step = 'install' | 'apikey' | 'password'
+type Step = 'mode' | 'install' | 'apikey' | 'remote' | 'password'
 
 const STAGE_LABELS = [
   '检查 Python',
@@ -29,7 +32,8 @@ const STAGE_LABELS = [
 ]
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState<Step>('install')
+  const [step, setStep] = useState<Step>('mode')
+  const [deploymentMode, setDeploymentMode] = useState<DeploymentMode | null>(null)
   const [installStatus, setInstallStatus] = useState<'checking' | 'not-installed' | 'installing' | 'installed' | 'error'>('checking')
   const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null)
   const [installLog, setInstallLog] = useState<string[]>([])
@@ -46,9 +50,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const [settingUp, setSettingUp] = useState(false)
   const [setupError, setSetupError] = useState('')
 
+  const [remoteName, setRemoteName] = useState('')
+  const [remoteHost, setRemoteHost] = useState('')
+  const [remotePort, setRemotePort] = useState(8787)
+  const [remoteToken, setRemoteToken] = useState('')
+  const [remoteTesting, setRemoteTesting] = useState(false)
+  const [remoteError, setRemoteError] = useState('')
+
   useEffect(() => {
-    checkInstall()
-  }, [])
+    if (step === 'install') {
+      checkInstall()
+    }
+  }, [step])
 
   useEffect(() => {
     const unsub = window.hermesAPI.onInstallProgress((p) => {
@@ -130,6 +143,42 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     }
   }, [apiKey, modelId, provider])
 
+  const handleSelectMode = useCallback(async (mode: DeploymentMode) => {
+    setDeploymentMode(mode)
+    await window.hermesAPI.setDeploymentMode(mode)
+    if (mode === 'local') {
+      setStep('install')
+    } else {
+      setStep('remote')
+    }
+  }, [])
+
+  const handleSaveRemote = useCallback(async () => {
+    if (!remoteHost.trim() || !remoteToken.trim()) {
+      setRemoteError('请填写主机地址和 API Token')
+      return
+    }
+    setRemoteTesting(true)
+    setRemoteError('')
+    try {
+      const result = await window.hermesAPI.saveRemoteConnection({
+        name: remoteName.trim() || '远程节点',
+        host: remoteHost.trim(),
+        port: remotePort || 8787,
+        api_token: remoteToken.trim(),
+      })
+      if (result.success) {
+        setStep('password')
+      } else {
+        setRemoteError(result.error || '连接失败')
+      }
+    } catch (e: unknown) {
+      setRemoteError((e as Error).message || '连接失败')
+    } finally {
+      setRemoteTesting(false)
+    }
+  }, [remoteHost, remoteName, remotePort, remoteToken])
+
   const handleSetupPassword = useCallback(async () => {
     if (password.length < 4) return
     if (password !== confirmPassword) return
@@ -149,42 +198,108 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     }
   }, [password, confirmPassword, onComplete])
 
-  const currentStepIndex = step === 'install' ? 0 : step === 'apikey' ? 1 : 2
+  const localSteps: Step[] = ['install', 'apikey', 'password']
+  const clientSteps: Step[] = ['remote', 'password']
+  const activeSteps = deploymentMode === 'client_only' ? clientSteps : localSteps
+  const currentStepIndex = step === 'mode'
+    ? -1
+    : activeSteps.indexOf(step)
+
   const installTotalSteps = installProgress?.totalSteps || STAGE_LABELS.length
   const selectedPreset = PROVIDER_PRESETS.find(p => p.id === provider)
   const selectedPresetModels = selectedPreset?.models || []
   const modelSelectValue = selectedPresetModels.some(m => m.id === modelId) ? modelId : '_custom'
   const isCustomModelId = modelSelectValue === '_custom'
 
+  const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
+  const isWindowsElectron = isElectron && navigator.userAgent.includes('Windows')
+
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
-      <div className="drag-region absolute left-0 right-0 top-0 h-10 z-40" />
+    <div
+      data-mode="light"
+      className="fixed inset-0 flex items-center justify-center overflow-hidden"
+      style={{ background: 'var(--bg-primary)' }}
+    >
+      <img
+        src={loginBg}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+        style={{ filter: 'brightness(0.92) saturate(0.95)' }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, rgba(245,245,247,0.75) 100%), radial-gradient(ellipse 80% 60% at 50% 40%, rgba(124,106,239,0.08), transparent 70%)',
+        }}
+      />
+      {isWindowsElectron && <div className="drag-region absolute left-0 right-0 top-0 h-10 z-40" />}
+      {isWindowsElectron && (
       <div className="absolute top-0 right-0 z-50" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <WindowControls />
       </div>
-      <div className="w-full max-w-[480px] mx-4">
+      )}
+      <div className="relative w-full max-w-[480px] mx-4 animate-slide-up">
         <div className="text-center mb-8">
-          <img src={logoImg} alt="落云.Hermes" className="block mx-auto mb-3 w-24 h-24 rounded-2xl" style={{ filter: 'drop-shadow(0 0 24px rgba(124,106,239,0.3))' }} />
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">欢迎使用 落云.Hermes</h1>
+          <div className="mx-auto mb-4 w-24 h-24 rounded-2xl overflow-hidden" style={{ boxShadow: '0 8px 40px rgba(124,106,239,0.18), 0 2px 8px rgba(0,0,0,0.06)' }}>
+            <img src={logoImg} alt="落云.Hermes" className="w-full h-full object-cover" />
+          </div>
+          <h1 className="text-2xl font-bold text-accent-gradient" style={{ letterSpacing: '-0.5px' }}>欢迎使用 落云.Hermes</h1>
           <p className="text-sm text-[var(--text-secondary)] mt-2">让我们完成初始设置，开始你的 AI 之旅</p>
         </div>
 
-        <div className="flex items-center justify-center gap-2 mb-8">
-          {(['install', 'apikey', 'password'] as Step[]).map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
-                i < currentStepIndex ? 'bg-[var(--accent)] text-white' :
-                i === currentStepIndex ? 'bg-[var(--accent)] text-white ring-4 ring-[var(--accent-glow)]' :
-                'bg-[var(--bg-surface)] text-[var(--text-dim)] border border-[var(--border)]'
-              }`}>
-                {i < currentStepIndex ? <Check size={14} /> : i + 1}
+        {step !== 'mode' && (
+          <div className="flex items-center justify-center gap-2 mb-8">
+            {activeSteps.map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
+                  i < currentStepIndex ? 'bg-[var(--accent)] text-white' :
+                  i === currentStepIndex ? 'bg-[var(--accent)] text-white ring-4 ring-[var(--accent-glow)]' :
+                  'bg-[var(--bg-surface)] text-[var(--text-dim)] border border-[var(--border)]'
+                }`}>
+                  {i < currentStepIndex ? <Check size={14} /> : i + 1}
+                </div>
+                {i < activeSteps.length - 1 && <div className={`w-8 h-0.5 rounded ${i < currentStepIndex ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'}`} />}
               </div>
-              {i < 2 && <div className={`w-8 h-0.5 rounded ${i < currentStepIndex ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'}`} />}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
-        <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-6 min-h-[320px] flex flex-col">
+        <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-xl)] p-6 min-h-[320px] flex flex-col" style={{
+          boxShadow: '0 16px 64px rgba(0,0,0,0.08)'
+        }}>
+          {step === 'mode' && (
+            <>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">选择使用方式</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">本机运行 AI 员工，或连接远程 Hermes 节点</p>
+              <div className="flex-1 flex flex-col gap-3">
+                <button
+                  onClick={() => handleSelectMode('local')}
+                  className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-left cursor-pointer hover:border-[var(--accent)] transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-[var(--accent-glow)] flex items-center justify-center shrink-0">
+                    <Monitor size={22} className="text-[var(--accent)]" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">本机模式</div>
+                    <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">在本机安装并运行 Hermes Agent，可管理 AI 员工，也可开启远程连接供其他客户端访问。</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleSelectMode('client_only')}
+                  className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-left cursor-pointer hover:border-[var(--accent)] transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-[var(--accent-glow)] flex items-center justify-center shrink-0">
+                    <Server size={22} className="text-[var(--accent)]" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">远程客户端</div>
+                    <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">仅作为客户端连接一台远程 Hermes 节点，无需在本机安装 Agent。</p>
+                  </div>
+                </button>
+              </div>
+            </>
+          )}
+
           {step === 'install' && (
             <>
               <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">安装 Hermes Agent</h2>
@@ -232,11 +347,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                       }`}>{label}</div>
                     ))}
                   </div>
-                  <div ref={logRef} className="flex-1 min-h-[120px] max-h-[160px] overflow-y-auto rounded-lg bg-[rgba(0,0,0,0.3)] p-3 font-mono text-[11px] leading-relaxed">
+                  <div
+                    ref={logRef}
+                    className="flex-1 min-h-[120px] max-h-[160px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3 font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]"
+                  >
                     {installLog.map((line, i) => (
-                      <div key={i} className="text-[var(--text-dim)]">{line}</div>
+                      <div key={i} className="text-[var(--text-secondary)] break-words">{line}</div>
                     ))}
-                    {!installLog.length && <div className="text-[var(--text-dim)] animate-pulse">等待安装输出...</div>}
+                    {!installLog.length && (
+                      <div className="text-[var(--text-dim)] animate-pulse">
+                        {installProgress?.detail || '等待安装输出...'}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -269,10 +391,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   </button>
                   <div className="mt-2 w-full">
                     <p className="text-xs text-[var(--text-dim)] mb-2 text-center">安装器已记录错误信息，可重试或到设置中查看日志：</p>
-                    <div className="rounded-lg bg-[rgba(0,0,0,0.3)] p-3 font-mono text-[11px] text-[var(--text-dim)] overflow-x-auto whitespace-pre-wrap">
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3 font-mono text-[11px] text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap break-words">
                       {installError || '请检查网络环境后重试安装'}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {installStatus !== 'installing' && (
+                <div className="flex items-center mt-4">
+                  <button onClick={() => setStep('mode')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
+                    上一步
+                  </button>
                 </div>
               )}
             </>
@@ -346,7 +476,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               </div>
 
               <div className="flex items-center justify-between mt-6">
-                <button onClick={() => setStep('install')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
+                <button onClick={() => setStep('mode')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
                   上一步
                 </button>
                 <div className="flex items-center gap-3">
@@ -357,6 +487,74 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     下一步 <ChevronRight size={16} />
                   </button>
                 </div>
+              </div>
+            </>
+          )}
+
+          {step === 'remote' && (
+            <>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">连接远程节点</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">输入远程 Hermes 节点的地址和 API Token</p>
+              <div className="flex-1 flex flex-col gap-4">
+                <div>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">节点名称（可选）</label>
+                  <input
+                    type="text"
+                    value={remoteName}
+                    onChange={(e) => setRemoteName(e.target.value)}
+                    placeholder="我的服务器"
+                    className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">主机地址</label>
+                    <input
+                      type="text"
+                      value={remoteHost}
+                      onChange={(e) => setRemoteHost(e.target.value)}
+                      placeholder="192.168.1.100"
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                  <div className="w-28">
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">端口</label>
+                    <input
+                      type="number"
+                      value={remotePort}
+                      onChange={(e) => setRemotePort(Number(e.target.value) || 8787)}
+                      min={1024}
+                      max={65535}
+                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)]"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">API Token</label>
+                  <input
+                    type="password"
+                    value={remoteToken}
+                    onChange={(e) => setRemoteToken(e.target.value)}
+                    placeholder="远程节点提供的 Token"
+                    className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
+                  />
+                </div>
+                {remoteError && (
+                  <p className="text-xs text-[var(--danger)]">{remoteError}</p>
+                )}
+              </div>
+              <div className="flex items-center justify-between mt-6">
+                <button onClick={() => setStep('mode')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
+                  上一步
+                </button>
+                <button
+                  onClick={handleSaveRemote}
+                  disabled={remoteTesting || !remoteHost.trim() || !remoteToken.trim()}
+                  className="flex items-center gap-2 rounded-xl bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {remoteTesting ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {remoteTesting ? '连接中...' : '测试并继续'} <ChevronRight size={16} />
+                </button>
               </div>
             </>
           )}
@@ -402,7 +600,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               </div>
 
               <div className="flex items-center justify-between mt-6">
-                <button onClick={() => setStep('apikey')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
+                <button
+                  onClick={() => setStep(deploymentMode === 'client_only' ? 'remote' : 'apikey')}
+                  className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors"
+                >
                   上一步
                 </button>
                 <button

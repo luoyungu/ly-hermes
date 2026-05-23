@@ -15,11 +15,19 @@ interface ThemeContextValue {
   setUiTheme: (theme: UiTheme) => void
 }
 
+function getSystemMode(): ResolvedMode {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function resolveMode(mode: ThemeMode): ResolvedMode {
+  return mode === 'auto' ? getSystemMode() : mode
+}
+
 const ThemeContext = createContext<ThemeContextValue>({
-  mode: 'dark',
+  mode: 'light',
   accent: 'violet',
   uiTheme: DEFAULT_UI_THEME,
-  resolvedMode: 'dark',
+  resolvedMode: 'light',
   lexicon: getThemePreset(DEFAULT_UI_THEME).lexicon,
   setMode: () => {},
   setAccent: () => {},
@@ -30,14 +38,6 @@ export function useTheme(): ThemeContextValue {
   return useContext(ThemeContext)
 }
 
-function getSystemMode(): ResolvedMode {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-function resolveMode(mode: ThemeMode): ResolvedMode {
-  return mode === 'auto' ? getSystemMode() : mode
-}
-
 function applyToDOM(resolvedMode: ResolvedMode, accent: AccentColor, uiTheme: UiTheme): void {
   document.documentElement.setAttribute('data-mode', resolvedMode)
   document.documentElement.setAttribute('data-accent', accent)
@@ -45,10 +45,10 @@ function applyToDOM(resolvedMode: ResolvedMode, accent: AccentColor, uiTheme: Ui
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const [mode, setModeState] = useState<ThemeMode>('dark')
+  const [mode, setModeState] = useState<ThemeMode>('light')
   const [accent, setAccentState] = useState<AccentColor>('violet')
   const [uiTheme, setUiThemeState] = useState<UiTheme>(DEFAULT_UI_THEME)
-  const [resolvedMode, setResolvedMode] = useState<ResolvedMode>('dark')
+  const [resolvedMode, setResolvedMode] = useState<ResolvedMode>('light')
   const lexicon = getThemePreset(uiTheme).lexicon
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
       window.hermesAPI.getAccentColor(),
       window.hermesAPI.getUiTheme()
     ]).then(([savedMode, savedAccent, savedUiTheme]) => {
-      const m = (savedMode || 'dark') as ThemeMode
+      const m = (savedMode || 'light') as ThemeMode
       const a = (savedAccent || 'violet') as AccentColor
       const t = (savedUiTheme || DEFAULT_UI_THEME) as UiTheme
       setModeState(m)
@@ -67,7 +67,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
       setResolvedMode(r)
       applyToDOM(r, a, t)
     }).catch(() => {
-      applyToDOM('dark', 'violet', DEFAULT_UI_THEME)
+      applyToDOM('light', 'violet', DEFAULT_UI_THEME)
     })
   }, [])
 

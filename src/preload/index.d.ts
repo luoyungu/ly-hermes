@@ -221,7 +221,27 @@ export interface DesktopWebServerStatus {
   running: boolean
   port: number
   url: string
+  bindHost?: string
+  remoteEnabled?: boolean
+  apiToken?: string
   error?: string
+}
+
+export type DeploymentMode = 'local' | 'client_only'
+
+export interface RemoteConnection {
+  name: string
+  host: string
+  port: number
+  api_token: string
+  last_seen_at?: string
+}
+
+export interface RemoteServerConfig {
+  enabled: boolean
+  bind_host: string
+  port: number
+  api_token: string
 }
 
 interface HermesAPI {
@@ -352,6 +372,28 @@ interface HermesAPI {
   setRuntimeConfig: (runtime: Record<string, unknown>) => Promise<{ success: boolean }>
   getDesktopWebServerStatus: () => Promise<DesktopWebServerStatus>
   setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }) => Promise<DesktopWebServerStatus>
+  getDeploymentMode: () => Promise<DeploymentMode | null>
+  setDeploymentMode: (mode: DeploymentMode) => Promise<{ success: boolean; mode: DeploymentMode }>
+  switchToLocalMode: () => Promise<{ success: boolean }>
+  getRemoteConnection: () => Promise<RemoteConnection>
+  saveRemoteConnection: (connection: RemoteConnection) => Promise<{ success: boolean; error?: string; remote_enabled?: boolean }>
+  testRemoteConnection: (connection?: RemoteConnection) => Promise<{ success: boolean; error?: string; remote_enabled?: boolean }>
+  getRemoteConnectionStatus: () => Promise<{
+    connected: boolean
+    error?: string
+    last_seen_at?: string
+    connection: RemoteConnection
+  } | null>
+  refreshRemoteConnectionStatus: () => Promise<{
+    connected: boolean
+    error?: string
+    last_seen_at?: string
+    connection: RemoteConnection
+  } | null>
+  clearRemoteConnection: () => Promise<{ success: boolean }>
+  getRemoteServerConfig: () => Promise<RemoteServerConfig>
+  setRemoteServerConfig: (config: Partial<RemoteServerConfig>) => Promise<DesktopWebServerStatus>
+  rotateRemoteServerToken: () => Promise<{ api_token: string; status: DesktopWebServerStatus }>
   restartAllEngines: () => Promise<{ success: boolean; restarted: number; total?: number }>
   saveWallpaperFile: (dataUrl: string) => Promise<{ success: boolean; path?: string; error?: string }>
   getHermesVersion: () => Promise<string | null>
@@ -379,6 +421,12 @@ interface HermesAPI {
   onNewConversation: (callback: (data: { employeeId: string; sessionId: string }) => void) => () => void
   onCronSessionCreated: (callback: (data: { profileName: string; sessionId: string; title: string; startedAt: number }) => void) => () => void
   onSessionUpdated: (callback: (data: { profileName: string; sessionId: string; source?: string; title?: string; startedAt?: number; lastMessageAt?: number; messageCount?: number }) => void) => () => void
+  onRemoteConnectionStatusChanged: (callback: (data: {
+    connected: boolean
+    error?: string
+    last_seen_at?: string
+    connection: RemoteConnection
+  }) => void) => () => void
   onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void) => () => void
 
   windowMinimize: () => Promise<void>

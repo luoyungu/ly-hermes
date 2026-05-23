@@ -217,7 +217,27 @@ export interface DesktopWebServerStatus {
   running: boolean
   port: number
   url: string
+  bindHost?: string
+  remoteEnabled?: boolean
+  apiToken?: string
   error?: string
+}
+
+export type DeploymentMode = 'local' | 'client_only'
+
+export interface RemoteConnection {
+  name: string
+  host: string
+  port: number
+  api_token: string
+  last_seen_at?: string
+}
+
+export interface RemoteServerConfig {
+  enabled: boolean
+  bind_host: string
+  port: number
+  api_token: string
 }
 
 export type ThemeMode = 'dark' | 'light' | 'auto'
@@ -573,6 +593,50 @@ const hermesAPI = {
   setDesktopWebServerConfig: (config: { autoStart: boolean; port?: number }): Promise<DesktopWebServerStatus> =>
     ipcRenderer.invoke('desktop-web-server:set-config', config),
 
+  getDeploymentMode: (): Promise<DeploymentMode | null> =>
+    ipcRenderer.invoke('deployment:get-mode'),
+
+  setDeploymentMode: (mode: DeploymentMode): Promise<{ success: boolean; mode: DeploymentMode }> =>
+    ipcRenderer.invoke('deployment:set-mode', mode),
+
+  switchToLocalMode: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('deployment:switch-to-local'),
+
+  getRemoteConnection: (): Promise<RemoteConnection> =>
+    ipcRenderer.invoke('remote-connection:get'),
+
+  saveRemoteConnection: (connection: RemoteConnection): Promise<{ success: boolean; error?: string; remote_enabled?: boolean }> =>
+    ipcRenderer.invoke('remote-connection:save', connection),
+
+  testRemoteConnection: (connection?: RemoteConnection): Promise<{ success: boolean; error?: string; remote_enabled?: boolean }> =>
+    ipcRenderer.invoke('remote-connection:test', connection),
+
+  getRemoteConnectionStatus: (): Promise<{
+    connected: boolean
+    error?: string
+    last_seen_at?: string
+    connection: RemoteConnection
+  } | null> => ipcRenderer.invoke('remote-connection:get-status'),
+
+  refreshRemoteConnectionStatus: (): Promise<{
+    connected: boolean
+    error?: string
+    last_seen_at?: string
+    connection: RemoteConnection
+  } | null> => ipcRenderer.invoke('remote-connection:refresh-status'),
+
+  clearRemoteConnection: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('remote-connection:clear'),
+
+  getRemoteServerConfig: (): Promise<RemoteServerConfig> =>
+    ipcRenderer.invoke('remote-server:get-config'),
+
+  setRemoteServerConfig: (config: Partial<RemoteServerConfig>): Promise<DesktopWebServerStatus> =>
+    ipcRenderer.invoke('remote-server:set-config', config),
+
+  rotateRemoteServerToken: (): Promise<{ api_token: string; status: DesktopWebServerStatus }> =>
+    ipcRenderer.invoke('remote-server:rotate-token'),
+
   saveWallpaperFile: (dataUrl: string): Promise<{ success: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke('save-wallpaper-file', dataUrl),
 
@@ -710,6 +774,18 @@ const hermesAPI = {
       callback(data as { profileName: string; sessionId: string; source?: string; title?: string; startedAt?: number; lastMessageAt?: number; messageCount?: number })
     ipcRenderer.on('session-updated', handler)
     return () => ipcRenderer.removeListener('session-updated', handler)
+  },
+
+  onRemoteConnectionStatusChanged: (callback: (data: {
+    connected: boolean
+    error?: string
+    last_seen_at?: string
+    connection: RemoteConnection
+  }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown): void =>
+      callback(data as { connected: boolean; error?: string; last_seen_at?: string; connection: RemoteConnection })
+    ipcRenderer.on('remote-connection-status-changed', handler)
+    return () => ipcRenderer.removeListener('remote-connection-status-changed', handler)
   },
 
   onUpdateStatus: (callback: (data: { status: string; version?: string; percent?: number; error?: string }) => void): (() => void) => {

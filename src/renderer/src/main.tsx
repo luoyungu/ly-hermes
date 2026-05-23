@@ -1,10 +1,13 @@
 import './assets/main.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { HermesAPIProvider } from './components/HermesAPIProvider'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <HermesAPIProvider>
+      <App />
+    </HermesAPIProvider>
   </StrictMode>
 )

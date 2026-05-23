@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow, app } from "electron";
 import { autoUpdater } from "electron-updater";
+import { webIpc } from "./ipc/web-api-ipc";
 
 let _getMainWindow: (() => BrowserWindow | null) | null = null;
 
@@ -66,9 +67,7 @@ export function initUpdater(getMainWindow: () => BrowserWindow | null): void {
     setImmediate(() => autoUpdater.quitAndInstall());
   });
 
-  ipcMain.handle("get-app-version", () => {
-    return app.getVersion();
-  });
+  webIpc("get-app-version", () => app.getVersion());
 }
 
 function sendToRenderer(channel: string, data: unknown): void {

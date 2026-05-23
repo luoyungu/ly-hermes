@@ -1,7 +1,24 @@
+import { type BrowserWindow } from "electron";
 import type http from "http";
-import { ipcMain } from "electron";
 import { createHermesServer } from "../server";
 import { loadAppConfig, saveAppConfig } from "./config";
+import { webIpc } from "./ipc/web-api-ipc";
+import {
+  getRemoteServerConfig,
+  getRemoteServerListenConfig,
+  isRemoteApiEnabled,
+  rotateRemoteServerApiToken,
+  saveRemoteServerConfig,
+  type RemoteConnection,
+  type RemoteServerConfig,
+  getDeploymentMode,
+  setDeploymentMode,
+  getRemoteConnection,
+  saveRemoteConnection,
+  clearRemoteConnection,
+  type DeploymentMode,
+} from "./deployment";
+import { testRemoteConnection } from "../core/remote/remote-client";
 import { logError, logInfo } from "./logger";
 
 export interface DesktopWebServerStatus {
@@ -9,6 +26,9 @@ export interface DesktopWebServerStatus {
   running: boolean;
   port: number;
   url: string;
+  bindHost: string;
+  remoteEnabled: boolean;
+  apiToken?: string;
   error?: string;
 }
 
@@ -16,6 +36,7 @@ const DEFAULT_WEB_SERVER_PORT = 8787;
 
 let server: http.Server | null = null;
 let currentPort = DEFAULT_WEB_SERVER_PORT;
+let currentHost = "127.0.0.1";
 let lastError = "";
 
 function readWebServerConfig(): { autoStart: boolean; port: number } {
@@ -27,9 +48,10 @@ function readWebServerConfig(): { autoStart: boolean; port: number } {
       port: Number(raw?.port || DEFAULT_WEB_SERVER_PORT) || DEFAULT_WEB_SERVER_PORT,
     });
   }
+  const remote = getRemoteServerConfig();
   return {
     autoStart: raw?.auto_start === true,
-    port: Number(raw?.port || DEFAULT_WEB_SERVER_PORT) || DEFAULT_WEB_SERVER_PORT,
+    port: Number(raw?.port || remote.port || DEFAULT_WEB_SERVER_PORT) || DEFAULT_WEB_SERVER_PORT,
   };
 }
 
@@ -43,24 +65,35 @@ function writeWebServerConfig(next: { autoStart: boolean; port: number }): void 
     port: next.port,
   };
   saveAppConfig(config);
+  const remote = getRemoteServerConfig();
+  remote.port = next.port;
+  saveRemoteServerConfig(remote);
 }
 
 export function getDesktopWebServerStatus(): DesktopWebServerStatus {
   const config = readWebServerConfig();
-  const port = server ? currentPort : config.port;
+  const remote = getRemoteServerConfig();
+  const listen = getRemoteServerListenConfig();
+  const port = server ? currentPort : listen.port;
+  const host = server ? currentHost : listen.host;
+  const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
   return {
     enabled: config.autoStart,
     running: !!server,
     port,
-    url: `http://127.0.0.1:${port}/embed`,
+    bindHost: host,
+    remoteEnabled: remote.enabled,
+    apiToken: remote.enabled ? remote.api_token : undefined,
+    url: `http://${displayHost}:${port}/embed`,
     error: lastError || undefined,
   };
 }
 
 export async function startDesktopWebServer(port?: number): Promise<DesktopWebServerStatus> {
   if (server) return getDesktopWebServerStatus();
-  const config = readWebServerConfig();
-  currentPort = Number(port || config.port || DEFAULT_WEB_SERVER_PORT) || DEFAULT_WEB_SERVER_PORT;
+  const listen = getRemoteServerListenConfig();
+  currentPort = Number(port || listen.port) || DEFAULT_WEB_SERVER_PORT;
+  currentHost = listen.host;
   lastError = "";
   server = createHermesServer();
 
@@ -81,12 +114,16 @@ export async function startDesktopWebServer(port?: number): Promise<DesktopWebSe
     };
     const success = (): void => {
       activeServer.removeListener("error", fail);
-      logInfo("server", "Desktop web server started", { port: currentPort });
+      logInfo("server", "Desktop web server started", {
+        port: currentPort,
+        host: currentHost,
+        remoteEnabled: isRemoteApiEnabled(),
+      });
       resolve(getDesktopWebServerStatus());
     };
     activeServer.once("error", fail);
     activeServer.once("listening", success);
-    activeServer.listen(currentPort, "127.0.0.1");
+    activeServer.listen(currentPort, currentHost);
   });
 }
 
@@ -134,15 +171,16 @@ export async function stopDesktopWebServer(): Promise<DesktopWebServerStatus> {
 export async function applyDesktopWebServerConfig(): Promise<DesktopWebServerStatus> {
   const config = readWebServerConfig();
   if (!config.autoStart) return stopDesktopWebServer();
-  if (server && currentPort !== config.port) {
+  const listen = getRemoteServerListenConfig();
+  if (server && (currentPort !== listen.port || currentHost !== listen.host)) {
     await stopDesktopWebServer();
   }
-  return startDesktopWebServer(config.port);
+  return startDesktopWebServer(listen.port);
 }
 
 export function registerDesktopWebServerIpc(): void {
-  ipcMain.handle("desktop-web-server:get-status", () => getDesktopWebServerStatus());
-  ipcMain.handle(
+  webIpc("desktop-web-server:get-status", () => getDesktopWebServerStatus());
+  webIpc(
     "desktop-web-server:set-config",
     async (_, config: { autoStart: boolean; port?: number }) => {
       writeWebServerConfig({
@@ -152,4 +190,114 @@ export function registerDesktopWebServerIpc(): void {
       return applyDesktopWebServerConfig();
     },
   );
+}
+
+export function registerDeploymentIpc(
+  getMainWindow: () => BrowserWindow | null,
+): void {
+  webIpc("deployment:get-mode", () => getDeploymentMode());
+  webIpc("deployment:set-mode", (_, mode: DeploymentMode) => {
+    setDeploymentMode(mode);
+    return { success: true, mode };
+  });
+
+  webIpc("remote-connection:get", () => getRemoteConnection());
+  webIpc("remote-connection:save", async (_, connection: RemoteConnection) => {
+    saveRemoteConnection(connection);
+    const test = await testRemoteConnection(connection);
+    if (test.success) {
+      saveRemoteConnection({
+        ...connection,
+        last_seen_at: new Date().toISOString(),
+      });
+      const {
+        startRemoteEventBridge,
+        startRemoteConnectionMonitor,
+        notifyRemoteConnectionChanged,
+      } = await import("./ipc/remote-events");
+      startRemoteEventBridge(getMainWindow);
+      startRemoteConnectionMonitor(getMainWindow);
+      notifyRemoteConnectionChanged(getMainWindow);
+    }
+    return test;
+  });
+  webIpc("remote-connection:test", async (_, connection?: RemoteConnection) => {
+    const conn = connection || getRemoteConnection();
+    const result = await testRemoteConnection(conn);
+    if (result.success) {
+      saveRemoteConnection({
+        ...conn,
+        last_seen_at: new Date().toISOString(),
+      });
+      const { notifyRemoteConnectionChanged } = await import("./ipc/remote-events");
+      notifyRemoteConnectionChanged(getMainWindow);
+    }
+    return result;
+  });
+  webIpc("remote-connection:get-status", async () => {
+    const { getRemoteConnectionStatusSnapshot } = await import("./ipc/remote-events");
+    const snapshot = getRemoteConnectionStatusSnapshot();
+    if (!snapshot) return null;
+    return {
+      ...snapshot,
+      connection: getRemoteConnection(),
+    };
+  });
+  webIpc("remote-connection:refresh-status", async () => {
+    const { refreshRemoteConnectionStatus } = await import("./ipc/remote-events");
+    await refreshRemoteConnectionStatus(getMainWindow);
+    const { getRemoteConnectionStatusSnapshot } = await import("./ipc/remote-events");
+    const snapshot = getRemoteConnectionStatusSnapshot();
+    if (!snapshot) return null;
+    return {
+      ...snapshot,
+      connection: getRemoteConnection(),
+    };
+  });
+  webIpc("remote-connection:clear", () => {
+    clearRemoteConnection();
+    return { success: true };
+  });
+
+  webIpc("deployment:switch-to-local", async () => {
+    clearRemoteConnection();
+    setDeploymentMode("local");
+    const { stopRemoteEventBridge, stopRemoteConnectionMonitor } = await import("./ipc/remote-events");
+    stopRemoteEventBridge();
+    stopRemoteConnectionMonitor();
+    return { success: true };
+  });
+
+  webIpc("remote-server:get-config", () => {
+    const config = getRemoteServerConfig();
+    return {
+      enabled: config.enabled,
+      bind_host: config.bind_host,
+      port: config.port,
+      api_token: config.api_token,
+    };
+  });
+  webIpc("remote-server:set-config", async (_, config: Partial<RemoteServerConfig>) => {
+    const current = getRemoteServerConfig();
+    const next: RemoteServerConfig = {
+      enabled: config.enabled === true,
+      bind_host: String(config.bind_host || current.bind_host || "0.0.0.0"),
+      port: Number(config.port || current.port) || DEFAULT_WEB_SERVER_PORT,
+      api_token: String(config.api_token || current.api_token),
+    };
+    saveRemoteServerConfig(next);
+    writeWebServerConfig({
+      autoStart: readWebServerConfig().autoStart,
+      port: next.port,
+    });
+    return applyDesktopWebServerConfig();
+  });
+  webIpc("remote-server:rotate-token", async () => {
+    const config = rotateRemoteServerApiToken();
+    await applyDesktopWebServerConfig();
+    return {
+      api_token: config.api_token,
+      status: getDesktopWebServerStatus(),
+    };
+  });
 }

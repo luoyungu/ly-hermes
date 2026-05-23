@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { Minus, Square, X } from 'lucide-react'
 
 const isWindows = navigator.userAgent.includes('Windows')
+const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
 
 export default function WindowControls(): React.ReactElement | null {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
-    if (!isWindows) return
+    if (!isWindows || !isElectron) return
     window.hermesAPI.windowIsMaximized().then(setIsMaximized).catch(() => {})
     const interval = setInterval(() => {
       window.hermesAPI.windowIsMaximized().then(setIsMaximized).catch(() => {})
@@ -15,7 +16,7 @@ export default function WindowControls(): React.ReactElement | null {
     return () => clearInterval(interval)
   }, [])
 
-  if (!isWindows) return null
+  if (!isWindows || !isElectron) return null
 
   return (
     <div className="flex items-center shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
