@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>落云.Hermes - AI 员工管理平台</title>
+    <meta
+      name="description"
+      content="落云.Hermes 是面向中文团队的 Hermes Agent 桌面工作台，提供 AI 员工管理、定时任务、远程节点、Web 嵌入和飞书/微信/钉钉协作入口。"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header" data-elevated="false">
+      <a class="brand" href="#top" aria-label="落云.Hermes 首页">
+        <img src="../src/renderer/src/assets/logo.png" alt="" />
+        <span>落云.Hermes</span>
+      </a>
+      <nav class="desktop-nav" aria-label="主导航">
+        <a href="#platform">平台</a>
+        <a href="#advantages">优势</a>
+        <a href="#compare">对照</a>
+        <a href="#usecases">场景</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="header-action" href="#download">获取桌面端</a>
+      <button class="menu-button" type="button" aria-label="打开导航" aria-expanded="false">
+        <span></span>
+        <span></span>
+      </button>
+    </header>
+
+    <div class="mobile-nav" hidden>
+      <a href="#platform">平台</a>
+      <a href="#advantages">优势</a>
+      <a href="#compare">对照</a>
+      <a href="#usecases">场景</a>
+      <a href="#faq">FAQ</a>
+      <a href="#download">获取桌面端</a>
+    </div>
+
+    <main id="top">
+      <section class="hero">
+        <img class="hero-bg" src="../src/renderer/src/assets/login-bg.jpg" alt="" />
+        <div class="hero-wash"></div>
+        <div class="hero-content reveal">
+          <p class="eyebrow">Hermes Agent 的中文桌面工作台</p>
+          <h1>让自我成长的 Agent，成为一支可管理的 AI 员工团队。</h1>
+          <p class="hero-copy">
+            落云.Hermes 基于 Nous Research Hermes Agent 的记忆、技能、自我改进和工具调用能力，
+            为中文用户提供桌面安装、员工编排、远程节点、自动交付和办公协作入口。
+          </p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#download">下载体验</a>
+            <a class="secondary-action" href="#platform">浏览产品</a>
+          </div>
+        </div>
+        <div class="hero-product reveal" aria-label="落云.Hermes 产品预览">
+          <div class="product-window">
+            <div class="window-bar">
+              <span></span>
+              <span></span>
+              <span></span>
+              <strong>AI 员工控制台</strong>
+            </div>
+            <img src="../screenshots/01-after-login.png" alt="落云.Hermes 桌面端界面截图" />
+          </div>
+          <div class="status-tile tile-a">
+            <span>员工在线</span>
+            <strong>4</strong>
+            <small>研究、客服、数据、运维</small>
+          </div>
+          <div class="status-tile tile-b">
+            <span>下一次交付</span>
+            <strong>09:00</strong>
+            <small>日报发送到飞书</small>
+          </div>
+        </div>
+        <div class="hero-strip">
+          <div>
+            <strong>Local</strong>
+            <span>本机一键安装 Hermes Agent</span>
+          </div>
+          <div>
+            <strong>Remote</strong>
+            <span>桌面端连接远程节点</span>
+          </div>
+          <div>
+            <strong>Office</strong>
+            <span>飞书 / 微信 / 钉钉交付</span>
+          </div>
+          <div>
+            <strong>Embed</strong>
+            <span>员工 Web 访问入口</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="platform" class="section platform-section">
+        <div class="section-shell">
+          <div class="section-heading narrow reveal">
+            <p class="section-kicker">一个控制面</p>
+            <h2>把 Hermes Agent 的底层能力，组织成可运营的桌面产品。</h2>
+            <p>
+              官方 Hermes Agent 像一个强大的自我进化引擎。落云.Hermes 在它之上提供图形化控制台，
+              让用户真正看见员工、任务、渠道、模型、用量和远程连接状态。
+            </p>
+          </div>
+          <div class="platform-grid">
+            <article class="platform-card large reveal">
+              <div>
+                <p class="card-kicker">员工管理</p>
+                <h3>每个 profile 都是一个岗位明确的 AI 员工。</h3>
+                <p>创建员工、设置角色、写入人格、启用工具、安装技能、配置模型，并独立管理飞书/微信/钉钉凭据。</p>
+              </div>
+              <div class="employee-stack" aria-hidden="true">
+                <span><b>数</b> 数据分析师 <em>运行中</em></span>
+                <span><b>研</b> 研究助理 <em>检索中</em></span>
+                <span><b>客</b> 客服助手 <em>在线</em></span>
+              </div>
+            </article>
+            <article class="platform-card reveal">
+              <p class="card-kicker">远程节点</p>
+              <h3>桌面轻客户端，服务器长运行。</h3>
+              <p>client_only 模式通过 API Token 连接远程节点，适合把 Agent 放在 VPS、工作站或办公室主机。</p>
+            </article>
+            <article class="platform-card reveal">
+              <p class="card-kicker">Web 嵌入</p>
+              <h3>把指定员工交给外部用户访问。</h3>
+              <p>为员工生成带 Token 的 Web 入口，用于客服、内部问答、知识库助手和轻量客户交互。</p>
+            </article>
+            <article class="platform-card wide reveal">
+              <p class="card-kicker">定时交付</p>
+              <h3>让 AI 员工按节奏工作，而不是等你打开聊天框。</h3>
+              <div class="schedule-row">
+                <span>09:00 日报汇总</span>
+                <span>18:00 项目复盘</span>
+                <span>每 30 分钟巡检</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="advantages" class="section advantage-section">
+        <div class="section-shell split-shell">
+          <div class="sticky-copy reveal">
+            <p class="section-kicker">为什么是落云.Hermes</p>
+            <h2>不是替代官方 Hermes，而是把它变成更容易交付的中文工作台。</h2>
+            <p>
+              你的项目优势不在“又做了一个聊天 UI”，而在于把 Agent 的长期运行能力变成桌面用户可理解、可配置、可观察、可备份的产品体验。
+            </p>
+          </div>
+          <div class="advantage-list">
+            <article class="advantage-item reveal">
+              <span>01</span>
+              <div>
+                <h3>安装、诊断、更新一体化</h3>
+                <p>把 Python、Git、Hermes Agent 仓库、虚拟环境、依赖安装和引擎版本检测收进引导流程，降低非命令行用户的进入门槛。</p>
+              </div>
+            </article>
+            <article class="advantage-item reveal">
+              <span>02</span>
+              <div>
+                <h3>多员工可视化运营</h3>
+                <p>员工不只是会话列表，而是拥有名字、头像、角色、人格、工具、技能、模型和 Web 访问权限的独立工作单元。</p>
+              </div>
+            </article>
+            <article class="advantage-item reveal">
+              <span>03</span>
+              <div>
+                <h3>面向中文办公环境</h3>
+                <p>飞书、微信、钉钉配置归属到员工 profile，日程结果可以外发到对应协作渠道，更贴近国内团队的真实工作流。</p>
+              </div>
+            </article>
+            <article class="advantage-item reveal">
+              <span>04</span>
+              <div>
+                <h3>跨员工日程看板</h3>
+                <p>集中查看所有员工的 cron 任务、启停状态、下一次运行、上次结果和投递错误，把自动化任务从黑盒变成运营面板。</p>
+              </div>
+            </article>
+            <article class="advantage-item reveal">
+              <span>05</span>
+              <div>
+                <h3>成本与数据可追踪</h3>
+                <p>Token 统计按模型、员工和日期聚合，配合备份/导入能力，让长期运行的 AI 系统更容易复盘和迁移。</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section experience-section">
+        <div class="section-shell">
+          <div class="experience-layout">
+            <div class="experience-copy reveal">
+              <p class="section-kicker">产品体验</p>
+              <h2>从“会用 Hermes”到“能管理一个 Agent 团队”。</h2>
+              <p>
+                官网需要让用户马上理解：落云.Hermes 的对象不是一段对话，而是持续工作的 AI 员工，以及围绕员工产生的模型、技能、任务、渠道和数据。
+              </p>
+            </div>
+            <div class="experience-board reveal">
+              <div class="board-column">
+                <span>模型配置</span>
+                <strong>DeepSeek / OpenAI Compatible / 自定义 Base URL</strong>
+              </div>
+              <div class="board-column">
+                <span>员工技能</span>
+                <strong>工具启用、技能库安装、人格文件编辑</strong>
+              </div>
+              <div class="board-column">
+                <span>协作渠道</span>
+                <strong>飞书机器人、微信接入、钉钉机器人</strong>
+              </div>
+              <div class="board-column">
+                <span>数据治理</span>
+                <strong>Token 统计、备份导出、恢复导入</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="compare" class="section compare-section">
+        <div class="section-shell">
+          <div class="section-heading reveal">
+            <p class="section-kicker">生态定位</p>
+            <h2>官方引擎、Web 客户端、落云.Hermes，解决的是不同层级的问题。</h2>
+          </div>
+          <div class="compare-grid">
+            <article class="compare-card reveal">
+              <span>Official</span>
+              <h3>Hermes Agent</h3>
+              <p>自我改进的开源 Agent 引擎，重点是记忆、技能、工具、Gateway、多模型与终端/云后端。</p>
+              <ul>
+                <li>CLI / Gateway 优先</li>
+                <li>强 Agent 能力</li>
+                <li>配置更偏工程化</li>
+              </ul>
+            </article>
+            <article class="compare-card reveal">
+              <span>Community</span>
+              <h3>常见 Web 客户端</h3>
+              <p>解决“在浏览器里聊天”和部分仪表盘问题，适合远程访问、会话延续和轻量控制。</p>
+              <ul>
+                <li>Web/PWA 入口</li>
+                <li>会话和聊天体验</li>
+                <li>依赖已有服务端环境</li>
+              </ul>
+            </article>
+            <article class="compare-card featured reveal">
+              <span>Luoyun</span>
+              <h3>落云.Hermes</h3>
+              <p>面向中文桌面用户的 AI 员工管理平台，把安装、员工、日程、远程、渠道和数据治理放在同一个工作台。</p>
+              <ul>
+                <li>本机 / 远程双模式</li>
+                <li>AI 员工运营视角</li>
+                <li>飞书、微信、钉钉优先</li>
+              </ul>
+            </article>
+          </div>
+          <p class="source-note">
+            官方 Hermes Agent 信息参考 Nous Research 官方仓库与官方文档；落云.Hermes 能力来自当前项目源码。
+          </p>
+        </div>
+      </section>
+
+      <section id="usecases" class="section usecase-section">
+        <div class="section-shell">
+          <div class="section-heading reveal">
+            <p class="section-kicker">落地场景</p>
+            <h2>适合需要长期运行、可复用、可交付的 AI 工作流。</h2>
+          </div>
+          <div class="usecase-grid">
+            <article class="usecase-card reveal">
+              <span>Knowledge</span>
+              <h3>个人知识助理</h3>
+              <p>让研究、资料整理、代码辅助和复盘沉淀到长期记忆与技能体系里。</p>
+            </article>
+            <article class="usecase-card reveal">
+              <span>Ops</span>
+              <h3>团队日报与巡检</h3>
+              <p>让 AI 员工按时间汇总数据、跟进项目、检查异常并自动推送到办公平台。</p>
+            </article>
+            <article class="usecase-card reveal">
+              <span>Service</span>
+              <h3>客服与内部问答</h3>
+              <p>通过 Web 嵌入入口开放指定员工，保留 Token 访问控制和独立员工上下文。</p>
+            </article>
+            <article class="usecase-card reveal">
+              <span>Remote</span>
+              <h3>远程 AI 节点</h3>
+              <p>把 Agent 放在服务器长期运行，桌面端只负责连接、配置、观察和调度。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" class="section faq-section">
+        <div class="section-shell faq-shell">
+          <div class="section-heading reveal">
+            <p class="section-kicker">FAQ</p>
+            <h2>官网上用户最关心的几个问题。</h2>
+          </div>
+          <div class="faq-list">
+            <details class="reveal" open>
+              <summary>落云.Hermes 和官方 Hermes Agent 是什么关系？</summary>
+              <p>落云.Hermes 是基于 Hermes Agent 生态构建的桌面工作台，重点是图形化安装、员工管理、远程控制、渠道集成和数据治理。</p>
+            </details>
+            <details class="reveal">
+              <summary>它是不是只能在本机使用？</summary>
+              <p>不是。项目源码支持本机模式和 client_only 远程客户端模式，可通过 API Token 连接远程 Hermes 节点。</p>
+            </details>
+            <details class="reveal">
+              <summary>为什么强调 AI 员工？</summary>
+              <p>Hermes profile 本身适合承载不同角色。落云.Hermes 将 profile 产品化为员工，让角色、人格、技能、模型、渠道和任务都能分开管理。</p>
+            </details>
+            <details class="reveal">
+              <summary>适合个人还是团队？</summary>
+              <p>个人可以把它作为长期助理工作台；团队则可以用多员工、日程和办公渠道集成来承载日报、巡检、客服、研究等持续工作。</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="download" class="download-section">
+        <div class="download-bg"></div>
+        <div class="section-shell download-shell reveal">
+          <div>
+            <p class="section-kicker">开始使用</p>
+            <h2>给 Hermes Agent 一个真正面向日常工作的桌面控制台。</h2>
+            <p>
+              正式发布时，可以把这里接到 GitHub Release、内测表单或你的自有下载页。
+              当前版本保留本地构建产物入口，方便你在项目内验证官网链路。
+            </p>
+          </div>
+          <div class="download-actions">
+            <a class="primary-action" href="../dist/">查看构建产物</a>
+            <a class="secondary-action" href="./README.md">网站说明</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-shell">
+        <div>
+          <strong>落云.Hermes</strong>
+          <p>AI 员工管理平台，基于 Hermes Agent 生态构建。</p>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noreferrer">Hermes Agent</a>
+          <a href="https://hermes-agent.nousresearch.com/docs" target="_blank" rel="noreferrer">官方文档</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
