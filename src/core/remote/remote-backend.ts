@@ -189,6 +189,14 @@ class RemoteBackend {
     );
   }
 
+  generateEmployeeSoulDraft(input: Record<string, unknown>) {
+    return this.call<Record<string, unknown>>(
+      "POST",
+      "/api/v1/employees/soul-draft",
+      input,
+    );
+  }
+
   getEmployeeSessions(name: string) {
     return this.call<{ sessions: unknown[] }>(
       "GET",
@@ -269,6 +277,26 @@ class RemoteBackend {
     );
   }
 
+  listMcpServers() {
+    return this.call<Record<string, unknown>>("GET", "/api/v1/tools/mcp");
+  }
+
+  saveMcpServer(input: Record<string, unknown>) {
+    return this.call<Record<string, unknown>>("PUT", "/api/v1/tools/mcp", input);
+  }
+
+  deleteMcpServer(name: string) {
+    return this.call<Record<string, unknown>>("DELETE", `/api/v1/tools/mcp/${encodeURIComponent(name)}`);
+  }
+
+  testMcpServer(name: string) {
+    return this.call<Record<string, unknown>>("POST", `/api/v1/tools/mcp/${encodeURIComponent(name)}/test`);
+  }
+
+  parseMcpDescription(description: string) {
+    return this.call<Record<string, unknown>>("POST", "/api/v1/tools/mcp/parse", { description });
+  }
+
   getSessionMessages(sessionId: string, profileName?: string) {
     const q = profileName ? `?profile=${encodeURIComponent(profileName)}` : "";
     return this.call<{ messages: unknown[] }>(
@@ -289,6 +317,14 @@ class RemoteBackend {
     return this.call<Record<string, unknown>>(
       "DELETE",
       `/api/v1/sessions/${encodeURIComponent(sessionId)}${q}`,
+    );
+  }
+
+  deleteSessionMessage(sessionId: string, messageId: number, profileName?: string) {
+    const q = profileName ? `?profile=${encodeURIComponent(profileName)}` : "";
+    return this.call<Record<string, unknown>>(
+      "DELETE",
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(String(messageId))}${q}`,
     );
   }
 

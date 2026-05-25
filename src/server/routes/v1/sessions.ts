@@ -2,6 +2,7 @@ import type http from "http";
 import {
   listSessions,
   deleteSessionRecord,
+  deleteSessionMessageRecord,
   searchSessionsQuery,
   getUsageStatsData,
   getTokenStatsData,
@@ -38,6 +39,15 @@ export async function handleV1SessionRoutes(
     const sessionId = decodeURIComponent(messagesMatch[1]);
     const profile = profileFromQuery(url);
     sendJson(res, 200, { messages: getSessionMessages(sessionId, profile) });
+    return true;
+  }
+
+  const messageMatch = url.pathname.match(/^\/api\/v1\/sessions\/([^/]+)\/messages\/([^/]+)$/);
+  if (req.method === "DELETE" && messageMatch) {
+    if (!requireRemoteAuth(req, res)) return true;
+    const sessionId = decodeURIComponent(messageMatch[1]);
+    const messageId = decodeURIComponent(messageMatch[2]);
+    sendJson(res, 200, deleteSessionMessageRecord(sessionId, messageId, profileFromQuery(url)));
     return true;
   }
 

@@ -98,8 +98,8 @@ export const AGENT_CONFIG_FIELDS: ConfigFieldDef[] = [
 
 export const GLOBAL_CONFIG_FIELDS: ConfigFieldDef[] = [
   { key: 'memory.memory_enabled', label: '启用记忆', type: 'toggle', desc: '是否启用长期记忆功能', group: '记忆' },
-  { key: 'memory.memory_char_limit', label: '记忆上限', type: 'number', placeholder: '2200', desc: '长期记忆字符上限', group: '记忆' },
-  { key: 'memory.user_char_limit', label: '用户画像上限', type: 'number', placeholder: '1375', desc: '用户画像字符上限', group: '记忆' },
+  { key: 'memory.memory_char_limit', label: '记忆上限', type: 'number', placeholder: '12200', desc: '长期记忆字符上限', group: '记忆' },
+  { key: 'memory.user_char_limit', label: '用户画像上限', type: 'number', placeholder: '5375', desc: '用户画像字符上限', group: '记忆' },
   { key: 'memory.flush_min_turns', label: '写入间隔', type: 'number', placeholder: '6', desc: '至少多少轮对话后才写入记忆', group: '记忆' },
 
   { key: 'compression.enabled', label: '启用压缩', type: 'toggle', desc: '是否启用对话历史自动压缩', group: '对话压缩' },

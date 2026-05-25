@@ -86,6 +86,20 @@ export interface ToolsetInfo {
   enabled: boolean
 }
 
+export interface McpServerInfo {
+  name: string
+  transport: string
+  command?: string
+  args?: string[]
+  url?: string
+  headers?: Record<string, string>
+  env?: Record<string, string>
+  envKeys: string[]
+  timeout?: number
+  connect_timeout?: number
+  allowedProfiles: string[]
+}
+
 export interface SessionInfo {
   id: string
   title: string | null
@@ -133,6 +147,13 @@ export interface MemoryData {
   memoryCharLimit?: number
   userCharCount?: number
   userCharLimit?: number
+}
+
+export interface EmployeeSoulDraft {
+  name: string
+  displayName: string
+  role: string
+  soul: string
 }
 
 export interface CronJob {
@@ -298,6 +319,12 @@ interface HermesAPI {
   setSkillEnabled: (skillId: string, enabled: boolean, profile?: string) => Promise<{ success: boolean; error?: string }>
   recordSkillUsage: (skillId: string, success: boolean, profile?: string) => Promise<{ success: boolean; stats?: SkillUsageStats; error?: string }>
 
+  listMcpServers: () => Promise<{ servers: McpServerInfo[]; configPath: string }>
+  saveMcpServer: (server: Partial<McpServerInfo> & { name: string }) => Promise<{ success: boolean; server?: McpServerInfo; error?: string }>
+  deleteMcpServer: (name: string) => Promise<{ success: boolean; error?: string }>
+  testMcpServer: (name: string) => Promise<{ success: boolean; output: string }>
+  parseMcpDescription: (description: string) => Promise<{ success: boolean; config?: Partial<McpServerInfo>; error?: string }>
+
   getEmployeeTools: (name: string) => Promise<string[]>
   setEmployeeTools: (name: string, tools: string[]) => Promise<{ success: boolean; error?: string }>
   toggleTool: (name: string, toolKey: string, enabled: boolean) => Promise<{ success: boolean; tools?: string[]; error?: string }>
@@ -305,6 +332,15 @@ interface HermesAPI {
   getEmployeeMemory: (name: string) => Promise<MemoryData>
   addMemory: (name: string, content: string) => Promise<{ success: boolean; error?: string }>
   deleteMemory: (name: string, index: number) => Promise<{ success: boolean; error?: string }>
+  generateEmployeeSoulDraft: (input: {
+    prompt: string
+    name?: string
+    displayName?: string
+    role?: string
+    style?: string
+    refinement?: string
+    existingSoul?: string
+  }) => Promise<{ success: boolean; draft?: EmployeeSoulDraft; error?: string }>
 
   getEmployeeSessions: (name: string) => Promise<Array<Record<string, unknown>>>
 
@@ -317,6 +353,7 @@ interface HermesAPI {
 
   getSessions: (limit?: number, offset?: number) => Promise<Array<Record<string, unknown>>>
   deleteSession: (sessionId: string, profileName?: string) => Promise<{ success: boolean; error?: string }>
+  deleteSessionMessage: (sessionId: string, messageId: number, profileName?: string) => Promise<{ success: boolean; error?: string }>
   getSessionMessages: (sessionId: string, profileName?: string) => Promise<Array<Record<string, unknown>>>
   searchSessions: (query: string, profileName?: string) => Promise<Array<Record<string, unknown>>>
   getUsageStats: (days?: number) => Promise<UsageStats>
@@ -348,6 +385,7 @@ interface HermesAPI {
   verifyInstall: () => Promise<{ installed: boolean; version?: string; error?: string }>
   startInstall: () => Promise<{ success: boolean; error?: string }>
   getModelConfig: () => Promise<{ provider: string; model: string; baseUrl: string }>
+  getSoulGenerationModel: () => Promise<{ model: string; provider: string; ready: boolean; hint?: string }>
   getAvailableModels: () => Promise<{ models: Array<Record<string, unknown>> }>
   setModel: (modelName: string) => Promise<{ success: boolean; error?: string }>
   setModelConfig: (modelConfig: { model?: string; provider?: string; baseUrl?: string }) => Promise<{ success: boolean; error?: string }>

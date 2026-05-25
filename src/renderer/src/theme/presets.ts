@@ -6,6 +6,7 @@ export interface ThemeLexicon {
     chat: string
     manage: string
     schedule: string
+    tools: string
     tokenStats: string
     appearance: string
     settings: string
@@ -104,6 +105,7 @@ export const THEME_PRESETS: Record<UiTheme, ThemePreset> = {
         chat: '对话',
         manage: '管理',
         schedule: '日程',
+        tools: '工具',
         tokenStats: '用量',
         appearance: '外观',
         settings: '设置',
@@ -192,6 +194,7 @@ export const THEME_PRESETS: Record<UiTheme, ThemePreset> = {
         chat: '传音',
         manage: '门人',
         schedule: '法旨',
+        tools: '法器',
         tokenStats: '灵账',
         appearance: '天象',
         settings: '阵枢',

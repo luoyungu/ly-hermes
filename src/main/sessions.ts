@@ -34,6 +34,9 @@ interface CronSessionNotification {
   profileName: string;
   title: string;
   startedAt: number;
+  endedAt: number;
+  messageCount: number;
+  assistantMessageCount: number;
 }
 
 interface SessionActivityNotification {
@@ -174,9 +177,13 @@ function listProfileNamesWithStateDb(): string[] {
 
 function getRecentCronSessions(profileName: string): CronSessionNotification[] {
   const sql =
-    "SELECT id, source, started_at, title FROM sessions " +
-    "WHERE source = 'cron' OR id LIKE 'cron_%' " +
-    "ORDER BY started_at DESC LIMIT 20";
+    "SELECT s.id, s.source, s.started_at, s.ended_at, s.message_count, s.title, " +
+      "COUNT(m.id) as actual_message_count, " +
+      "SUM(CASE WHEN m.role = 'assistant' AND COALESCE(m.content, '') != '' THEN 1 ELSE 0 END) as assistant_message_count " +
+      "FROM sessions s LEFT JOIN messages m ON m.session_id = s.id " +
+      "WHERE s.source = 'cron' OR s.id LIKE 'cron_%' " +
+      "GROUP BY s.id " +
+      "ORDER BY s.started_at DESC LIMIT 20";
   const sessions =
     profileName === "default"
       ? queryStateDb(sql)
@@ -193,8 +200,17 @@ function getRecentCronSessions(profileName: string): CronSessionNotification[] {
       profileName,
       title: String(session.title || "日程执行结果"),
       startedAt: Number(session.started_at || 0),
+      endedAt: Number(session.ended_at || 0),
+      messageCount: Number(session.actual_message_count || session.message_count || 0),
+      assistantMessageCount: Number(session.assistant_message_count || 0),
     }))
-    .filter((session) => session.id && session.startedAt > 0);
+    .filter((session) =>
+      session.id &&
+      session.startedAt > 0 &&
+      session.endedAt > 0 &&
+      session.messageCount > 0 &&
+      session.assistantMessageCount > 0,
+    );
 }
 
 function collectRecentCronSessions(): CronSessionNotification[] {
@@ -599,6 +615,11 @@ export function registerSessionIpcHandlers(getMainWindow: () => BrowserWindow | 
 
   ipcHandle("delete-session", async (_, sessionId: string, profileName?: string) => {
     return deleteSessionRecord(sessionId, profileName);
+  });
+
+  ipcHandle("delete-session-message", async (_, sessionId: string, messageId: string | number, profileName?: string) => {
+    const { deleteSessionMessageRecord } = await import("./services/session-api");
+    return deleteSessionMessageRecord(sessionId, messageId, profileName);
   });
 
   ipcHandle("search-sessions", async (_, query: string, profileName?: string) => {

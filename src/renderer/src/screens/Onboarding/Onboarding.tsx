@@ -133,8 +133,6 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         const envObj: Record<string, string> = {}
         envObj[envInfo.envKey] = apiKey.trim()
         await window.hermesAPI.setEmployeeEnv('default', envObj)
-      } else {
-        await window.hermesAPI.setEmployeeEnv('default', {})
       }
       setStep('password')
     } catch {
@@ -142,6 +140,32 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       setStep('password')
     }
   }, [apiKey, modelId, provider])
+
+  const handleSkipApiKey = useCallback(async () => {
+    try {
+      const preset = PROVIDER_PRESETS.find(p => p.id === provider)
+      if (preset) {
+        const savedModelId = modelId.trim() || preset.models[0]?.id || ''
+        if (savedModelId) {
+          await window.hermesAPI.setModelConfig({
+            model: savedModelId,
+            provider: preset.id,
+            baseUrl: preset.baseUrl,
+          })
+          await window.hermesAPI.addSavedModel(
+            `${preset.label} · ${savedModelId}`,
+            preset.id,
+            savedModelId,
+            preset.baseUrl,
+            ''
+          )
+        }
+      }
+    } catch {
+      /* 稍后可在设置中补全 */
+    }
+    setStep('password')
+  }, [modelId, provider])
 
   const handleSelectMode = useCallback(async (mode: DeploymentMode) => {
     setDeploymentMode(mode)
@@ -480,7 +504,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   上一步
                 </button>
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setStep('password')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
+                  <button onClick={handleSkipApiKey} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
                     稍后配置
                   </button>
                   <button onClick={handleSaveApiKey} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">

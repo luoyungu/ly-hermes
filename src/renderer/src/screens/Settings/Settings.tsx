@@ -425,6 +425,7 @@ export default function SettingsScreen(): React.ReactElement {
     try {
       const result = await window.hermesAPI.saveRemoteConnection(remoteConnection)
       if (result.success) {
+        window.dispatchEvent(new Event('hermes:workspace-changed'))
         showToast('远程连接已保存')
       } else {
         showToast(result.error || '连接失败', 'error')

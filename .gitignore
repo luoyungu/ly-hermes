@@ -2,12 +2,33 @@ node_modules/
 out/
 dist/
 dist-server/
+dist-node/
 dist-web/
 videos/
+screenshots/
+.docx_render_*/
 build/runtime/python/
 .DS_Store
 ._*
 *.log
 .env
 .env.local
+.env.*.local
 *.tsbuildinfo
+
+# Local app/runtime data
+.hermes/
+.lyhermes/
+.lyhermes-server/
+
+# OS/editor state
+.vscode/
+.idea/
+Thumbs.db
+
+# Secrets and signing material
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision

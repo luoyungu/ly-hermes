@@ -27,7 +27,7 @@ win:
     - target: nsis
       arch:
         - x64
-  artifactName: ${productName}-Setup-${version}.${ext}
+  artifactName: LyHermes-Setup-${version}.${ext}
   signAndEditExecutable: true
 
 nsis:
@@ -43,7 +43,7 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
-  deleteAppDataOnUninstall: true
+  deleteAppDataOnUninstall: false
 
 mac:
   icon: build/icon.icns

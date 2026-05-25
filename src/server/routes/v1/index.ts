@@ -7,6 +7,7 @@ import { handleV1SessionRoutes } from "./sessions";
 import { handleV1SkillRoutes } from "./skills";
 import { handleV1ChatRoutes } from "./chat";
 import { handleV1EventRoutes } from "./events";
+import { handleV1ToolRoutes } from "./tools";
 
 export async function handleV1Request(
   req: http.IncomingMessage,
@@ -36,6 +37,7 @@ export async function handleV1Request(
   if (await handleV1EmployeeRoutes(req, res, url, getMainWindow)) return true;
   if (await handleV1SessionRoutes(req, res, url)) return true;
   if (await handleV1SkillRoutes(req, res, url)) return true;
+  if (await handleV1ToolRoutes(req, res, url)) return true;
   if (await handleV1EventRoutes(req, res, url)) return true;
 
   sendJson(res, 404, { error: "Not found" });

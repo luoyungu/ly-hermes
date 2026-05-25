@@ -53,6 +53,19 @@ function getProfilePath(profileName: string): string {
   return path.join(HERMES_HOME, "profiles", profileName);
 }
 
+function getMemoryFilePath(profileName: string, kind: "memory" | "user"): string {
+  return path.join(
+    getProfilePath(profileName),
+    "memories",
+    kind === "memory" ? "MEMORY.md" : "USER.md",
+  );
+}
+
+function writeTextFile(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf-8");
+}
+
 function getProfileNames(): string[] {
   const names = new Set<string>(["default"]);
   const profilesDir = path.join(HERMES_HOME, "profiles");
@@ -135,14 +148,6 @@ function initSchema(database: Database.Database): void {
       stats_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
-
-    CREATE TABLE IF NOT EXISTS memories (
-      profile_name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      content TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (profile_name, kind)
-    );
   `);
   applySchemaMigrations(database);
 }
@@ -175,6 +180,13 @@ function applySchemaMigrations(database: Database.Database): void {
         update.run(encodeSecret(row.api_key), Date.now(), row.id);
       }
       markMigration(database, 2);
+    });
+    tx();
+  }
+  if (!hasMigration(database, 3)) {
+    const tx = database.transaction(() => {
+      database.prepare("DROP TABLE IF EXISTS memories").run();
+      markMigration(database, 3);
     });
     tx();
   }
@@ -334,17 +346,6 @@ function migrateLegacyData(database: Database.Database): void {
       JSON.stringify(raw.stats && typeof raw.stats === "object" ? raw.stats : {}),
       Number(raw.updatedAt || Date.now()),
     );
-  }
-
-  const insertMemory = database.prepare(
-    "INSERT OR REPLACE INTO memories (profile_name, kind, content, updated_at) VALUES (?, ?, ?, ?)",
-  );
-  for (const profileName of getProfileNames()) {
-    const memoryDir = path.join(getProfilePath(profileName), "memories");
-    const memory = readTextFile(path.join(memoryDir, "MEMORY.md"));
-    if (memory != null) insertMemory.run(profileName, "memory", memory, nowIso());
-    const user = readTextFile(path.join(memoryDir, "USER.md"));
-    if (user != null) insertMemory.run(profileName, "user", user, nowIso());
   }
 
   setMeta(database, "legacy_migrated_v1", "true");
@@ -571,20 +572,12 @@ export function saveDbSkillConfig(
     .run(profile || "default", JSON.stringify(config.enabled || {}), JSON.stringify(config.stats || {}), Date.now());
 }
 
-export function loadDbMemory(profileName: string, kind: "memory" | "user"): string {
-  const row = getAppDb()
-    .prepare("SELECT content FROM memories WHERE profile_name = ? AND kind = ?")
-    .get(profileName, kind) as { content: string } | undefined;
-  return row?.content || "";
+export function loadMemoryFile(profileName: string, kind: "memory" | "user"): string {
+  return readTextFile(getMemoryFilePath(profileName, kind)) || "";
 }
 
-export function saveDbMemory(profileName: string, kind: "memory" | "user", content: string): void {
-  getAppDb()
-    .prepare(
-      "INSERT INTO memories (profile_name, kind, content, updated_at) VALUES (?, ?, ?, ?) " +
-        "ON CONFLICT(profile_name, kind) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-    )
-    .run(profileName, kind, content, nowIso());
+export function saveMemoryFile(profileName: string, kind: "memory" | "user", content: string): void {
+  writeTextFile(getMemoryFilePath(profileName, kind), content);
 }
 
 export function getAppDbPath(): string {
@@ -600,7 +593,6 @@ interface AppDataExport {
     saved_models: Array<Record<string, unknown>>;
     employees: Array<Record<string, unknown>>;
     skill_configs: Array<Record<string, unknown>>;
-    memories: Array<Record<string, unknown>>;
   };
 }
 
@@ -634,7 +626,6 @@ export function exportAppDataBackup(outputDir = path.join(HERMES_HOME, "backups"
         saved_models: exportSavedModels(includeSecrets),
         employees: allRows("employees"),
         skill_configs: allRows("skill_configs"),
-        memories: allRows("memories"),
       },
     };
     fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), "utf-8");
@@ -657,7 +648,6 @@ export function importAppDataBackup(filePath: string): { success: boolean; error
       database.prepare("DELETE FROM saved_models").run();
       database.prepare("DELETE FROM employees").run();
       database.prepare("DELETE FROM skill_configs").run();
-      database.prepare("DELETE FROM memories").run();
 
       const insertSetting = database.prepare(
         "INSERT INTO settings (namespace, key, value_json, updated_at) VALUES (?, ?, ?, ?)",
@@ -725,13 +715,6 @@ export function importAppDataBackup(filePath: string): { success: boolean; error
         insertSkillConfig.run(row.profile_name, row.enabled_json || "{}", row.stats_json || "{}", row.updated_at || Date.now());
       }
 
-      const insertMemory = database.prepare(
-        "INSERT INTO memories (profile_name, kind, content, updated_at) VALUES (?, ?, ?, ?)",
-      );
-      for (const row of data.tables.memories || []) {
-        insertMemory.run(row.profile_name, row.kind, row.content || "", row.updated_at || nowIso());
-      }
-
       setMeta(database, "legacy_migrated_v1", "true");
     });
     tx();
@@ -757,7 +740,6 @@ export function exportEmployeeDesktopData(
       profileName,
       employee: database.prepare("SELECT * FROM employees WHERE profile_name = ?").get(profileName) || null,
       skillConfig: database.prepare("SELECT * FROM skill_configs WHERE profile_name = ?").get(profileName) || null,
-      memories: database.prepare("SELECT * FROM memories WHERE profile_name = ? ORDER BY kind").all(profileName),
     };
     fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), "utf-8");
     return { success: true, path: outputPath };

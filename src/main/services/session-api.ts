@@ -66,6 +66,70 @@ export function deleteSessionRecord(
   }
 }
 
+function parseMessageId(messageId: string | number): number | null {
+  const value = Number(messageId);
+  if (!Number.isInteger(value) || value <= 0) return null;
+  return value;
+}
+
+function collectToolCallIds(toolCalls: unknown): string[] {
+  if (!toolCalls) return [];
+  try {
+    const parsed = typeof toolCalls === "string" ? JSON.parse(toolCalls) : toolCalls;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => String(item?.id || item?.call_id || ""))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function deleteSessionMessageRecord(
+  sessionId: string,
+  messageId: string | number,
+  profileName?: string,
+): { success: boolean; error?: string } {
+  if (!validateSessionId(sessionId)) return { success: false, error: "Invalid session ID" };
+  const id = parseMessageId(messageId);
+  if (!id) return { success: false, error: "Invalid message ID" };
+
+  const useProfileDb = !!(profileName && validateProfileName(profileName));
+  const queryFn = useProfileDb
+    ? (sql: string, params?: unknown[]) => queryProfileStateDb(profileName!, sql, params)
+    : queryStateDb;
+  const execFn = useProfileDb
+    ? (sql: string, params?: unknown[]) => execProfileStateDb(profileName!, sql, params)
+    : execStateDb;
+
+  try {
+    const rows = queryFn(
+      "SELECT id, tool_calls FROM messages WHERE id = ? AND session_id = ? LIMIT 1",
+      [id, sessionId],
+    );
+    if (rows.length === 0) return { success: false, error: "消息不存在" };
+
+    const toolCallIds = collectToolCallIds(rows[0].tool_calls);
+    for (const toolCallId of toolCallIds) {
+      execFn("DELETE FROM messages WHERE session_id = ? AND tool_call_id = ?", [sessionId, toolCallId]);
+    }
+    execFn("DELETE FROM messages WHERE id = ? AND session_id = ?", [id, sessionId]);
+    execFn(
+      "UPDATE sessions SET " +
+        "ended_at = COALESCE((SELECT MAX(timestamp) FROM messages WHERE session_id = ?), ended_at), " +
+        "message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?), " +
+        "tool_call_count = COALESCE((SELECT COUNT(*) FROM messages WHERE session_id = ? AND tool_name IS NOT NULL AND tool_name != ''), tool_call_count), " +
+        "input_tokens = COALESCE((SELECT SUM(token_count) FROM messages WHERE session_id = ? AND role = 'user'), 0), " +
+        "output_tokens = COALESCE((SELECT SUM(token_count) FROM messages WHERE session_id = ? AND role = 'assistant'), 0) " +
+        "WHERE id = ?",
+      [sessionId, sessionId, sessionId, sessionId, sessionId, sessionId],
+    );
+    return { success: true };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
 export function searchSessionsQuery(
   query: string,
   profileName?: string,

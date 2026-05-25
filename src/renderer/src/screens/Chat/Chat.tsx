@@ -19,6 +19,7 @@ import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_BYTES, MAX_TEXT_BYTES, isImageMi
 
 interface ChatMessage {
   id: string
+  dbId?: number
   role: 'user' | 'assistant'
   content: string
   timestamp: number
@@ -307,6 +308,7 @@ function parseSessionMessages(messages: Array<Record<string, unknown>>, sessionI
 
       return {
         id: `history-${m.id ?? getMessageKey(m)}`,
+        dbId: Number.isFinite(Number(m.id)) ? Number(m.id) : undefined,
         role: m.role as 'user' | 'assistant',
         content: cleanedContent,
         timestamp: Number(m.timestamp) * 1000,
@@ -485,6 +487,16 @@ function CopyButton({ text }: { text: string }): React.ReactElement {
   )
 }
 
+function DeleteMessageButton({ onDelete }: { onDelete: () => void }): React.ReactElement {
+  return (
+    <Popconfirm title="确认删除这条消息？" confirmText="删除" onConfirm={onDelete}>
+      <button className="text-[var(--text-dim)] hover:text-[var(--danger)] transition-colors p-0.5" title="删除">
+        <Trash2 size={14} />
+      </button>
+    </Popconfirm>
+  )
+}
+
 function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement {
   const [expanded, setExpanded] = useState(false)
   const hasUsefulResult = !isLowValueToolResult(toolCall.result) || !!toolCall.error || toolCall.status !== 'done'
@@ -610,13 +622,14 @@ function AttachmentChip({ attachment, onRemove }: { attachment: Attachment; onRe
   )
 }
 
-function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showActivityDetails = false }: {
+function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showActivityDetails = false, onDelete }: {
   msg: ChatMessage
   empName: string
   empAvatar: string
   isStreaming?: boolean
   thinking?: string
   showActivityDetails?: boolean
+  onDelete?: () => void
 }): React.ReactElement {
   const isUser = msg.role === 'user'
   const hasToolCalls = showActivityDetails && msg.toolCalls && msg.toolCalls.length > 0
@@ -682,6 +695,7 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
         <div className={`flex items-center gap-2 mt-1 px-1 text-[11px] text-[var(--text-dim)] opacity-60 ${isUser ? 'justify-end' : ''}`}>
           <span>{formatMessageTime(msg.timestamp)}</span>
           {!isUser && hasContent && <CopyButton text={msg.content} />}
+          {onDelete && <DeleteMessageButton onDelete={onDelete} />}
         </div>
       </div>
     </div>
@@ -835,20 +849,13 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                   <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
                     <span className="text-[var(--accent)]">📝</span>
                     <span className="text-[var(--text-primary)] font-medium">{memoryData.memory.length}</span>
-                    <span className="text-[var(--text-dim)]">条{lexicon.concepts.memory}</span>
+                    <span className="text-[var(--text-dim)]">条内置记忆</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
                     <span className="text-[var(--accent)]">👤</span>
                     <span className="text-[var(--text-primary)] font-medium">{memoryData.userCharCount ?? 0}</span>
                     <span className="text-[var(--text-dim)]">字符用户档案</span>
                   </div>
-                  {memoryData.stats && Object.keys(memoryData.stats).length > 0 && (
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
-                      <span className="text-[var(--accent)]">📊</span>
-                      <span className="text-[var(--text-primary)] font-medium">{Object.keys(memoryData.stats).length}</span>
-                      <span className="text-[var(--text-dim)]">项统计</span>
-                    </div>
-                  )}
                 </div>
 
                 {(memoryData.memoryCharCount != null && memoryData.memoryCharLimit != null) && (
@@ -980,9 +987,19 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
 
   const handleViewSession = async (sessionId: string): Promise<void> => {
     try {
-      const messages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
+      const session = sessions.find(item => item.id === sessionId)
+      const isScheduleSession = sessionSourceLabel(session?.source) === '日程' || sessionId.startsWith('cron_')
+      let messages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
+      if (isScheduleSession && (!messages || messages.length === 0)) {
+        showToast('日程结果还在写入，正在重试...', 'info')
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 1200))
+          messages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
+          if (messages && messages.length > 0) break
+        }
+      }
       if (!messages || messages.length === 0) {
-        showToast('此会话暂无消息', 'info')
+        showToast(isScheduleSession ? '日程结果仍在生成中，请稍后再看' : '此会话暂无消息', 'info')
         return
       }
 
@@ -1353,6 +1370,20 @@ export default function Chat(): React.ReactElement {
         messageQueueRef.current = { ...messageQueueRef.current, [empName]: [] }
         setStreamStates(prev => ({ ...prev, [empName]: DEFAULT_STREAM }))
         void refreshEmployeeStatus(empName)
+        const completedSessionId = data.sessionId || sessionIdsRef.current[empName]
+        if (completedSessionId) {
+          setTimeout(() => {
+            if ((streamStatesRef.current[empName] || DEFAULT_STREAM).isStreaming) return
+            window.hermesAPI.getSessionMessages(completedSessionId, empName)
+              .then(rawMessages => {
+                const parsedMessages = parseSessionMessages(rawMessages as Record<string, unknown>[], completedSessionId)
+                if (parsedMessages.length > 0) {
+                  setChatHistories(prev => ({ ...prev, [empName]: parsedMessages }))
+                }
+              })
+              .catch(() => { /* keep optimistic messages */ })
+          }, 600)
+        }
       }
     })
 
@@ -1775,6 +1806,30 @@ export default function Chat(): React.ReactElement {
     } catch { showToast('删除失败', 'error') }
   }
 
+  const deleteMessage = useCallback(async (message: ChatMessage): Promise<void> => {
+    const empName = currentEmployeeName
+    if (!empName) return
+    const sessionId = sessionIdsRef.current[empName]
+    if (message.dbId && sessionId) {
+      try {
+        const result = await window.hermesAPI.deleteSessionMessage(sessionId, message.dbId, empName)
+        if (!result.success) {
+          showToast(result.error || '删除失败', 'error')
+          return
+        }
+      } catch {
+        showToast('删除失败', 'error')
+        return
+      }
+    }
+    setChatHistories(prev => ({
+      ...prev,
+      [empName]: (prev[empName] || []).filter(item => item.id !== message.id),
+    }))
+    setHistoryRefreshKey(value => value + 1)
+    showToast('消息已删除', 'success')
+  }, [currentEmployeeName])
+
   const doSend = useCallback((employeeNameOrText: string, textOrSkip?: string | boolean, skipUserAppend = false, sendAttachments?: Attachment[]) => {
     let empName: string
     let text: string
@@ -2182,6 +2237,7 @@ export default function Chat(): React.ReactElement {
                         isStreaming={isStreamingThis}
                         thinking={isStreamingThis ? currentStream.streamingThinking : msg.thinking}
                         showActivityDetails={showActivityDetails}
+                        onDelete={isStreamingThis ? undefined : () => { void deleteMessage(msg) }}
                       />
                     )
                   })}

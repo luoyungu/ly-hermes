@@ -24,9 +24,10 @@ import {
   MessageCircle,
   Globe,
   Copy,
-  KeyRound
+  KeyRound,
+  Brain
 } from 'lucide-react'
-import type { DesktopWebServerStatus, EmployeeInfo, InstalledSkill, BundledSkill } from '../../../../preload/index'
+import type { DesktopWebServerStatus, EmployeeInfo, InstalledSkill, BundledSkill, MemoryData, SavedModel } from '../../../../preload/index'
 import { showToast } from '../../App'
 import PetPicker from '../../components/PetPicker'
 import Popconfirm from '../../components/Popconfirm'
@@ -43,10 +44,26 @@ import {
   EMPLOYEE_NAME_RE,
   getNestedValue,
   setNestedValue,
+  PROVIDER_PRESETS,
   type ConfigFieldDef
 } from '../../shared/employee-shared'
 
 type Section = 'list' | 'create' | 'edit'
+
+const SOUL_STYLE_OPTIONS = [
+  { value: 'balanced', label: '平衡' },
+  { value: 'detailed', label: '详细' },
+  { value: 'expert', label: '专家' },
+  { value: 'companion', label: '陪伴' },
+  { value: 'executor', label: '执行' }
+]
+
+const SOUL_REFINEMENT_OPTIONS = [
+  { label: '写得更详细', value: '在保留核心定位的基础上扩写 SOUL.md，让规则更具体、更可执行，减少空话。' },
+  { label: '更专业', value: '强化专业判断、方法论、风险提示和交付质量，减少角色扮演感。' },
+  { label: '更有温度', value: '强化稳定、温和、有分寸的陪伴感，但不要过度亲密或油腻。' },
+  { label: '更强执行力', value: '强化目标拆解、行动步骤、工具调用、进度反馈和结果验收。' }
+]
 
 export default function Manage(): React.ReactElement {
   const { isMac } = usePlatform()
@@ -216,10 +233,29 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
   const [soul, setSoul] = useState('')
   const [petSlug, setPetSlug] = useState('')
   const [creating, setCreating] = useState(false)
+  const [soulPrompt, setSoulPrompt] = useState('')
+  const [soulStyle, setSoulStyle] = useState('detailed')
+  const [generatingSoul, setGeneratingSoul] = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
   const [showPetPicker, setShowPetPicker] = useState(false)
+  const [savedModels, setSavedModels] = useState<SavedModel[]>([])
+  const [selectedModelId, setSelectedModelId] = useState('')
+  const [soulModelInfo, setSoulModelInfo] = useState<{ model: string; provider: string; ready: boolean; hint?: string } | null>(null)
   const avatarPickerRef = useRef<HTMLDivElement>(null)
   const petPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    Promise.all([
+      window.hermesAPI.listSavedModels(),
+      window.hermesAPI.getModelConfig(),
+      window.hermesAPI.getSoulGenerationModel(),
+    ]).then(([models, cfg, soulModel]) => {
+      setSavedModels(models)
+      setSoulModelInfo(soulModel)
+      const matched = models.find(m => m.model === cfg.model && m.provider === cfg.provider)
+      setSelectedModelId(matched?.id || models[0]?.id || '')
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!showAvatarPicker) return
@@ -235,6 +271,11 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
   const handleCreate = async (): Promise<void> => {
     if (!name.trim()) { showToast(`请输入${lexicon.entities.employee}名称`, 'error'); return }
     if (!EMPLOYEE_NAME_RE.test(name.trim())) { showToast(`${lexicon.entities.employee}名称只能包含小写字母、数字、下划线和连字符`, 'error'); return }
+    const selectedModel = savedModels.find(m => m.id === selectedModelId)
+    if (!selectedModel) {
+      showToast('请选择默认模型，可先在设置中添加模型配置', 'error')
+      return
+    }
     setCreating(true)
     try {
       const result = await window.hermesAPI.createEmployee(name.trim(), {
@@ -243,6 +284,10 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
         avatar: avatar || undefined,
         soul: soul.trim() || undefined,
         petSlug: petSlug || undefined,
+        model: selectedModel.model,
+        provider: selectedModel.provider,
+        base_url: selectedModel.baseUrl,
+        api_key: selectedModel.apiKey || undefined,
         wakeUp: true
       })
       if (result.success) {
@@ -255,10 +300,115 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
     finally { setCreating(false) }
   }
 
+  const handleGenerateSoul = async (refinement = ''): Promise<void> => {
+    const prompt = soulPrompt.trim()
+    if (!prompt && !soul.trim()) {
+      showToast('请输入人物、角色或岗位描述', 'error')
+      return
+    }
+    if (soulModelInfo && !soulModelInfo.ready) {
+      showToast(soulModelInfo.hint || '请先在设置中配置模型和 API Key', 'error')
+      return
+    }
+    setGeneratingSoul(true)
+    try {
+      const result = await window.hermesAPI.generateEmployeeSoulDraft({
+        prompt: prompt || displayName.trim() || role.trim() || name.trim(),
+        name: name.trim(),
+        displayName: displayName.trim(),
+        role: role.trim(),
+        style: soulStyle,
+        refinement,
+        existingSoul: refinement ? soul.trim() : ''
+      })
+      if (!result.success || !result.draft) {
+        showToast(result.error || '生成失败', 'error')
+        return
+      }
+      const draft = result.draft
+      setName(draft.name)
+      setDisplayName(draft.displayName)
+      setRole(draft.role)
+      setSoul(draft.soul)
+      showToast('已生成灵魂设定草稿')
+    } catch (e: unknown) {
+      showToast((e as Error).message || '生成失败，请检查模型配置', 'error')
+    } finally {
+      setGeneratingSoul(false)
+    }
+  }
+
+  const soulModelLabel = soulModelInfo?.ready
+    ? `${PROVIDER_PRESETS.find(p => p.id === soulModelInfo.provider)?.label || soulModelInfo.provider} · ${soulModelInfo.model}`
+    : soulModelInfo?.hint || '未配置默认模型'
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{lexicon.entities.createEmployee}</h3>
       <div className="space-y-5 glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
+        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Sparkles size={16} className="text-[var(--accent)]" />
+              <span className="text-sm font-semibold text-[var(--text-primary)]">AI 生成灵魂设定</span>
+            </div>
+            <span className="text-xs text-[var(--text-dim)]">生成后可继续手动修改</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={soulPrompt}
+              onChange={(e) => setSoulPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  handleGenerateSoul()
+                }
+              }}
+              placeholder="例如：张三丰、毛泽东式战略顾问、资深销售教练"
+              className="min-w-0 flex-1 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
+            />
+            <select
+              value={soulStyle}
+              onChange={(e) => setSoulStyle(e.target.value)}
+              className="shrink-0 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
+            >
+              {SOUL_STYLE_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => handleGenerateSoul()}
+              disabled={generatingSoul || !soulPrompt.trim()}
+              className="shrink-0 flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
+            >
+              {generatingSoul ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {generatingSoul ? '生成中...' : '生成'}
+            </button>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-[var(--text-dim)]">
+            默认会生成较完整的 SOUL.md。历史人物和公众人物会生成“风格启发型”员工，不会冒充本人或编造私人经历。
+          </p>
+          <p className={`mt-1.5 text-xs leading-relaxed ${soulModelInfo?.ready ? 'text-[var(--text-dim)]' : 'text-[var(--danger)]'}`}>
+            使用默认模型：{soulModelLabel}
+          </p>
+          {soul.trim() && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {SOUL_REFINEMENT_OPTIONS.map(option => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => handleGenerateSoul(option.value)}
+                  disabled={generatingSoul}
+                  className="rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center gap-2 mb-2">
           <UserPlus size={16} className="text-[var(--accent)]" />
           <span className="text-sm font-semibold text-[var(--text-primary)]">{lexicon.entities.employeeInfo}</span>
@@ -305,6 +455,26 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
               />
             </div>
           </div>
+        </div>
+
+        <div>
+          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">默认模型 *</label>
+          {savedModels.length === 0 ? (
+            <p className="text-sm text-[var(--danger)]">请先在「设置 → 模型配置」中添加至少一个模型</p>
+          ) : (
+            <select
+              value={selectedModelId}
+              onChange={(e) => setSelectedModelId(e.target.value)}
+              className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] bg-transparent cursor-pointer"
+            >
+              {savedModels.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name || `${PROVIDER_PRESETS.find(p => p.id === m.provider)?.label || m.provider} · ${m.model}`}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="mt-1.5 text-xs text-[var(--text-dim)]">创建时会写入该员工的模型配置，避免忘记指定模型</p>
         </div>
 
         <div>
@@ -356,7 +526,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
       <div className="mt-6 flex items-center gap-3">
         <button
           onClick={handleCreate}
-          disabled={creating || !name.trim()}
+          disabled={creating || !name.trim() || savedModels.length === 0 || !selectedModelId}
           className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
         >
           {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
@@ -373,7 +543,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
   )
 }
 
-type EditTab = 'basic' | 'soul' | 'config' | 'integrations' | 'tools' | 'skills'
+type EditTab = 'basic' | 'soul' | 'memory' | 'config' | 'integrations' | 'tools' | 'skills'
 
 const isMaskedSecret = (value: string): boolean => value.includes('****')
 
@@ -426,6 +596,10 @@ function EditEmployee({
 
   const [soulContent, setSoulContent] = useState('')
   const [soulOriginal, setSoulOriginal] = useState('')
+  const [memoryData, setMemoryData] = useState<MemoryData | null>(null)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [newMemoryContent, setNewMemoryContent] = useState('')
+  const [memorySaving, setMemorySaving] = useState(false)
   const [configObj, setConfigObj] = useState<Record<string, unknown>>({})
   const [configOriginal, setConfigOriginal] = useState<Record<string, unknown>>({})
   const [envLoading, setEnvLoading] = useState(false)
@@ -469,6 +643,18 @@ function EditEmployee({
     }
   }, [employee.name])
 
+  const loadMemory = useCallback(async () => {
+    setMemoryLoading(true)
+    try {
+      const data = await window.hermesAPI.getEmployeeMemory(employee.name)
+      setMemoryData(data)
+    } catch {
+      setMemoryData({ memory: [], user: '', stats: {} })
+    } finally {
+      setMemoryLoading(false)
+    }
+  }, [employee.name])
+
   useEffect(() => {
     const ename = employee.name
     setDisplayName(employee.displayName || '')
@@ -485,6 +671,7 @@ function EditEmployee({
     window.hermesAPI.getEmployeeSoul(ename).then((s) => { setSoulContent(s || ''); setSoulOriginal(s || '') }).catch(() => {})
     window.hermesAPI.getEmployeeTools(ename).then(setTools).catch(() => {})
     loadSkills()
+    loadMemory()
     window.hermesAPI.getEmployeeConfig(ename).then((c) => {
       const obj = c && typeof c === 'object' ? c as Record<string, unknown> : {}
       setConfigObj(obj); setConfigOriginal(JSON.parse(JSON.stringify(obj)))
@@ -521,7 +708,7 @@ function EditEmployee({
       setHasSavedDingtalkSecret(false)
       setDingtalkHomeChannel('')
     }).finally(() => setEnvLoading(false))
-  }, [employee, loadSkills, deploymentMode])
+  }, [employee, loadSkills, loadMemory, deploymentMode])
 
   const isWebClient = typeof navigator !== 'undefined' && !navigator.userAgent.includes('Electron')
 
@@ -618,6 +805,46 @@ function EditEmployee({
       showToast(`${lexicon.concepts.soulSetting}已保存`)
     } catch { showToast('保存失败', 'error') }
     finally { setSaving(false) }
+  }
+
+  const handleAddMemory = async (): Promise<void> => {
+    const content = newMemoryContent.trim()
+    if (!content) {
+      showToast('请输入记忆内容', 'error')
+      return
+    }
+    setMemorySaving(true)
+    try {
+      const result = await window.hermesAPI.addMemory(employee.name, content)
+      if (result.success) {
+        setNewMemoryContent('')
+        await loadMemory()
+        showToast('记忆已添加')
+      } else {
+        showToast(result.error || '添加记忆失败', 'error')
+      }
+    } catch {
+      showToast('添加记忆失败', 'error')
+    } finally {
+      setMemorySaving(false)
+    }
+  }
+
+  const handleDeleteMemory = async (index: number): Promise<void> => {
+    setMemorySaving(true)
+    try {
+      const result = await window.hermesAPI.deleteMemory(employee.name, index)
+      if (result.success) {
+        await loadMemory()
+        showToast('记忆已删除')
+      } else {
+        showToast(result.error || '删除记忆失败', 'error')
+      }
+    } catch {
+      showToast('删除记忆失败', 'error')
+    } finally {
+      setMemorySaving(false)
+    }
   }
 
   const handleSaveConfig = async (): Promise<void> => {
@@ -752,9 +979,14 @@ function EditEmployee({
     setConfigObj(prev => setNestedValue(prev, key, value))
   }
 
+  const memoryConfig = (configObj.memory && typeof configObj.memory === 'object' ? configObj.memory : {}) as Record<string, unknown>
+  const memoryProvider = String(memoryConfig.provider || memoryConfig.memory_provider || 'local').trim()
+  const hasExternalMemoryProvider = Boolean(memoryProvider && !['local', 'builtin', 'built-in', 'file', 'files', 'none', 'off', 'false'].includes(memoryProvider.toLowerCase()))
+
   const tabs: { id: EditTab; label: string; icon: React.ReactElement }[] = [
     { id: 'basic', label: '基本信息', icon: <UserPlus size={14} /> },
     { id: 'soul', label: lexicon.concepts.soul, icon: <Sparkles size={14} /> },
+    { id: 'memory', label: '内置记忆', icon: <Brain size={14} /> },
     { id: 'config', label: lexicon.concepts.config, icon: <Wrench size={14} /> },
     { id: 'integrations', label: '集成', icon: <Plug size={14} /> },
     { id: 'tools', label: lexicon.concepts.tools, icon: <Zap size={14} /> },
@@ -959,6 +1191,112 @@ function EditEmployee({
               <button onClick={() => setSoulContent(soulOriginal)} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-3.5 py-2 rounded-[var(--radius)] text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">重置</button>
               <button onClick={handleSaveSoul} disabled={saving} className="bg-accent-gradient text-white border-none px-3.5 py-2 rounded-[var(--radius)] text-sm font-semibold cursor-pointer hover:opacity-90 disabled:opacity-40 flex items-center gap-1.5 transition-all">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}{saving ? '保存中...' : '保存'}</button>
             </div>
+          </div>
+        )}
+        {tab === 'memory' && (
+          <div className="flex flex-col gap-4 max-w-3xl">
+            <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
+              <Brain size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
+              <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                这里展示内置文件记忆：MEMORY.md 和 USER.md。手动添加的内容会写入 MEMORY.md。
+              </div>
+              <button
+                onClick={loadMemory}
+                disabled={memoryLoading}
+                className="ml-auto flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+              >
+                {memoryLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                刷新
+              </button>
+            </div>
+
+            {hasExternalMemoryProvider && (
+              <div className="glass-medium border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] rounded-[var(--radius-lg)] p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                  <Brain size={16} className="text-[var(--warning)]" />
+                  外部记忆 Provider：{memoryProvider}
+                </div>
+                <p className="mt-1.5 text-sm leading-relaxed text-[var(--text-secondary)]">
+                  外部记忆由 Hermes Agent 和对应 provider 管理，当前桌面端暂不展示或修改 provider 内部数据。下面只显示内置 MEMORY.md / USER.md。
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
+                <div className="text-xs text-[var(--text-dim)] mb-1">MEMORY.md</div>
+                <div className="text-xl font-semibold text-[var(--text-primary)]">{memoryData?.memory.length || 0} 条</div>
+                <div className="mt-1 text-xs text-[var(--text-dim)]">{memoryData?.memoryCharCount || 0} / {memoryData?.memoryCharLimit || 12200} 字符</div>
+              </div>
+              <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
+                <div className="text-xs text-[var(--text-dim)] mb-1">USER.md</div>
+                <div className="text-xl font-semibold text-[var(--text-primary)]">{memoryData?.userCharCount || 0} 字符</div>
+                <div className="mt-1 text-xs text-[var(--text-dim)]">上限 {memoryData?.userCharLimit || 5375} 字符</div>
+              </div>
+            </div>
+
+            <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
+              <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">添加到 MEMORY.md</label>
+              <textarea
+                value={newMemoryContent}
+                onChange={(e) => setNewMemoryContent(e.target.value)}
+                placeholder="输入一条希望员工长期记住的信息..."
+                className="min-h-[96px] w-full resize-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+              />
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={handleAddMemory}
+                  disabled={memorySaving || !newMemoryContent.trim()}
+                  className="flex items-center gap-1.5 rounded-[var(--radius)] bg-accent-gradient px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
+                >
+                  {memorySaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  添加记忆
+                </button>
+              </div>
+            </div>
+
+            {memoryLoading ? (
+              <div className="flex items-center justify-center py-12 text-[var(--text-dim)]">
+                <Loader2 size={18} className="animate-spin" />
+              </div>
+            ) : (
+              <>
+                {(memoryData?.memory.length || 0) > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">长期记忆列表</div>
+                    {memoryData!.memory.map((entry, i) => (
+                      <div key={entry.index ?? i} className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-xs text-[var(--text-dim)]">#{entry.index ?? i}</span>
+                          <Popconfirm title="确认删除这条记忆？" onConfirm={() => handleDeleteMemory(entry.index ?? i)}>
+                            <button
+                              disabled={memorySaving}
+                              className="flex items-center gap-1 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-2.5 py-1 text-xs text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] disabled:opacity-40"
+                            >
+                              <Trash2 size={12} /> 删除
+                            </button>
+                          </Popconfirm>
+                        </div>
+                        <pre className="max-h-[220px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{entry.content}</pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {memoryData?.user && (
+                  <div>
+                    <div className="mb-2 text-sm font-semibold text-[var(--text-primary)]">用户画像</div>
+                    <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
+                      <pre className="max-h-[260px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{memoryData.user}</pre>
+                    </div>
+                  </div>
+                )}
+
+                {(memoryData?.memory.length || 0) === 0 && !memoryData?.user && (
+                  <div className="py-12 text-center text-sm text-[var(--text-dim)]">暂无内置记忆文件数据</div>
+                )}
+              </>
+            )}
           </div>
         )}
         {tab === 'config' && (

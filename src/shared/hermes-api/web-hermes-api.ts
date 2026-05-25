@@ -251,6 +251,12 @@ export function createWebHermesAPI(baseUrl = ""): Record<string, unknown> {
       return apiJson(root, "POST", `/api/v1/skills/${encodeURIComponent(skillId)}/usage${q}`, { success });
     },
 
+    listMcpServers: async () => apiJson(root, "GET", "/api/v1/tools/mcp"),
+    saveMcpServer: async (server: Record<string, unknown>) => apiJson(root, "PUT", "/api/v1/tools/mcp", server),
+    deleteMcpServer: async (name: string) => apiJson(root, "DELETE", `/api/v1/tools/mcp/${encodeURIComponent(name)}`),
+    testMcpServer: async (name: string) => apiJson(root, "POST", `/api/v1/tools/mcp/${encodeURIComponent(name)}/test`),
+    parseMcpDescription: async (description: string) => apiJson(root, "POST", "/api/v1/tools/mcp/parse", { description }),
+
     sendMessage: async (
       profileName: string,
       message: string,
@@ -336,6 +342,10 @@ export function createWebHermesAPI(baseUrl = ""): Record<string, unknown> {
       const q = profileName ? `?profile=${encodeURIComponent(profileName)}` : "";
       return apiJson(root, "DELETE", `/api/v1/sessions/${encodeURIComponent(sessionId)}${q}`);
     },
+    deleteSessionMessage: async (sessionId: string, messageId: number, profileName?: string) => {
+      const q = profileName ? `?profile=${encodeURIComponent(profileName)}` : "";
+      return apiJson(root, "DELETE", `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(String(messageId))}${q}`);
+    },
     getSessionMessages: async (sessionId: string, profileName?: string) => {
       const q = profileName ? `?profile=${encodeURIComponent(profileName)}` : "";
       const data = await apiJson<{ messages: unknown[] }>(
@@ -414,6 +424,7 @@ export function createWebHermesAPI(baseUrl = ""): Record<string, unknown> {
     getHermesHome: async () => invokeLocal(root, "get-hermes-home"),
     checkHermesInstall: async () => invokeLocal(root, "check-hermes-install"),
     getModelConfig: async () => invokeLocal(root, "get-model-config"),
+    getSoulGenerationModel: async () => invokeLocal(root, "get-soul-generation-model"),
     getAvailableModels: async () => invokeLocal(root, "get-available-models"),
     setModel: async (modelName: string) => invokeLocal(root, "set-model", [modelName]),
     setModelConfig: async (modelConfig: Record<string, unknown>) =>

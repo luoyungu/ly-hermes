@@ -66,6 +66,8 @@ export function registerRemoteIpcHandlers(): void {
     remoteBackend.addMemory(String(name), String(content)));
   registerRemoteHandler("employee:delete-memory", (_, name, index) =>
     remoteBackend.deleteMemory(String(name), Number(index)));
+  registerRemoteHandler("employee:generate-soul-draft", (_, input) =>
+    remoteBackend.generateEmployeeSoulDraft(input as Record<string, unknown>));
   registerRemoteHandler("employee:get-sessions", (_, name) => remoteBackend.getEmployeeSessions(String(name)));
   registerRemoteHandler("employee:export", (_, name) => remoteBackend.exportEmployee(String(name)));
   registerRemoteHandler("employee:get-skills", (_, name) => remoteBackend.getEmployeeSkillsDir(String(name)));
@@ -85,12 +87,20 @@ export function registerRemoteIpcHandlers(): void {
   registerRemoteHandler("skills:recordUsage", (_, skillId, success, profile) =>
     remoteBackend.recordSkillUsage(String(skillId), success === true, profile as string | undefined));
 
+  registerRemoteHandler("tools:mcp-list", () => remoteBackend.listMcpServers());
+  registerRemoteHandler("tools:mcp-save", (_, input) => remoteBackend.saveMcpServer(input as Record<string, unknown>));
+  registerRemoteHandler("tools:mcp-delete", (_, name) => remoteBackend.deleteMcpServer(String(name)));
+  registerRemoteHandler("tools:mcp-test", (_, name) => remoteBackend.testMcpServer(String(name)));
+  registerRemoteHandler("tools:mcp-parse", (_, description) => remoteBackend.parseMcpDescription(String(description)));
+
   registerRemoteHandler("get-session-messages", (_, sessionId, profileName) =>
     remoteBackend.getSessionMessages(String(sessionId), profileName as string | undefined));
   registerRemoteHandler("get-sessions", (_, limit, offset) =>
     remoteBackend.getSessions(Number(limit), Number(offset)));
   registerRemoteHandler("delete-session", (_, sessionId, profileName) =>
     remoteBackend.deleteSession(String(sessionId), profileName as string | undefined));
+  registerRemoteHandler("delete-session-message", (_, sessionId, messageId, profileName) =>
+    remoteBackend.deleteSessionMessage(String(sessionId), Number(messageId), profileName as string | undefined));
   registerRemoteHandler("search-sessions", (_, query, profileName) =>
     remoteBackend.searchSessions(String(query), profileName as string | undefined));
   registerRemoteHandler("get-usage-stats", (_, days) => remoteBackend.getUsageStats(Number(days)));

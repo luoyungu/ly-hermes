@@ -11,13 +11,14 @@ import {
   readHermesEnv,
   runHermesCli,
   validateProfileName,
+  getProviderEnvKey,
 } from "../config";
 import { ensureDir, safeWriteFile, yamlStringify } from "../utils";
 import { notifyRenderer } from "../ipc/desktop-events";
 import { getSessionCount } from "../sessions";
 import {
-  loadDbMemory,
-  saveDbMemory,
+  loadMemoryFile,
+  saveMemoryFile,
   exportEmployeeDesktopData,
 } from "../db";
 import {
@@ -46,6 +47,17 @@ const DEFAULT_DESKTOP_TOOLS = [
   "moa",
   "todo",
 ];
+
+function getMemoryRuntimeLimits(): { memoryCharLimit: number; userCharLimit: number } {
+  const appConfig = loadAppConfig();
+  const runtime = (appConfig.runtime as Record<string, unknown> | undefined) || {};
+  const defMem = (RUNTIME_DEFAULTS.memory as Record<string, unknown>) || {};
+  const memCfg = Object.assign({}, defMem, (runtime.memory as Record<string, unknown>) || {});
+  return {
+    memoryCharLimit: Number(memCfg.memory_char_limit || defMem.memory_char_limit || 12200) || 12200,
+    userCharLimit: Number(memCfg.user_char_limit || defMem.user_char_limit || 5375) || 5375,
+  };
+}
 
 function createWebAccessToken(): string {
   return crypto.randomBytes(24).toString("base64url");
@@ -167,11 +179,14 @@ export function createEmployeeProfile(
   );
 
   if (config.api_key || defaults.api_key) {
-    const envContent =
-      "OPENAI_API_KEY=" +
-      ((config.api_key as string) || (defaults.api_key as string)) +
-      "\n";
-    fs.writeFileSync(path.join(profilePath, ".env"), envContent, "utf-8");
+    const apiKey =
+      (config.api_key as string) || (defaults.api_key as string);
+    const envKey = getProviderEnvKey(provider);
+    fs.writeFileSync(
+      path.join(profilePath, ".env"),
+      `${envKey}=${apiKey}\n`,
+      "utf-8",
+    );
   }
 
   if (config.soul) {
@@ -472,7 +487,8 @@ export function getEmployeeMemoryData(name: string): Record<string, unknown> {
       user: "",
       stats: {},
     };
-    const content = loadDbMemory(name, "memory");
+    const limits = getMemoryRuntimeLimits();
+    const content = loadMemoryFile(name, "memory");
     if (content) {
       const entries = content
         .split("\n§\n")
@@ -481,14 +497,14 @@ export function getEmployeeMemoryData(name: string): Record<string, unknown> {
         (e: string, i: number) => ({ index: i, content: e.trim() }),
       );
       result.memoryCharCount = content.length;
-      result.memoryCharLimit = 2200;
     }
-    const user = loadDbMemory(name, "user");
+    result.memoryCharLimit = limits.memoryCharLimit;
+    const user = loadMemoryFile(name, "user");
     if (user) {
       result.user = user;
       result.userCharCount = (result.user as string).length;
-      result.userCharLimit = 1375;
     }
+    result.userCharLimit = limits.userCharLimit;
     result.stats = { totalSessions: getSessionCount() };
     return result;
   } catch {
@@ -503,15 +519,16 @@ export function addEmployeeMemoryEntry(
   if (!validateProfileName(name) && name !== "default")
     return { error: "无效的员工名称" };
   try {
-    const existing = loadDbMemory(name, "memory");
+    const { memoryCharLimit } = getMemoryRuntimeLimits();
+    const existing = loadMemoryFile(name, "memory");
     const newContent = existing.trim()
       ? existing.trimEnd() + "\n§\n" + content.trim()
       : content.trim();
-    if (newContent.length > 2200)
+    if (newContent.length > memoryCharLimit)
       return {
-        error: "超出记忆容量限制 (" + newContent.length + "/2200)",
+        error: "超出记忆容量限制 (" + newContent.length + "/" + memoryCharLimit + ")",
       };
-    saveDbMemory(name, "memory", newContent);
+    saveMemoryFile(name, "memory", newContent);
     return { success: true };
   } catch (e: unknown) {
     return { error: String(e) };
@@ -525,7 +542,7 @@ export function deleteEmployeeMemoryEntry(
   if (!validateProfileName(name) && name !== "default")
     return { error: "无效的员工名称" };
   try {
-    const content = loadDbMemory(name, "memory");
+    const content = loadMemoryFile(name, "memory");
     if (!content) return { error: "记忆不存在" };
     const entries = content
       .split("\n§\n")
@@ -534,7 +551,7 @@ export function deleteEmployeeMemoryEntry(
     if (idx < 0 || idx >= entries.length)
       return { error: "条目不存在" };
     entries.splice(idx, 1);
-    saveDbMemory(name, "memory", entries.join("\n§\n"));
+    saveMemoryFile(name, "memory", entries.join("\n§\n"));
     return { success: true };
   } catch (e: unknown) {
     return { error: String(e) };

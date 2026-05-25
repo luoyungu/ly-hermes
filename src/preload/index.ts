@@ -82,6 +82,20 @@ export interface ToolsetInfo {
   enabled: boolean
 }
 
+export interface McpServerInfo {
+  name: string
+  transport: string
+  command?: string
+  args?: string[]
+  url?: string
+  headers?: Record<string, string>
+  env?: Record<string, string>
+  envKeys: string[]
+  timeout?: number
+  connect_timeout?: number
+  allowedProfiles: string[]
+}
+
 export interface SessionInfo {
   id: string
   title: string | null
@@ -129,6 +143,13 @@ export interface MemoryData {
   memoryCharLimit?: number
   userCharCount?: number
   userCharLimit?: number
+}
+
+export interface EmployeeSoulDraft {
+  name: string
+  displayName: string
+  role: string
+  soul: string
 }
 
 export interface CronJob {
@@ -372,6 +393,17 @@ const hermesAPI = {
   deleteMemory: (name: string, index: number): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("employee:delete-memory", name, index),
 
+  generateEmployeeSoulDraft: (input: {
+    prompt: string
+    name?: string
+    displayName?: string
+    role?: string
+    style?: string
+    refinement?: string
+    existingSoul?: string
+  }): Promise<{ success: boolean; draft?: EmployeeSoulDraft; error?: string }> =>
+    ipcRenderer.invoke("employee:generate-soul-draft", input),
+
   listInstalledSkills: (profile?: string): Promise<InstalledSkill[]> =>
     ipcRenderer.invoke("skills:listInstalled", profile),
 
@@ -395,6 +427,21 @@ const hermesAPI = {
 
   recordSkillUsage: (skillId: string, success: boolean, profile?: string): Promise<{ success: boolean; stats?: SkillUsageStats; error?: string }> =>
     ipcRenderer.invoke("skills:recordUsage", skillId, success, profile),
+
+  listMcpServers: (): Promise<{ servers: McpServerInfo[]; configPath: string }> =>
+    ipcRenderer.invoke("tools:mcp-list"),
+
+  saveMcpServer: (server: Partial<McpServerInfo> & { name: string }): Promise<{ success: boolean; server?: McpServerInfo; error?: string }> =>
+    ipcRenderer.invoke("tools:mcp-save", server),
+
+  deleteMcpServer: (name: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("tools:mcp-delete", name),
+
+  testMcpServer: (name: string): Promise<{ success: boolean; output: string }> =>
+    ipcRenderer.invoke("tools:mcp-test", name),
+
+  parseMcpDescription: (description: string): Promise<{ success: boolean; config?: Partial<McpServerInfo>; error?: string }> =>
+    ipcRenderer.invoke("tools:mcp-parse", description),
 
   getEmployeeSessions: (name: string): Promise<Array<Record<string, unknown>>> =>
     ipcRenderer.invoke('employee:get-sessions', name),
@@ -427,6 +474,9 @@ const hermesAPI = {
 
   deleteSession: (sessionId: string, profileName?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('delete-session', sessionId, profileName),
+
+  deleteSessionMessage: (sessionId: string, messageId: number, profileName?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('delete-session-message', sessionId, messageId, profileName),
 
   getSessionMessages: (sessionId: string, profileName?: string): Promise<Array<Record<string, unknown>>> =>
     ipcRenderer.invoke('get-session-messages', sessionId, profileName),
@@ -507,6 +557,9 @@ const hermesAPI = {
 
   getModelConfig: (): Promise<{ provider: string; model: string; baseUrl: string }> =>
     ipcRenderer.invoke('get-model-config'),
+
+  getSoulGenerationModel: (): Promise<{ model: string; provider: string; ready: boolean; hint?: string }> =>
+    ipcRenderer.invoke('get-soul-generation-model'),
 
   getAvailableModels: (): Promise<{ models: Array<Record<string, unknown>> }> =>
     ipcRenderer.invoke('get-available-models'),

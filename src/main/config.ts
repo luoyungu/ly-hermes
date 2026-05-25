@@ -8,6 +8,19 @@ import * as yaml from "./lib/yaml-simple";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 import { getSetting, loadDbSavedModels, saveDbSavedModels, setSetting } from "./db";
 import { webIpc } from "./ipc/web-api-ipc";
+import { ipcHandle } from "./ipc/remote-handle";
+import { registerWebApiChannel } from "../server/web-api-registry";
+import {
+  deleteMcpServer,
+  listMcpServers,
+  saveMcpServer,
+  testMcpServer,
+  type McpServerInput,
+} from "./services/tool-api";
+
+export function getProviderEnvKey(provider: string): string {
+  return PROVIDER_KEY_MAP[provider]?.envKey || "OPENAI_API_KEY";
+}
 
 const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
   deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
@@ -48,8 +61,71 @@ export const WALLPAPERS_DIR: string = path.join(
   "wallpapers",
 );
 
+export function getHermesEnhancedPath(basePath = process.env.PATH || ""): string {
+  const extraPaths: string[] = [];
+  if (process.platform === "win32") {
+    const home = os.homedir();
+    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+    const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+    const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    extraPaths.push(
+      path.join(programFiles, "Git", "cmd"),
+      path.join(programFiles, "Git", "bin"),
+      path.join(programFilesX86, "Git", "cmd"),
+      path.join(programFilesX86, "Git", "bin"),
+      path.join(localAppData, "Programs", "Git", "cmd"),
+      path.join(localAppData, "Programs", "Git", "bin"),
+      path.join(localAppData, "Microsoft", "WindowsApps"),
+      path.join(home, "AppData", "Local", "Microsoft", "WindowsApps"),
+    );
+  }
+
+  const parts = basePath.split(path.delimiter).filter(Boolean);
+  const seen = new Set(parts.map((item) => item.toLowerCase()));
+  for (const item of extraPaths) {
+    const key = item.toLowerCase();
+    if (!seen.has(key)) {
+      parts.push(item);
+      seen.add(key);
+    }
+  }
+  return parts.join(path.delimiter);
+}
+
+export function findWindowsGitBashPath(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (process.platform !== "win32") return null;
+  const configured = env.HERMES_GIT_BASH_PATH;
+  if (configured && fs.existsSync(configured)) return configured;
+
+  const home = os.homedir();
+  const programFiles = env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const localAppData = env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const candidates = [
+    path.join(programFiles, "Git", "bin", "bash.exe"),
+    path.join(programFilesX86, "Git", "bin", "bash.exe"),
+    path.join(localAppData, "Programs", "Git", "bin", "bash.exe"),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+export function createHermesProcessEnv(
+  overrides: Record<string, string | undefined> = {},
+): NodeJS.ProcessEnv {
+  const env = Object.assign({}, process.env, {
+    HOME: os.homedir(),
+    HERMES_HOME,
+    PATH: getHermesEnhancedPath(process.env.PATH || ""),
+  }, overrides);
+  const gitBashPath = findWindowsGitBashPath(env);
+  if (gitBashPath) {
+    env.HERMES_GIT_BASH_PATH = gitBashPath;
+  }
+  return env;
+}
+
 export const RUNTIME_DEFAULTS: Record<string, unknown> = {
-  memory: { memory_enabled: true, memory_char_limit: 2200, user_char_limit: 1375, flush_min_turns: 6 },
+  memory: { memory_enabled: true, memory_char_limit: 12200, user_char_limit: 5375, flush_min_turns: 6 },
   compression: { enabled: true, target_ratio: 0.2, threshold: 0.5, protect_last_n: 20 },
   terminal: { timeout: 180, lifetime_seconds: 300 },
   code_execution: { max_tool_calls: 50, timeout: 300 },
@@ -219,8 +295,7 @@ export function runHermesCli(
   const spawnOpts: Record<string, unknown> = {
     encoding: "utf-8",
     timeout: timeoutMs,
-    env: Object.assign({}, process.env, {
-      HOME: os.homedir(),
+    env: createHermesProcessEnv({
       HERMES_HOME: hermesHomeForProfile,
     }),
     shell: process.platform === "win32",
@@ -480,6 +555,361 @@ function writeDesktopSourceMarker(commit: string | null, method: "git" | "zip"):
   }
 }
 
+interface EmployeeSoulDraft {
+  name: string;
+  displayName: string;
+  role: string;
+  soul: string;
+}
+
+type EmployeeSoulStyle = "balanced" | "detailed" | "expert" | "companion" | "executor";
+
+interface ModelRequestConfig {
+  provider: string;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+function stripJsonFence(content: string): string {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return (match ? match[1] : trimmed).trim();
+}
+
+function toEmployeeSlug(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+  return validateProfileName(slug) ? slug : `employee_${Date.now().toString(36)}`;
+}
+
+function getSoulStyleInstruction(style: string | undefined): string {
+  const styles: Record<EmployeeSoulStyle, string> = {
+    balanced: "平衡型：兼顾人格鲜明、专业可靠和日常可用，适合默认员工。",
+    detailed: "详细型：内容更完整，SOUL.md 不少于 900 个中文字符，条理清楚，覆盖更多行为细节。",
+    expert: "专家型：强调专业判断、结构化分析、行业方法论、风险提示和高质量交付。",
+    companion: "陪伴型：强调长期关系、温和表达、记忆敏感度、情绪理解和稳定陪伴，但不要过度亲密。",
+    executor: "执行型 Agent：强调目标拆解、行动计划、工具调用、进度反馈、交付检查和结果导向。",
+  };
+  const key = (style || "balanced") as EmployeeSoulStyle;
+  return styles[key] || styles.balanced;
+}
+
+function syncAppConfigDefaults(modelConfig: {
+  model?: string;
+  provider?: string;
+  baseUrl?: string;
+  apiKey?: string;
+}): void {
+  const appConfig = loadAppConfig();
+  if (!appConfig.defaults) appConfig.defaults = {};
+  const defaults = appConfig.defaults as Record<string, unknown>;
+  if (modelConfig.model) defaults.model = modelConfig.model;
+  if (modelConfig.provider) defaults.provider = modelConfig.provider;
+  if (modelConfig.baseUrl) defaults.base_url = modelConfig.baseUrl;
+  if (modelConfig.apiKey) defaults.api_key = modelConfig.apiKey;
+  saveAppConfig(appConfig);
+}
+
+function resolveSavedModelConfig(
+  provider: string,
+  model: string,
+  baseUrl: string,
+  apiKey: string,
+): ModelRequestConfig {
+  const savedModels = loadSavedModels();
+  const matched =
+    savedModels.find(
+      (entry) =>
+        entry.model === model &&
+        entry.provider === provider &&
+        (entry.apiKey as string)?.trim(),
+    ) ||
+    savedModels.find((entry) => (entry.apiKey as string)?.trim()) ||
+    savedModels.find((entry) => entry.model && entry.provider);
+
+  if (!matched) return { provider, model, baseUrl, apiKey };
+
+  const matchedProvider = (matched.provider as string) || provider;
+  const matchedModel = (matched.model as string) || model;
+  const matchedBaseUrl =
+    (matched.baseUrl as string) ||
+    baseUrl ||
+    PROVIDER_KEY_MAP[matchedProvider]?.baseUrl ||
+    "";
+  const matchedApiKey = (matched.apiKey as string)?.trim() || apiKey;
+
+  return {
+    provider: matchedProvider,
+    model: matchedModel,
+    baseUrl: matchedBaseUrl,
+    apiKey: matchedApiKey,
+  };
+}
+
+function getDefaultModelRequestConfig(): ModelRequestConfig {
+  const appConfig = loadAppConfig();
+  const defaults = (appConfig.defaults as Record<string, unknown>) || {};
+  const configPath = path.join(HERMES_HOME, "config.yaml");
+  let provider = (defaults.provider as string) || "";
+  let model = (defaults.model as string) || "";
+  let baseUrl = (defaults.base_url as string) || "";
+
+  try {
+    if (fs.existsSync(configPath)) {
+      const cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
+      const m = cfg.model as Record<string, unknown> | undefined;
+      if (m) {
+        provider = (m.provider as string) || provider;
+        model = (m.default as string) || (m.name as string) || model;
+        baseUrl = (m.base_url as string) || baseUrl;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+
+  const providerInfo = PROVIDER_KEY_MAP[provider];
+  if (!baseUrl) baseUrl = providerInfo?.baseUrl || "";
+  const env = readHermesEnv("default");
+  let apiKey =
+    (providerInfo?.envKey ? env[providerInfo.envKey] : "") ||
+    env.OPENAI_API_KEY ||
+    env.CUSTOM_API_KEY ||
+    (defaults.api_key as string) ||
+    "";
+
+  return resolveSavedModelConfig(provider, model, baseUrl, apiKey);
+}
+
+export function getSoulGenerationModelInfo(): {
+  model: string;
+  provider: string;
+  ready: boolean;
+  hint?: string;
+} {
+  const config = getDefaultModelRequestConfig();
+  if (!config.model) {
+    return { model: "", provider: "", ready: false, hint: "请先在设置中选择默认模型" };
+  }
+  if (!config.baseUrl) {
+    return {
+      model: config.model,
+      provider: config.provider,
+      ready: false,
+      hint: "请先在设置中配置模型 Base URL",
+    };
+  }
+  if (!config.apiKey) {
+    return {
+      model: config.model,
+      provider: config.provider,
+      ready: false,
+      hint: "请先在设置中配置 API Key",
+    };
+  }
+  return { model: config.model, provider: config.provider, ready: true };
+}
+
+function postChatCompletion(
+  config: ModelRequestConfig,
+  messages: Array<{ role: string; content: string }>,
+  timeoutMs = 120000,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!config.model) {
+      reject(new Error("请先在设置里选择默认模型"));
+      return;
+    }
+    if (!config.baseUrl) {
+      reject(new Error("请先在设置里配置模型 Base URL"));
+      return;
+    }
+    if (!config.apiKey) {
+      reject(new Error("请先在设置里配置 API Key"));
+      return;
+    }
+    if (isHermesGatewayBaseUrl(config.baseUrl)) {
+      reject(new Error("内部 AI 生成不能使用 Hermes Agent 网关，请在设置里选择具体模型服务商或自定义直连 Base URL"));
+      return;
+    }
+
+    let target: URL;
+    try {
+      target = new URL(`${config.baseUrl.replace(/\/+$/, "")}/chat/completions`);
+    } catch {
+      reject(new Error("模型 Base URL 格式不正确"));
+      return;
+    }
+
+    const body = JSON.stringify({
+      model: config.model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 3200,
+      stream: false,
+    });
+    const client = target.protocol === "http:" ? http : https;
+    const req = client.request(
+      {
+        hostname: target.hostname,
+        port: target.port || undefined,
+        path: `${target.pathname}${target.search}`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        timeout: timeoutMs,
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk: Buffer) => { raw += chunk.toString(); });
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(raw || "{}");
+            if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
+              reject(new Error(parsed?.error?.message || `模型请求失败：HTTP ${res.statusCode}`));
+              return;
+            }
+            const content = parsed?.choices?.[0]?.message?.content;
+            if (!content || typeof content !== "string") {
+              reject(new Error("模型没有返回可用内容"));
+              return;
+            }
+            resolve(content);
+          } catch (e: unknown) {
+            reject(new Error((e as Error).message || "模型响应解析失败"));
+          }
+        });
+      },
+    );
+    req.on("error", (err) => reject(err));
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("模型请求超时"));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+function isHermesGatewayBaseUrl(baseUrl: string): boolean {
+  try {
+    const target = new URL(baseUrl);
+    const hostname = target.hostname.toLowerCase();
+    if (!["127.0.0.1", "localhost", "::1"].includes(hostname)) return false;
+    const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
+    const appConfig = loadAppConfig();
+    const hermes = (appConfig.hermes as Record<string, unknown>) || {};
+    const range = Array.isArray(hermes.port_range) ? hermes.port_range.map(Number) : [DEFAULT_API_PORT, DEFAULT_API_PORT + 99];
+    const start = Number.isFinite(range[0]) ? range[0] : DEFAULT_API_PORT;
+    const end = Number.isFinite(range[1]) ? range[1] : DEFAULT_API_PORT + 99;
+    return port >= start && port <= end;
+  } catch {
+    return false;
+  }
+}
+
+export async function generateEmployeeSoulDraft(input: {
+  prompt?: string;
+  name?: string;
+  displayName?: string;
+  role?: string;
+  style?: string;
+  refinement?: string;
+  existingSoul?: string;
+}): Promise<{ success: boolean; draft?: EmployeeSoulDraft; error?: string }> {
+  const prompt = (input.prompt || "").trim();
+  const refinement = (input.refinement || "").trim();
+  const existingSoul = (input.existingSoul || "").trim();
+  if (!prompt && !existingSoul) return { success: false, error: "请输入要创建的人物、角色或岗位" };
+
+  try {
+    const modelConfig = getDefaultModelRequestConfig();
+    const styleInstruction = getSoulStyleInstruction(input.style);
+    const messages = [
+      {
+        role: "system",
+        content:
+          "你是落云 Hermes 的虚拟员工设定生成器。根据用户输入生成员工创建草稿，只返回 JSON，不要 Markdown。字段必须是 name、displayName、role、soul。name 必须是 3-48 位小写英文、数字、下划线或连字符，适合做系统标识。displayName 使用中文。role 是简短岗位名。soul 是可直接写入 SOUL.md 的中文设定。SOUL.md 必须具体、可执行、结构清晰，默认不少于 700 个中文字符；若用户选择详细型，则不少于 900 个中文字符。soul 必须包含这些 Markdown 小节：# 身份定位、# 核心能力、# 沟通风格、# 工作方式、# 记忆偏好、# 工具使用原则、# 边界与禁忌、# 不确定性处理、# 输出偏好。不要写空泛宣传语，要写这个员工在真实任务里会如何判断和行动。若用户输入真实历史人物或公众人物，只能生成“风格/思想启发型助手”，不得声称自己就是本人，不编造私人经历或未公开观点；若像在请求在世真实人物，也必须避免冒充本人。",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          prompt,
+          style: styleInstruction,
+          refinement,
+          existingSoul,
+          currentName: input.name || "",
+          currentDisplayName: input.displayName || "",
+          currentRole: input.role || "",
+        }),
+      },
+    ];
+    const content = await postChatCompletion(modelConfig, messages);
+    const parsed = JSON.parse(stripJsonFence(content)) as Partial<EmployeeSoulDraft>;
+    const displayName = String(parsed.displayName || input.displayName || prompt).trim().slice(0, 80);
+    const role = String(parsed.role || input.role || "虚拟员工").trim().slice(0, 80);
+    const soul = String(parsed.soul || "").trim();
+    if (!soul) return { success: false, error: "模型没有生成灵魂设定，请换个描述再试" };
+    const name = toEmployeeSlug(String(parsed.name || input.name || displayName || prompt));
+    return {
+      success: true,
+      draft: { name, displayName, role, soul },
+    };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message || "生成失败" };
+  }
+}
+
+export async function parseMcpDescription(input: {
+  description?: string;
+}): Promise<{ success: boolean; config?: McpServerInput; error?: string }> {
+  const description = String(input.description || "").trim();
+  if (!description) return { success: false, error: "请输入 MCP 说明" };
+
+  try {
+    const modelConfig = getDefaultModelRequestConfig();
+    const messages = [
+      {
+        role: "system",
+        content:
+          "你是 MCP 配置解析器。用户会粘贴 MCP 安装说明、命令、文档片段或自然语言描述。你只返回 JSON，不要 Markdown。JSON 字段包括：name、transport、command、args、url、env、headers、timeout、connect_timeout。transport 只能是 stdio、http、sse。stdio 必须有 command 和 args 数组；http/sse 必须有 url。不要编造密钥值；如果说明里出现需要用户填写的密钥，只在 env 或 headers 中放空字符串或占位变量名。name 必须是 1-64 位字母、数字、下划线或连字符。识别 MCP Toolbox for Databases 时，优先生成 name=db_toolbox, transport=stdio, command=toolbox，并把 --tools-file 和 tools.yaml 路径放进 args。",
+      },
+      {
+        role: "user",
+        content: description,
+      },
+    ];
+    const content = await postChatCompletion(modelConfig, messages);
+    const parsed = JSON.parse(stripJsonFence(content)) as Record<string, unknown>;
+    const config: McpServerInput = {
+      name: String(parsed.name || "my_mcp").trim(),
+      transport: String(parsed.transport || (parsed.url ? "http" : "stdio")).trim(),
+      command: String(parsed.command || "").trim(),
+      args: Array.isArray(parsed.args) ? parsed.args.map(String) : [],
+      url: String(parsed.url || "").trim(),
+      env: parsed.env && typeof parsed.env === "object" && !Array.isArray(parsed.env)
+        ? Object.fromEntries(Object.entries(parsed.env as Record<string, unknown>).map(([k, v]) => [k, String(v || "")]))
+        : {},
+      headers: parsed.headers && typeof parsed.headers === "object" && !Array.isArray(parsed.headers)
+        ? Object.fromEntries(Object.entries(parsed.headers as Record<string, unknown>).map(([k, v]) => [k, String(v || "")]))
+        : {},
+      timeout: Number(parsed.timeout || 120),
+      connect_timeout: Number(parsed.connect_timeout || 60),
+    };
+    return { success: true, config };
+  } catch (e: unknown) {
+    return { success: false, error: (e as Error).message || "解析失败" };
+  }
+}
+
 function downloadFile(url: string, dest: string, timeoutMs: number): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
     const client = url.startsWith("http://") ? http.get : https.get;
@@ -711,10 +1141,7 @@ export function registerConfigIpcHandlers(): void {
       const versionOut = execFileSync(hermesBin, ["--version"], {
         encoding: "utf-8",
         timeout: 5000,
-        env: Object.assign({}, process.env, {
-          HOME: os.homedir(),
-          HERMES_HOME: HERMES_HOME,
-        }),
+        env: createHermesProcessEnv({ HERMES_HOME }),
       }).trim();
       result.installed = true;
       const vMatch = versionOut.match(/(\d+\.\d+\.\d+)/);
@@ -788,6 +1215,36 @@ export function registerConfigIpcHandlers(): void {
     });
   });
 
+  registerWebApiChannel("employee:generate-soul-draft", (input: unknown) =>
+    generateEmployeeSoulDraft((input as {
+      prompt?: string;
+      name?: string;
+      displayName?: string;
+      role?: string;
+      style?: string;
+      refinement?: string;
+      existingSoul?: string;
+    }) || {}),
+  );
+
+  ipcHandle("employee:generate-soul-draft", async (_, input: {
+    prompt?: string;
+    name?: string;
+    displayName?: string;
+    role?: string;
+    style?: string;
+    refinement?: string;
+    existingSoul?: string;
+  }) => {
+    return generateEmployeeSoulDraft(input || {});
+  });
+
+  ipcHandle("tools:mcp-list", async () => listMcpServers());
+  ipcHandle("tools:mcp-save", async (_, input: McpServerInput) => saveMcpServer(input));
+  ipcHandle("tools:mcp-delete", async (_, name: string) => deleteMcpServer(name));
+  ipcHandle("tools:mcp-test", async (_, name: string) => testMcpServer(name));
+  ipcHandle("tools:mcp-parse", async (_, description: string) => parseMcpDescription({ description }));
+
   webIpc("set-model", async (_, modelName: string) => {
     const configPath = path.join(HERMES_HOME, "config.yaml");
     try {
@@ -819,11 +1276,18 @@ export function registerConfigIpcHandlers(): void {
       if (modelConfig.baseUrl) m.base_url = modelConfig.baseUrl;
       ensureDir(HERMES_HOME);
       safeWriteFile(configPath, yamlStringify(cfg));
+      syncAppConfigDefaults({
+        model: modelConfig.model,
+        provider: modelConfig.provider,
+        baseUrl: modelConfig.baseUrl,
+      });
       return { success: true };
     } catch (e: unknown) {
       return { error: (e as Error).message };
     }
   });
+
+  webIpc("get-soul-generation-model", async () => getSoulGenerationModelInfo());
 
   webIpc("list-saved-models", async () => {
     return loadSavedModels();
@@ -1103,10 +1567,7 @@ export function registerConfigIpcHandlers(): void {
       const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
       const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
       prepareHermesVersionCheck();
-      const env = Object.assign({}, process.env, {
-        HOME: os.homedir(),
-        HERMES_HOME,
-      });
+      const env = createHermesProcessEnv({ HERMES_HOME });
       execFile(hermesBin, ["--version"], { env, timeout: 15000, windowsHide: true }, (error, stdout) => {
           if (error) {
             resolve(null);
@@ -1127,10 +1588,7 @@ export function registerConfigIpcHandlers(): void {
     const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
     const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
     prepareHermesVersionCheck();
-    const env = Object.assign({}, process.env, {
-      HOME: os.homedir(),
-      HERMES_HOME,
-    });
+    const env = createHermesProcessEnv({ HERMES_HOME });
     const versionText = await new Promise<string | null>((resolve) => {
       execFile(hermesBin, ["--version"], { env, timeout: 15000, windowsHide: true }, (error, stdout) => {
         if (error) resolve(null);
@@ -1154,8 +1612,7 @@ export function registerConfigIpcHandlers(): void {
     const appConfig = loadAppConfig();
     const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
     const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
-    const env = Object.assign({}, process.env, {
-      HOME: os.homedir(),
+    const env = createHermesProcessEnv({
       HERMES_HOME,
       TERM: "dumb",
     }) as Record<string, string>;

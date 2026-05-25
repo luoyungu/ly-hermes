@@ -1,7 +1,6 @@
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import path from "path";
 import fs from "fs";
-import os from "os";
 import http from "http";
 import { spawn, type ChildProcess } from "child_process";
 import * as yaml from "./lib/yaml-simple";
@@ -14,6 +13,7 @@ import {
   getModelFromProfile,
   validateProfileName,
   DEFAULT_HERMES_BIN,
+  createHermesProcessEnv,
 } from "./config";
 import {
   getApiPortForProfile,
@@ -479,9 +479,8 @@ export function sendMessageViaCli(
   const model = getModelFromProfile(profileName);
   if (model) args.push("-m", model);
 
-  const env = Object.assign({}, process.env, {
-    HOME: os.homedir(),
-    HERMES_HOME: HERMES_HOME,
+  const env = createHermesProcessEnv({
+    HERMES_HOME,
     PYTHONUNBUFFERED: "1",
   });
 

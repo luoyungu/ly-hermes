@@ -31,6 +31,7 @@ import {
   renameEmployeeProfile,
   exportEmployeeProfile,
 } from "../../../main/services/employee-api";
+import { generateEmployeeSoulDraft } from "../../../main/config";
 import { readJsonBody, requireRemoteAuth, sendJson } from "./shared";
 
 export async function handleV1EmployeeRoutes(
@@ -61,6 +62,13 @@ export async function handleV1EmployeeRoutes(
   if (req.method === "POST" && url.pathname === "/api/v1/employees/restart-all") {
     if (!requireRemoteAuth(req, res)) return true;
     sendJson(res, 200, await restartAllEngines(getMainWindow));
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/v1/employees/soul-draft") {
+    if (!requireRemoteAuth(req, res)) return true;
+    const body = await readJsonBody(req);
+    sendJson(res, 200, await generateEmployeeSoulDraft(body));
     return true;
   }
 

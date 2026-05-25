@@ -1,18 +1,20 @@
-import { useState, useCallback } from 'react'
-import { MessageSquare, Settings, Info, LogOut, Users, Calendar, BarChart3, Menu, X } from 'lucide-react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import { MessageSquare, Settings, Info, LogOut, Users, Calendar, BarChart3, Menu, X, Wrench } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import Chat from '../Chat/Chat'
 import SettingsScreen from '../Settings/Settings'
 import About from '../About/About'
 import Manage from '../Manage/Manage'
 import Schedule from '../Schedule/Schedule'
+import Tools from '../Tools/Tools'
 import { TokenStats } from '../Chat/TokenStats'
 import WindowControls from '../../components/WindowControls'
 import ConnectionStatus from '../../components/ConnectionStatus'
+import { useRemoteConnectionStatus } from '../../components/RemoteConnectionProvider'
 import { useTheme } from '../../components/ThemeProvider'
 import { useDeploymentMode } from '../../hooks/useDeploymentMode'
 
-type ViewId = 'chat' | 'manage' | 'schedule' | 'settings' | 'about' | 'token-stats'
+type ViewId = 'chat' | 'manage' | 'schedule' | 'tools' | 'settings' | 'about' | 'token-stats'
 
 interface NavItem {
   id: ViewId
@@ -24,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'chat', icon: <MessageSquare size={22} />, label: 'chat' },
   { id: 'manage', icon: <Users size={22} />, label: 'manage' },
   { id: 'schedule', icon: <Calendar size={22} />, label: 'schedule' },
+  { id: 'tools', icon: <Wrench size={22} />, label: 'tools' },
   { id: 'token-stats', icon: <BarChart3 size={22} />, label: 'tokenStats' },
   { id: 'settings', icon: <Settings size={22} />, label: 'settings' },
   { id: 'about', icon: <Info size={22} />, label: 'about' }
@@ -36,14 +39,33 @@ interface LayoutProps {
 export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
   const { lexicon } = useTheme()
   const deploymentMode = useDeploymentMode()
+  const remoteStatus = useRemoteConnectionStatus(deploymentMode === 'client_only')
   const [currentView, setCurrentView] = useState<ViewId>('chat')
   const [visitedViews, setVisitedViews] = useState(() => new Set<ViewId>(['chat']))
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [workspaceRevision, setWorkspaceRevision] = useState(0)
   const isWeb = typeof window !== 'undefined' && !window.navigator.userAgent.includes('Electron')
   const isWindows = navigator.userAgent.includes('Windows')
   const showConnectionBar = deploymentMode === 'client_only'
   const showWindowChrome = isWindows && !isWeb
   const showTopBar = showConnectionBar || showWindowChrome
+  const workspaceKey = useMemo(() => {
+    if (deploymentMode !== 'client_only') return `local:${deploymentMode || 'pending'}:${workspaceRevision}`
+    const conn = remoteStatus.connection
+    return `remote:${conn?.host || ''}:${conn?.port || ''}:${conn?.api_token?.slice(0, 8) || ''}:${workspaceRevision}`
+  }, [deploymentMode, remoteStatus.connection, workspaceRevision])
+
+  useEffect(() => {
+    const bumpWorkspace = (): void => setWorkspaceRevision((value) => value + 1)
+    window.addEventListener('hermes:workspace-changed', bumpWorkspace)
+    return () => window.removeEventListener('hermes:workspace-changed', bumpWorkspace)
+  }, [])
+
+  useEffect(() => {
+    setCurrentView('chat')
+    setVisitedViews(new Set<ViewId>(['chat']))
+    setMobileNavOpen(false)
+  }, [workspaceKey])
 
   const handleNavClick = useCallback((id: ViewId) => {
     setVisitedViews(new Set([...visitedViews, id]))
@@ -148,7 +170,7 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
           </button>
         </div>
         )}
-        <div className="flex-1 overflow-hidden relative">
+        <div key={workspaceKey} className="flex-1 overflow-hidden relative">
         {visitedViews.has('chat') && (
           <div className={`h-full ${currentView === 'chat' ? '' : 'hidden'}`}>
             <Chat />
@@ -162,6 +184,11 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
         {visitedViews.has('schedule') && (
           <div className={`h-full ${currentView === 'schedule' ? '' : 'hidden'}`}>
             <Schedule />
+          </div>
+        )}
+        {visitedViews.has('tools') && (
+          <div className={`h-full ${currentView === 'tools' ? '' : 'hidden'}`}>
+            <Tools />
           </div>
         )}
         {visitedViews.has('token-stats') && (
