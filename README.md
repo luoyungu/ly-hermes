@@ -201,5 +201,5 @@ LyHermes 默认把运行数据写到用户目录：
 ---
 
 <p align="center">
-  <sub>Built with ❤️ by <a href="https://github.com/luoyun">luoyun</a></sub>
+  <sub>Built with ❤️ by <a href="https://github.com/luoyungu">luoyungu</a></sub>
 </p>
