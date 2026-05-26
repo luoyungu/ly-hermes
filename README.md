@@ -14,6 +14,8 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#架构设计">架构设计</a> ·
   <a href="#截图预览">截图预览</a>
+  ·
+  <a href="README.en.md">English</a>
 </p>
 
 <p align="center">
@@ -51,18 +53,24 @@
 ## 截图预览
 
 <p align="center">
-  <img src="screenshots/00-current.png" width="720" alt="登录界面" />
+  <img src="website/img/登录界面.png" width="720" alt="登录界面" />
   <br/>
   <sub>水墨风登录页 —— 项目内置的中国风视觉设计</sub>
 </p>
 
 <p align="center">
-  <img src="screenshots/02-login-try-default.png" width="720" alt="主界面" />
+  <img src="website/img/对话主界面.png" width="720" alt="对话主界面" />
   <br/>
   <sub>AI 员工控制台 —— 多员工、多对话、多任务统一管理</sub>
 </p>
 
-> **提示**：项目截图中的水墨风背景图位于 `src/renderer/src/assets/login-bg.jpg`，由项目内置，开箱即用。
+<p align="center">
+  <img src="website/img/员工管理界面.png" width="720" alt="员工管理界面" />
+  <br/>
+  <sub>员工档案 —— 角色、人格、技能、模型与渠道独立配置</sub>
+</p>
+
+> **提示**：更多截图见 [官网](https://www.luoyungu.com/lyhermes) 或 `website/img/`。水墨风背景图位于 `src/renderer/src/assets/login-bg.jpg`，开箱即用。
 
 ---
 
