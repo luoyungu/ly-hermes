@@ -37,16 +37,24 @@ async function giteeJson(method, path, body) {
 }
 
 async function main() {
-  let release
+  let release = null
   try {
     release = await giteeJson('GET', `/releases/tags/${tag}`)
   } catch {
+    release = null
+  }
+
+  if (!release?.id) {
     release = await giteeJson('POST', '/releases', {
       tag_name: tag,
       name: tag,
       body: `LyHermes ${tag} Windows 安装包（国内镜像）`,
       target_commitish: 'master',
     })
+  }
+
+  if (!release?.id) {
+    throw new Error(`无法创建或获取 Gitee Release: ${tag}`)
   }
 
   const fileName = basename(filePath)
@@ -64,7 +72,14 @@ async function main() {
   uploadUrl.searchParams.set('access_token', token)
   const uploadRes = await fetch(uploadUrl, { method: 'POST', body: form })
   const uploadText = await uploadRes.text()
-  if (!uploadRes.ok) throw new Error(`upload failed: ${uploadRes.status} ${uploadText.slice(0, 300)}`)
+  if (!uploadRes.ok) {
+    if (uploadText.includes('100 MB') || uploadText.includes('100MB')) {
+      throw new Error(
+        `Gitee 附件限制 100 MB，当前安装包过大。请改用 GitHub Release 或官网托管：${filePath}`,
+      )
+    }
+    throw new Error(`upload failed: ${uploadRes.status} ${uploadText.slice(0, 300)}`)
+  }
   console.log(`已上传到 Gitee Release ${tag}: ${fileName}`)
 }
 
