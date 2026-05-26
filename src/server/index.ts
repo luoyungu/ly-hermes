@@ -5,7 +5,7 @@ import { app } from "electron";
 import { desktopAuthService } from "../main/core/auth-store";
 import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
-import { getApiPortForProfile, getEmployeeWebAccess } from "../main/employees";
+import { getApiPortForProfile, getEmployeeWebAccess, listEmployees } from "../main/employees";
 import { getDeploymentMode } from "../main/deployment";
 import { handleV1Request } from "./routes/v1/index";
 import { writeChatEvent, writeSseHeaders } from "./sse";
@@ -275,6 +275,25 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       data: { profileName: "default", sessionId: ctx.requestId },
     });
     res.end();
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/embed/info") {
+    const agent = String(url.searchParams.get("agent") || "default").trim() || "default";
+    const token = String(url.searchParams.get("token") || "");
+    if (!isAuthorizedEmbedRequest(agent, token)) {
+      sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
+      return;
+    }
+    const employee = listEmployees().find((item) => item.name === agent);
+    sendJson(res, 200, {
+      name: agent,
+      displayName: employee?.displayName || agent,
+      role: employee?.role || "",
+      avatar: employee?.avatar || "🧑‍💼",
+      color: employee?.color || "#7c6aef",
+      requestId: ctx.requestId,
+    });
     return;
   }
 

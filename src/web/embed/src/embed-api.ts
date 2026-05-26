@@ -4,6 +4,14 @@ export interface HealthResult {
   error?: string;
 }
 
+export interface EmbedAgentInfo {
+  name: string;
+  displayName: string;
+  role: string;
+  avatar: string;
+  color: string;
+}
+
 export type EmbedChatEvent =
   | { type: "chunk"; data: { profileName: string; chunk: string } }
   | { type: "thinking"; data: { profileName: string; chunk: string } }
@@ -21,6 +29,17 @@ export async function checkHealth(): Promise<HealthResult> {
       ok: false,
       error: error instanceof Error ? error.message : "Network error",
     };
+  }
+}
+
+export async function fetchAgentInfo(agent: string, token: string): Promise<EmbedAgentInfo | null> {
+  try {
+    const params = new URLSearchParams({ agent, token });
+    const response = await fetch(`/api/embed/info?${params}`);
+    if (!response.ok) return null;
+    return await response.json() as EmbedAgentInfo;
+  } catch {
+    return null;
   }
 }
 
@@ -43,18 +62,19 @@ export async function streamChat(
   agent: string,
   token: string,
   message: string,
+  history: Array<{ role: string; content: string }>,
   onEvent: (event: EmbedChatEvent) => void,
 ): Promise<void> {
   const response = await fetch("/api/chat/stream", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, token, message }),
+    body: JSON.stringify({ agent, token, message, history }),
   });
   if (!response.ok || !response.body) {
     onEvent({
       type: "error",
-      data: { profileName: "default", error: `HTTP ${response.status}` },
+      data: { profileName: agent, error: `HTTP ${response.status}` },
     });
     return;
   }

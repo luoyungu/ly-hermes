@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { usePlatform } from '../../hooks/usePlatform'
 import { useDeploymentMode } from '../../hooks/useDeploymentMode'
 import { useRemoteConnectionStatus } from '../../hooks/useRemoteConnectionStatus'
+import { translateError } from '../../../../shared/i18n'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -34,38 +36,22 @@ import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
 import {
   mapStatus,
-  statusText,
   statusColor,
   statusDotClass,
   AVATARS,
-  TOOL_META,
   ALL_TOOLS,
-  AGENT_CONFIG_FIELDS,
   EMPLOYEE_NAME_RE,
   getNestedValue,
   setNestedValue,
   PROVIDER_PRESETS,
+  useEmployeeShared,
   type ConfigFieldDef
 } from '../../shared/employee-shared'
 
 type Section = 'list' | 'create' | 'edit'
 
-const SOUL_STYLE_OPTIONS = [
-  { value: 'balanced', label: '平衡' },
-  { value: 'detailed', label: '详细' },
-  { value: 'expert', label: '专家' },
-  { value: 'companion', label: '陪伴' },
-  { value: 'executor', label: '执行' }
-]
-
-const SOUL_REFINEMENT_OPTIONS = [
-  { label: '写得更详细', value: '在保留核心定位的基础上扩写 SOUL.md，让规则更具体、更可执行，减少空话。' },
-  { label: '更专业', value: '强化专业判断、方法论、风险提示和交付质量，减少角色扮演感。' },
-  { label: '更有温度', value: '强化稳定、温和、有分寸的陪伴感，但不要过度亲密或油腻。' },
-  { label: '更强执行力', value: '强化目标拆解、行动步骤、工具调用、进度反馈和结果验收。' }
-]
-
 export default function Manage(): React.ReactElement {
+  const { t } = useTranslation()
   const { isMac } = usePlatform()
   const { lexicon } = useTheme()
   const [section, setSection] = useState<Section>('list')
@@ -94,39 +80,39 @@ export default function Manage(): React.ReactElement {
   const handleWakeUp = async (name: string): Promise<void> => {
     try {
       await window.hermesAPI.wakeUpEmployee(name)
-      showToast('正在唤醒...')
+      showToast(t('manage.waking'))
       setTimeout(loadEmployees, 2000)
-    } catch { showToast('唤醒失败', 'error') }
+    } catch { showToast(t('manage.wakeFailed'), 'error') }
   }
 
   const handleSleep = async (name: string): Promise<void> => {
     try {
       await window.hermesAPI.sleepEmployee(name)
-      showToast('已休眠')
+      showToast(t('manage.slept'))
       setTimeout(loadEmployees, 1000)
-    } catch { showToast('休眠失败', 'error') }
+    } catch { showToast(t('manage.sleepFailed'), 'error') }
   }
 
   const handleRestart = async (name: string): Promise<void> => {
     try {
       await window.hermesAPI.restartEmployee(name)
-      showToast('正在重启...')
+      showToast(t('manage.restarting'))
       setTimeout(loadEmployees, 3000)
-    } catch { showToast('重启失败', 'error') }
+    } catch { showToast(t('manage.restartFailed'), 'error') }
   }
 
   const handleDelete = async (name: string): Promise<void> => {
     try {
       const result = await window.hermesAPI.deleteEmployee(name)
       if (result.success) {
-        showToast('已删除')
+        showToast(t('common.deleteSuccess'))
         setEditingEmployee(null)
         setSection('list')
         loadEmployees()
       } else {
-        showToast(result.error || '删除失败', 'error')
+        showToast(translateError(result.error, t) || t('common.deleteFailed'), 'error')
       }
-    } catch { showToast('删除失败', 'error') }
+    } catch { showToast(t('common.deleteFailed'), 'error') }
   }
 
   const filteredEmployees = employees.filter(e =>
@@ -197,7 +183,7 @@ export default function Manage(): React.ReactElement {
           {section === 'list' && (
             <div className="flex flex-col items-center justify-center h-full text-[var(--text-dim)] gap-3">
               <span className="text-5xl opacity-30">👥</span>
-              <p className="text-sm">{lexicon.entities.selectEmployee}查看详情，或{lexicon.entities.createEmployee}</p>
+              <p className="text-sm">{lexicon.entities.selectEmployee}{t('manage.selectDetailHint')}{lexicon.entities.createEmployee}</p>
             </div>
           )}
           {section === 'create' && (
@@ -226,6 +212,8 @@ export default function Manage(): React.ReactElement {
 }
 
 function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<typeof useTheme>['lexicon']; onCreated: () => void; onCancel: () => void }): React.ReactElement {
+  const { t } = useTranslation()
+  const { soulStyles, soulPrompts } = useEmployeeShared()
   const [name, setName] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [role, setRole] = useState('')
@@ -269,11 +257,11 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
   }, [showAvatarPicker])
 
   const handleCreate = async (): Promise<void> => {
-    if (!name.trim()) { showToast(`请输入${lexicon.entities.employee}名称`, 'error'); return }
-    if (!EMPLOYEE_NAME_RE.test(name.trim())) { showToast(`${lexicon.entities.employee}名称只能包含小写字母、数字、下划线和连字符`, 'error'); return }
+    if (!name.trim()) { showToast(t('manage.enterName', { entity: lexicon.entities.employee }), 'error'); return }
+    if (!EMPLOYEE_NAME_RE.test(name.trim())) { showToast(t('manage.invalidName', { entity: lexicon.entities.employee }), 'error'); return }
     const selectedModel = savedModels.find(m => m.id === selectedModelId)
     if (!selectedModel) {
-      showToast('请选择默认模型，可先在设置中添加模型配置', 'error')
+      showToast(t('manage.selectModel'), 'error')
       return
     }
     setCreating(true)
@@ -291,23 +279,23 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
         wakeUp: true
       })
       if (result.success) {
-        showToast('创建成功')
+        showToast(t('common.createSuccess'))
         onCreated()
       } else {
-        showToast(result.error || '创建失败', 'error')
+        showToast(translateError(result.error, t) || t('common.createFailed'), 'error')
       }
-    } catch { showToast('创建失败', 'error') }
+    } catch { showToast(t('common.createFailed'), 'error') }
     finally { setCreating(false) }
   }
 
   const handleGenerateSoul = async (refinement = ''): Promise<void> => {
     const prompt = soulPrompt.trim()
     if (!prompt && !soul.trim()) {
-      showToast('请输入人物、角色或岗位描述', 'error')
+      showToast(t('manage.enterSoulDesc'), 'error')
       return
     }
     if (soulModelInfo && !soulModelInfo.ready) {
-      showToast(soulModelInfo.hint || '请先在设置中配置模型和 API Key', 'error')
+      showToast(soulModelInfo.hint || t('manage.configureModel'), 'error')
       return
     }
     setGeneratingSoul(true)
@@ -322,7 +310,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
         existingSoul: refinement ? soul.trim() : ''
       })
       if (!result.success || !result.draft) {
-        showToast(result.error || '生成失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.generateFailed'), 'error')
         return
       }
       const draft = result.draft
@@ -330,9 +318,9 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
       setDisplayName(draft.displayName)
       setRole(draft.role)
       setSoul(draft.soul)
-      showToast('已生成灵魂设定草稿')
+      showToast(t('manage.soulDraftGenerated'))
     } catch (e: unknown) {
-      showToast((e as Error).message || '生成失败，请检查模型配置', 'error')
+      showToast(translateError((e as Error).message, t) || t('manage.generateFailedCheck'), 'error')
     } finally {
       setGeneratingSoul(false)
     }
@@ -340,7 +328,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
 
   const soulModelLabel = soulModelInfo?.ready
     ? `${PROVIDER_PRESETS.find(p => p.id === soulModelInfo.provider)?.label || soulModelInfo.provider} · ${soulModelInfo.model}`
-    : soulModelInfo?.hint || '未配置默认模型'
+    : soulModelInfo?.hint || t('manage.noDefaultModel')
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -350,9 +338,9 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Sparkles size={16} className="text-[var(--accent)]" />
-              <span className="text-sm font-semibold text-[var(--text-primary)]">AI 生成灵魂设定</span>
+              <span className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.generateSoulTitle')}</span>
             </div>
-            <span className="text-xs text-[var(--text-dim)]">生成后可继续手动修改</span>
+            <span className="text-xs text-[var(--text-dim)]">{t('manage.generateSoulHint')}</span>
           </div>
           <div className="flex gap-2">
             <input
@@ -364,7 +352,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
                   handleGenerateSoul()
                 }
               }}
-              placeholder="例如：张三丰、毛泽东式战略顾问、资深销售教练"
+              placeholder={t('manage.soulPlaceholder')}
               className="min-w-0 flex-1 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
             />
             <select
@@ -372,7 +360,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
               onChange={(e) => setSoulStyle(e.target.value)}
               className="shrink-0 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
             >
-              {SOUL_STYLE_OPTIONS.map(option => (
+              {soulStyles.map(option => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
@@ -383,18 +371,18 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
               className="shrink-0 flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
             >
               {generatingSoul ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {generatingSoul ? '生成中...' : '生成'}
+              {generatingSoul ? t('common.generating') : t('common.generate')}
             </button>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-[var(--text-dim)]">
-            默认会生成较完整的 SOUL.md。历史人物和公众人物会生成“风格启发型”员工，不会冒充本人或编造私人经历。
+            {t('manage.soulGenerateNote')}
           </p>
           <p className={`mt-1.5 text-xs leading-relaxed ${soulModelInfo?.ready ? 'text-[var(--text-dim)]' : 'text-[var(--danger)]'}`}>
-            使用默认模型：{soulModelLabel}
+            {t('manage.usingDefaultModel', { model: soulModelLabel })}
           </p>
           {soul.trim() && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {SOUL_REFINEMENT_OPTIONS.map(option => (
+              {soulPrompts.map(option => (
                 <button
                   key={option.label}
                   type="button"
@@ -437,20 +425,20 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
           </div>
           <div className="flex-1 space-y-3">
             <div>
-              <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">名称 *（英文，用于标识）</label>
+              <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.nameLabel')}</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="例如: assistant"
+                placeholder={t('manage.namePlaceholder')}
                 className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
               />
             </div>
             <div>
-              <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">显示名称</label>
+              <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.displayNameLabel')}</label>
               <input
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="例如: 小助手"
+                placeholder={t('manage.displayNamePlaceholder')}
                 className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
               />
             </div>
@@ -458,9 +446,9 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
         </div>
 
         <div>
-          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">默认模型 *</label>
+          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.defaultModelLabel')}</label>
           {savedModels.length === 0 ? (
-            <p className="text-sm text-[var(--danger)]">请先在「设置 → 模型配置」中添加至少一个模型</p>
+            <p className="text-sm text-[var(--danger)]">{t('manage.addModelFirst')}</p>
           ) : (
             <select
               value={selectedModelId}
@@ -474,15 +462,15 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
               ))}
             </select>
           )}
-          <p className="mt-1.5 text-xs text-[var(--text-dim)]">创建时会写入该员工的模型配置，避免忘记指定模型</p>
+          <p className="mt-1.5 text-xs text-[var(--text-dim)]">{t('manage.modelWriteHint')}</p>
         </div>
 
         <div>
-          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">角色</label>
+          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.roleLabel')}</label>
           <input
             value={role}
             onChange={(e) => setRole(e.target.value)}
-            placeholder="例如: AI助手、数据分析师、内容创作者"
+            placeholder={t('manage.rolePlaceholder')}
             className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
           />
         </div>
@@ -492,13 +480,13 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
           <textarea
             value={soul}
             onChange={(e) => setSoul(e.target.value)}
-            placeholder={`描述这个${lexicon.entities.virtualEmployee}的性格、能力和行为准则...`}
+            placeholder={t('manage.soulDescPlaceholder', { entity: lexicon.entities.virtualEmployee })}
             className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none resize-none min-h-[120px] focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
           />
         </div>
 
         <div className="relative" ref={petPickerRef}>
-          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 伙伴宠物</label>
+          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 {t('manage.companionPet')}</label>
           <button
             type="button"
             onClick={() => setShowPetPicker(!showPetPicker)}
@@ -510,7 +498,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
                 {petSlug}
               </span>
             ) : (
-              <span className="text-[var(--text-dim)]">点击选择宠物...</span>
+              <span className="text-[var(--text-dim)]">{t('manage.selectPet')}</span>
             )}
           </button>
           {showPetPicker && (
@@ -530,13 +518,13 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
           className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
         >
           {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          {creating ? '创建中...' : lexicon.entities.createEmployee}
+          {creating ? t('common.creating') : lexicon.entities.createEmployee}
         </button>
         <button
           onClick={onCancel}
           className="rounded-[var(--radius)] border border-[var(--border)] px-5 py-2.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
         >
-          取消
+          {t('common.cancel')}
         </button>
       </div>
     </div>
@@ -566,6 +554,8 @@ function EditEmployee({
   onWakeUp: () => void
   onRestart: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
+  const { statusText, toolMeta, agentConfigFields } = useEmployeeShared()
   const deploymentMode = useDeploymentMode()
   const { connection: remoteConnection } = useRemoteConnectionStatus(deploymentMode === 'client_only')
   const [tab, setTab] = useState<EditTab>('basic')
@@ -733,9 +723,9 @@ function EditEmployee({
       if (petSlug !== employee.petSlug) {
         await window.hermesAPI.setEmployeePet(employee.name, petSlug)
       }
-      showToast('基本信息已保存')
+      showToast(t('manage.basicSaved'))
       onRefresh()
-    } catch { showToast('保存失败', 'error') }
+    } catch { showToast(t('common.saveFailed'), 'error') }
     finally { setSaving(false) }
   }
 
@@ -753,14 +743,14 @@ function EditEmployee({
         webAccessEnabled: enabled
       })
       if (!result.success) {
-        showToast(result.error || 'Web 访问设置失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.webAccessFailed'), 'error')
         return
       }
       await refreshEmployeeWebAccess()
-      showToast(enabled ? '已开启 Web 访问' : '已关闭 Web 访问')
+      showToast(enabled ? t('manage.webAccessEnabled') : t('manage.webAccessDisabled'))
       onRefresh()
     } catch {
-      showToast('Web 访问设置失败', 'error')
+      showToast(t('manage.webAccessFailed'), 'error')
     } finally {
       setSaving(false)
     }
@@ -771,14 +761,14 @@ function EditEmployee({
     try {
       const result = await window.hermesAPI.resetEmployeeWebToken(employee.name)
       if (!result.success) {
-        showToast(result.error || '重置 Token 失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.resetTokenFailed'), 'error')
         return
       }
       setWebAccessToken(result.token || '')
-      showToast('员工 Web Token 已重置')
+      showToast(t('manage.tokenReset'))
       onRefresh()
     } catch {
-      showToast('重置 Token 失败', 'error')
+      showToast(t('manage.resetTokenFailed'), 'error')
     } finally {
       setSaving(false)
     }
@@ -786,14 +776,14 @@ function EditEmployee({
 
   const handleCopyWebAccessUrl = async (): Promise<void> => {
     if (!webAccessEnabled || !webAccessUrl) {
-      showToast('请先开启 Web 访问', 'error')
+      showToast(t('manage.enableWebFirst'), 'error')
       return
     }
     try {
       await navigator.clipboard.writeText(webAccessUrl)
-      showToast('员工访问链接已复制')
+      showToast(t('manage.linkCopied'))
     } catch {
-      showToast('复制失败', 'error')
+      showToast(t('common.copyFailed'), 'error')
     }
   }
 
@@ -802,15 +792,15 @@ function EditEmployee({
     try {
       await window.hermesAPI.setEmployeeSoul(employee.name, soulContent)
       setSoulOriginal(soulContent)
-      showToast(`${lexicon.concepts.soulSetting}已保存`)
-    } catch { showToast('保存失败', 'error') }
+      showToast(t('manage.soulSaved', { concept: lexicon.concepts.soulSetting }))
+    } catch { showToast(t('common.saveFailed'), 'error') }
     finally { setSaving(false) }
   }
 
   const handleAddMemory = async (): Promise<void> => {
     const content = newMemoryContent.trim()
     if (!content) {
-      showToast('请输入记忆内容', 'error')
+      showToast(t('manage.enterMemory'), 'error')
       return
     }
     setMemorySaving(true)
@@ -819,12 +809,12 @@ function EditEmployee({
       if (result.success) {
         setNewMemoryContent('')
         await loadMemory()
-        showToast('记忆已添加')
+        showToast(t('manage.memoryAdded'))
       } else {
-        showToast(result.error || '添加记忆失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.addMemoryFailed'), 'error')
       }
     } catch {
-      showToast('添加记忆失败', 'error')
+      showToast(t('manage.addMemoryFailed'), 'error')
     } finally {
       setMemorySaving(false)
     }
@@ -836,12 +826,12 @@ function EditEmployee({
       const result = await window.hermesAPI.deleteMemory(employee.name, index)
       if (result.success) {
         await loadMemory()
-        showToast('记忆已删除')
+        showToast(t('manage.memoryDeleted'))
       } else {
-        showToast(result.error || '删除记忆失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.deleteMemoryFailed'), 'error')
       }
     } catch {
-      showToast('删除记忆失败', 'error')
+      showToast(t('manage.deleteMemoryFailed'), 'error')
     } finally {
       setMemorySaving(false)
     }
@@ -852,8 +842,8 @@ function EditEmployee({
     try {
       await window.hermesAPI.setEmployeeConfig(employee.name, configObj)
       setConfigOriginal(JSON.parse(JSON.stringify(configObj)))
-      showToast('配置已保存')
-    } catch { showToast('保存失败', 'error') }
+      showToast(t('manage.configSaved'))
+    } catch { showToast(t('common.saveFailed'), 'error') }
     finally { setSaving(false) }
   }
 
@@ -881,17 +871,17 @@ function EditEmployee({
       }
       const result = await window.hermesAPI.setEmployeeEnv(employee.name, envObj)
       if (!result.success) {
-        showToast(result.error || '保存集成配置失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.integrationSaveFailed'), 'error')
         return
       }
       if (feishuAppSecret.trim()) setHasSavedFeishuSecret(true)
       if (weixinToken.trim()) setHasSavedWeixinToken(true)
       if (dingtalkClientSecret.trim()) setHasSavedDingtalkSecret(true)
-      showToast('集成配置已保存，正在重启使其生效')
+      showToast(t('manage.integrationSaved'))
       await window.hermesAPI.restartEmployee(employee.name).catch(() => {})
       onRefresh()
     } catch {
-      showToast('保存集成配置失败', 'error')
+      showToast(t('manage.integrationSaveFailed'), 'error')
     } finally {
       setSaving(false)
     }
@@ -901,8 +891,8 @@ function EditEmployee({
     try {
       await window.hermesAPI.toggleTool(employee.name, toolKey, !enabled)
       setTools(prev => enabled ? prev.filter(t => t !== toolKey) : [...prev, toolKey])
-      showToast(enabled ? `已禁用 ${TOOL_META[toolKey]?.label || toolKey}，新会话生效` : `已启用 ${TOOL_META[toolKey]?.label || toolKey}，新会话生效`, 'info')
-    } catch { showToast(`切换${lexicon.concepts.tools}失败`, 'error') }
+      showToast(enabled ? t('manage.toolDisabled', { tool: toolMeta[toolKey]?.label || toolKey }) : t('manage.toolEnabled', { tool: toolMeta[toolKey]?.label || toolKey }), 'info')
+    } catch { showToast(t('manage.toggleToolFailed', { concept: lexicon.concepts.tools }), 'error') }
   }
 
   const handleViewSkillDetail = async (skill: InstalledSkill | BundledSkill, isBundled?: boolean): Promise<void> => {
@@ -925,14 +915,14 @@ function EditEmployee({
     try {
       const result = await window.hermesAPI.installSkill(identifier, employee.name)
       if (result.success) {
-        showToast(`${lexicon.concepts.skills}安装成功`)
+        showToast(t('manage.skillInstallSuccess', { concept: lexicon.concepts.skills }))
         setSkillInstallUrl('')
         await loadSkills()
       } else {
-        showToast(result.error || '安装失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.installFailed'), 'error')
       }
     } catch { 
-      showToast('安装失败', 'error') 
+      showToast(t('manage.installFailed'), 'error') 
     } finally {
       setActionInProgress(null)
     }
@@ -951,8 +941,8 @@ function EditEmployee({
         setDetailSkill(null)
       }
       await loadSkills()
-      showToast(`${lexicon.concepts.skills}已移除`)
-    } catch { showToast('移除失败', 'error') }
+      showToast(t('manage.skillRemoved', { concept: lexicon.concepts.skills }))
+    } catch { showToast(t('manage.uninstallFailed'), 'error') }
     finally {
       setActionInProgress(null)
     }
@@ -963,13 +953,13 @@ function EditEmployee({
     try {
       const result = await window.hermesAPI.setSkillEnabled(skill.id, enabled, employee.name)
       if (!result.success) {
-        showToast(result.error || '切换技能状态失败', 'error')
+        showToast(translateError(result.error, t) || t('manage.toggleSkillFailed'), 'error')
         return
       }
       await loadSkills()
-      showToast(enabled ? '技能已启用' : '技能已停用', 'info')
+      showToast(enabled ? t('manage.skillEnabledToast') : t('manage.skillDisabledToast'), 'info')
     } catch {
-      showToast('切换技能状态失败', 'error')
+      showToast(t('manage.toggleSkillFailed'), 'error')
     } finally {
       setActionInProgress(null)
     }
@@ -984,11 +974,11 @@ function EditEmployee({
   const hasExternalMemoryProvider = Boolean(memoryProvider && !['local', 'builtin', 'built-in', 'file', 'files', 'none', 'off', 'false'].includes(memoryProvider.toLowerCase()))
 
   const tabs: { id: EditTab; label: string; icon: React.ReactElement }[] = [
-    { id: 'basic', label: '基本信息', icon: <UserPlus size={14} /> },
+    { id: 'basic', label: t('manage.basicInfo'), icon: <UserPlus size={14} /> },
     { id: 'soul', label: lexicon.concepts.soul, icon: <Sparkles size={14} /> },
-    { id: 'memory', label: '内置记忆', icon: <Brain size={14} /> },
+    { id: 'memory', label: t('manage.builtinMemory'), icon: <Brain size={14} /> },
     { id: 'config', label: lexicon.concepts.config, icon: <Wrench size={14} /> },
-    { id: 'integrations', label: '集成', icon: <Plug size={14} /> },
+    { id: 'integrations', label: t('manage.integrations'), icon: <Plug size={14} /> },
     { id: 'tools', label: lexicon.concepts.tools, icon: <Zap size={14} /> },
     { id: 'skills', label: lexicon.concepts.skills, icon: <Puzzle size={14} /> },
   ]
@@ -1007,20 +997,20 @@ function EditEmployee({
           <div className="text-sm text-[var(--text-dim)] flex items-center gap-2">
             <span>{employee.name}</span>
             <span className="text-[var(--border)]">·</span>
-            <span>{employee.model || '默认模型'}</span>
+            <span>{employee.model || t('manage.defaultModel')}</span>
             <span className="text-[var(--border)]">·</span>
             <span style={{ color: statusColor(empStatus) }}>{statusText(empStatus)}</span>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           {empStatus === 'awake' ? (
-            <button onClick={onSleep} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"><Moon size={14} /> 休眠</button>
+            <button onClick={onSleep} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"><Moon size={14} /> {t('manage.sleep')}</button>
           ) : (
-            <button onClick={onWakeUp} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.08)] px-3 py-1.5 text-sm text-[var(--success)] hover:bg-[rgba(34,197,94,0.15)] cursor-pointer transition-all"><Power size={14} /> 唤醒</button>
+            <button onClick={onWakeUp} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.08)] px-3 py-1.5 text-sm text-[var(--success)] hover:bg-[rgba(34,197,94,0.15)] cursor-pointer transition-all"><Power size={14} /> {t('manage.wake')}</button>
           )}
-          <button onClick={onRestart} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"><RefreshCw size={14} /> 重启</button>
+          <button onClick={onRestart} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"><RefreshCw size={14} /> {t('manage.restart')}</button>
           <Popconfirm title={lexicon.entities.deleteEmployeeConfirm} onConfirm={onDelete}>
-            <button className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-3 py-1.5 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] cursor-pointer transition-all"><Trash2 size={14} /> 删除</button>
+            <button className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-3 py-1.5 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] cursor-pointer transition-all"><Trash2 size={14} /> {t('common.delete')}</button>
           </Popconfirm>
         </div>
       </div>
@@ -1043,7 +1033,7 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
               <div className="flex items-center gap-2 mb-4">
                 <UserPlus size={16} className="text-[var(--accent)]" />
-                <span className="text-sm font-semibold text-[var(--text-primary)]">基本信息</span>
+                <span className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.basicInfo')}</span>
               </div>
               <div className="flex items-start gap-5">
                 <div className="relative" ref={avatarPickerRef}>
@@ -1069,15 +1059,15 @@ function EditEmployee({
                 </div>
                 <div className="flex-1 space-y-3">
                   <div>
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">显示名称</label>
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.displayNameLabel')}</label>
                     <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
                   </div>
                   <div>
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">角色</label>
-                    <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="例如: AI助手、数据分析师" className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.roleLabel')}</label>
+                    <input value={role} onChange={(e) => setRole(e.target.value)} placeholder={t('manage.rolePlaceholder')} className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
                   </div>
                   <div className="relative" ref={petPickerRef}>
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 伙伴宠物</label>
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 {t('manage.companionPet')}</label>
                     <button
                       type="button"
                       onClick={() => setShowPetPicker(!showPetPicker)}
@@ -1089,7 +1079,7 @@ function EditEmployee({
                           {petSlug}
                         </span>
                       ) : (
-                        <span className="text-[var(--text-dim)]">点击选择宠物...</span>
+                        <span className="text-[var(--text-dim)]">{t('manage.selectPet')}</span>
                       )}
                     </button>
                     {showPetPicker && (
@@ -1108,12 +1098,12 @@ function EditEmployee({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Globe size={16} className="text-[var(--accent)]" />
-                    <span className="text-sm font-semibold text-[var(--text-primary)]">Web 访问</span>
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.webAccess')}</span>
                   </div>
                   <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
                     {deploymentMode === 'client_only'
-                      ? '开启后，可通过远程节点的嵌入页面访问该员工。'
-                      : '开启后，这个员工可以通过内置 Web 服务的嵌入页面访问。'}
+                      ? t('manage.webAccessDescRemote')
+                      : t('manage.webAccessDescLocal')}
                   </p>
                 </div>
                 <label className="tools-toggle shrink-0">
@@ -1130,11 +1120,11 @@ function EditEmployee({
               <div className="mt-4 space-y-3">
                 <div>
                   <label className="mb-1.5 flex items-center gap-1.5 text-sm text-[var(--text-secondary)] font-medium">
-                    <MessageCircle size={14} /> 访问链接
+                    <MessageCircle size={14} /> {t('manage.accessLink')}
                   </label>
                   <div className="flex items-center gap-2">
                     <input
-                      value={webAccessEnabled && webAccessUrl ? webAccessUrl : '开启 Web 访问后自动生成'}
+                      value={webAccessEnabled && webAccessUrl ? webAccessUrl : t('manage.accessLinkPlaceholder')}
                       readOnly
                       className="min-w-0 flex-1 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none"
                     />
@@ -1143,15 +1133,17 @@ function EditEmployee({
                       disabled={!webAccessEnabled || !webAccessUrl}
                       className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3.5 py-2.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
                     >
-                      <Copy size={14} /> 复制
+                      <Copy size={14} /> {t('common.copy')}
                     </button>
                   </div>
                   <p className="mt-1.5 text-xs text-[var(--text-dim)]">
                     {deploymentMode === 'client_only'
                       ? (remoteConnection?.host
-                        ? `远程节点：${remoteConnection.name || remoteConnection.host}:${remoteConnection.port}`
-                        : '请先在设置中配置远程连接')
-                      : `Web 服务状态：${webServerStatus?.running ? `运行中，端口 ${webServerStatus.port}` : '未运行，请先在设置中开启'}`}
+                        ? t('manage.remoteNodeStatus', { name: `${remoteConnection.name || remoteConnection.host}:${remoteConnection.port}` })
+                        : t('manage.configureRemoteFirst'))
+                      : (webServerStatus?.running
+                        ? t('manage.webServerRunningStatus', { port: webServerStatus.port })
+                        : t('manage.webServerStoppedStatus'))}
                   </p>
                 </div>
                 <button
@@ -1160,13 +1152,13 @@ function EditEmployee({
                   className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3.5 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
                 >
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
-                  重置 Token
+                  {t('manage.resetToken')}
                 </button>
               </div>
             </div>
             <button onClick={handleSaveBasic} disabled={saving} className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 cursor-pointer transition-all">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              {saving ? '保存中...' : '保存'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         )}
@@ -1175,8 +1167,7 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Sparkles size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                {lexicon.concepts.soulSetting}定义了这个{lexicon.entities.employee}的<strong className="text-[var(--text-primary)]">性格、能力和行为准则</strong>。
-                它就像一个人的内心世界，决定了{lexicon.entities.employee}如何思考和回应。
+                {lexicon.concepts.soulSetting}{t('manage.soulIntroLead', { entity: lexicon.entities.employee })}<strong className="text-[var(--text-primary)]">{t('manage.soulIntroHighlight')}</strong>{t('manage.soulIntroTail', { entity: lexicon.entities.employee })}
               </div>
             </div>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden">
@@ -1184,12 +1175,12 @@ function EditEmployee({
                 value={soulContent}
                 onChange={(e) => setSoulContent(e.target.value)}
                 className="w-full bg-transparent p-4 text-sm text-[var(--text-primary)] outline-none resize-none min-h-[300px] font-mono leading-relaxed"
-                placeholder={`描述这个${lexicon.entities.employee}的${lexicon.concepts.soul}...`}
+                placeholder={t('manage.soulEditPlaceholder', { entity: lexicon.entities.employee, concept: lexicon.concepts.soul })}
               />
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setSoulContent(soulOriginal)} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-3.5 py-2 rounded-[var(--radius)] text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">重置</button>
-              <button onClick={handleSaveSoul} disabled={saving} className="bg-accent-gradient text-white border-none px-3.5 py-2 rounded-[var(--radius)] text-sm font-semibold cursor-pointer hover:opacity-90 disabled:opacity-40 flex items-center gap-1.5 transition-all">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}{saving ? '保存中...' : '保存'}</button>
+              <button onClick={() => setSoulContent(soulOriginal)} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-3.5 py-2 rounded-[var(--radius)] text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">{t('manage.reset')}</button>
+              <button onClick={handleSaveSoul} disabled={saving} className="bg-accent-gradient text-white border-none px-3.5 py-2 rounded-[var(--radius)] text-sm font-semibold cursor-pointer hover:opacity-90 disabled:opacity-40 flex items-center gap-1.5 transition-all">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}{saving ? t('common.saving') : t('common.save')}</button>
             </div>
           </div>
         )}
@@ -1198,7 +1189,7 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Brain size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                这里展示内置文件记忆：MEMORY.md 和 USER.md。手动添加的内容会写入 MEMORY.md。
+                {t('manage.memoryBuiltinDesc')}
               </div>
               <button
                 onClick={loadMemory}
@@ -1206,7 +1197,7 @@ function EditEmployee({
                 className="ml-auto flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
               >
                 {memoryLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                刷新
+                {t('common.refresh')}
               </button>
             </div>
 
@@ -1214,10 +1205,10 @@ function EditEmployee({
               <div className="glass-medium border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] rounded-[var(--radius-lg)] p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
                   <Brain size={16} className="text-[var(--warning)]" />
-                  外部记忆 Provider：{memoryProvider}
+                  {t('manage.externalMemoryProvider', { provider: memoryProvider })}
                 </div>
                 <p className="mt-1.5 text-sm leading-relaxed text-[var(--text-secondary)]">
-                  外部记忆由 Hermes Agent 和对应 provider 管理，当前桌面端暂不展示或修改 provider 内部数据。下面只显示内置 MEMORY.md / USER.md。
+                  {t('manage.externalMemoryDesc')}
                 </p>
               </div>
             )}
@@ -1225,22 +1216,22 @@ function EditEmployee({
             <div className="grid grid-cols-2 gap-3">
               <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
                 <div className="text-xs text-[var(--text-dim)] mb-1">MEMORY.md</div>
-                <div className="text-xl font-semibold text-[var(--text-primary)]">{memoryData?.memory.length || 0} 条</div>
-                <div className="mt-1 text-xs text-[var(--text-dim)]">{memoryData?.memoryCharCount || 0} / {memoryData?.memoryCharLimit || 12200} 字符</div>
+                <div className="text-xl font-semibold text-[var(--text-primary)]">{t('manage.memoryEntryCount', { count: memoryData?.memory.length || 0 })}</div>
+                <div className="mt-1 text-xs text-[var(--text-dim)]">{t('manage.charLimit', { current: memoryData?.memoryCharCount || 0, limit: memoryData?.memoryCharLimit || 12200 })}</div>
               </div>
               <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
                 <div className="text-xs text-[var(--text-dim)] mb-1">USER.md</div>
-                <div className="text-xl font-semibold text-[var(--text-primary)]">{memoryData?.userCharCount || 0} 字符</div>
-                <div className="mt-1 text-xs text-[var(--text-dim)]">上限 {memoryData?.userCharLimit || 5375} 字符</div>
+                <div className="text-xl font-semibold text-[var(--text-primary)]">{t('manage.charCount', { count: memoryData?.userCharCount || 0 })}</div>
+                <div className="mt-1 text-xs text-[var(--text-dim)]">{t('manage.userCharLimitLabel', { limit: memoryData?.userCharLimit || 5375 })}</div>
               </div>
             </div>
 
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
-              <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">添加到 MEMORY.md</label>
+              <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">{t('manage.addToMemory')}</label>
               <textarea
                 value={newMemoryContent}
                 onChange={(e) => setNewMemoryContent(e.target.value)}
-                placeholder="输入一条希望员工长期记住的信息..."
+                placeholder={t('manage.memoryInputPlaceholder')}
                 className="min-h-[96px] w-full resize-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
               />
               <div className="mt-3 flex justify-end">
@@ -1250,7 +1241,7 @@ function EditEmployee({
                   className="flex items-center gap-1.5 rounded-[var(--radius)] bg-accent-gradient px-3.5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
                 >
                   {memorySaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                  添加记忆
+                  {t('manage.addMemory')}
                 </button>
               </div>
             </div>
@@ -1263,17 +1254,17 @@ function EditEmployee({
               <>
                 {(memoryData?.memory.length || 0) > 0 && (
                   <div className="space-y-2">
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">长期记忆列表</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.longTermMemoryList')}</div>
                     {memoryData!.memory.map((entry, i) => (
                       <div key={entry.index ?? i} className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <span className="text-xs text-[var(--text-dim)]">#{entry.index ?? i}</span>
-                          <Popconfirm title="确认删除这条记忆？" onConfirm={() => handleDeleteMemory(entry.index ?? i)}>
+                          <Popconfirm title={t('manage.confirmDeleteMemory')} onConfirm={() => handleDeleteMemory(entry.index ?? i)}>
                             <button
                               disabled={memorySaving}
                               className="flex items-center gap-1 rounded-[var(--radius)] border border-[rgba(239,68,68,0.2)] px-2.5 py-1 text-xs text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] disabled:opacity-40"
                             >
-                              <Trash2 size={12} /> 删除
+                              <Trash2 size={12} /> {t('common.delete')}
                             </button>
                           </Popconfirm>
                         </div>
@@ -1285,7 +1276,7 @@ function EditEmployee({
 
                 {memoryData?.user && (
                   <div>
-                    <div className="mb-2 text-sm font-semibold text-[var(--text-primary)]">用户画像</div>
+                    <div className="mb-2 text-sm font-semibold text-[var(--text-primary)]">{t('manage.userProfile')}</div>
                     <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
                       <pre className="max-h-[260px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{memoryData.user}</pre>
                     </div>
@@ -1293,7 +1284,7 @@ function EditEmployee({
                 )}
 
                 {(memoryData?.memory.length || 0) === 0 && !memoryData?.user && (
-                  <div className="py-12 text-center text-sm text-[var(--text-dim)]">暂无内置记忆文件数据</div>
+                  <div className="py-12 text-center text-sm text-[var(--text-dim)]">{t('manage.noBuiltinMemory')}</div>
                 )}
               </>
             )}
@@ -1304,12 +1295,12 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Wrench size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                配置项控制{lexicon.entities.employee}的<strong className="text-[var(--text-primary)]">模型参数和对话行为</strong>。记忆、压缩、终端等运行参数请在「设置 → 运行参数」中统一配置。
+                {t('manage.configDescLead')}{lexicon.entities.employee}{t('manage.configDescMiddle')}<strong className="text-[var(--text-primary)]">{t('manage.configDescHighlight')}</strong>{t('manage.configDescTail', { entity: lexicon.entities.employee })}
               </div>
             </div>
             {(() => {
               const groups: { name: string; fields: ConfigFieldDef[] }[] = []
-              for (const f of AGENT_CONFIG_FIELDS) {
+              for (const f of agentConfigFields) {
                 const g = groups.find(g => g.name === f.group)
                 if (g) g.fields.push(f)
                 else groups.push({ name: f.group, fields: [f] })
@@ -1338,7 +1329,7 @@ function EditEmployee({
                                 onChange={(e) => updateConfigField(field.key, e.target.value)}
                                 className="glass-medium border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)] cursor-pointer"
                               >
-                                <option value="">默认</option>
+                                <option value="">{t('manage.defaultOption')}</option>
                                 {field.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                               </select>
                             ) : (
@@ -1362,8 +1353,8 @@ function EditEmployee({
               ))
             })()}
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setConfigObj(JSON.parse(JSON.stringify(configOriginal)))} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-3.5 py-2 rounded-[var(--radius)] text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">重置</button>
-              <button onClick={handleSaveConfig} disabled={saving} className="bg-accent-gradient text-white border-none px-3.5 py-2 rounded-[var(--radius)] text-sm font-semibold cursor-pointer hover:opacity-90 disabled:opacity-40 flex items-center gap-1.5 transition-all">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}{saving ? '保存中...' : '保存'}</button>
+              <button onClick={() => setConfigObj(JSON.parse(JSON.stringify(configOriginal)))} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-3.5 py-2 rounded-[var(--radius)] text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">{t('manage.reset')}</button>
+              <button onClick={handleSaveConfig} disabled={saving} className="bg-accent-gradient text-white border-none px-3.5 py-2 rounded-[var(--radius)] text-sm font-semibold cursor-pointer hover:opacity-90 disabled:opacity-40 flex items-center gap-1.5 transition-all">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}{saving ? t('common.saving') : t('common.save')}</button>
             </div>
           </div>
         )}
@@ -1372,8 +1363,8 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Plug size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                集成配置属于当前{lexicon.entities.employee}。飞书、微信和钉钉的机器人凭据、默认接收会话会保存在这个 profile 里，
-                因此可以做到一个{lexicon.entities.employee}对应一个飞书机器人。
+                {t('manage.integrationsDescLead', { entity: lexicon.entities.employee })}
+                {t('manage.integrationsDescTail', { entity: lexicon.entities.employee })}
               </div>
               {envLoading && <Loader2 size={16} className="animate-spin text-[var(--text-dim)] ml-auto shrink-0" />}
             </div>
@@ -1385,8 +1376,8 @@ function EditEmployee({
                     <MessageCircle size={18} />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">飞书机器人</div>
-                    <div className="text-xs text-[var(--text-dim)]">用于飞书/Lark 消息接入和日程结果外发</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.feishuBot')}</div>
+                    <div className="text-xs text-[var(--text-dim)]">{t('manage.feishuBotDesc')}</div>
                   </div>
                 </div>
 
@@ -1406,12 +1397,12 @@ function EditEmployee({
                       value={feishuAppSecret}
                       onChange={(e) => setFeishuAppSecret(e.target.value)}
                       type="password"
-                      placeholder={hasSavedFeishuSecret ? '已保存，留空保持不变' : '请输入 App Secret'}
+                      placeholder={hasSavedFeishuSecret ? t('manage.savedLeaveEmpty') : t('manage.enterAppSecret')}
                       className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                     />
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">默认接收会话 ID</label>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{t('manage.defaultChannelId')}</label>
                     <input
                       value={feishuHomeChannel}
                       onChange={(e) => setFeishuHomeChannel(e.target.value)}
@@ -1421,18 +1412,18 @@ function EditEmployee({
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">域名</label>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{t('manage.domain')}</label>
                       <select
                         value={feishuDomain}
                         onChange={(e) => setFeishuDomain(e.target.value)}
                         className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)]"
                       >
-                        <option value="feishu">飞书</option>
+                        <option value="feishu">{t('chat.sourceFeishu')}</option>
                         <option value="larksuite">Lark</option>
                       </select>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">连接模式</label>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{t('manage.connectionMode')}</label>
                       <select
                         value={feishuConnectionMode}
                         onChange={(e) => setFeishuConnectionMode(e.target.value)}
@@ -1452,18 +1443,18 @@ function EditEmployee({
                     <MessageCircle size={18} />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">微信接入</div>
-                    <div className="text-xs text-[var(--text-dim)]">用于微信消息接入和日程结果外发</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.weixinAccess')}</div>
+                    <div className="text-xs text-[var(--text-dim)]">{t('manage.weixinAccessDesc')}</div>
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">账号 ID</label>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{t('manage.accountId')}</label>
                     <input
                       value={weixinAccountId}
                       onChange={(e) => setWeixinAccountId(e.target.value)}
-                      placeholder="可选，按接入服务要求填写"
+                      placeholder={t('manage.weixinAccountPlaceholder')}
                       className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                     />
                   </div>
@@ -1473,12 +1464,12 @@ function EditEmployee({
                       value={weixinToken}
                       onChange={(e) => setWeixinToken(e.target.value)}
                       type="password"
-                      placeholder={hasSavedWeixinToken ? '已保存，留空保持不变' : '请输入 Token'}
+                      placeholder={hasSavedWeixinToken ? t('manage.savedLeaveEmpty') : t('manage.enterToken')}
                       className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                     />
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">默认接收对象 ID</label>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{t('manage.defaultReceiverId')}</label>
                     <input
                       value={weixinHomeChannel}
                       onChange={(e) => setWeixinHomeChannel(e.target.value)}
@@ -1495,8 +1486,8 @@ function EditEmployee({
                     <MessageCircle size={18} />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">钉钉机器人</div>
-                    <div className="text-xs text-[var(--text-dim)]">用于钉钉消息接入和日程结果外发</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.dingtalkBot')}</div>
+                    <div className="text-xs text-[var(--text-dim)]">{t('manage.dingtalkBotDesc')}</div>
                   </div>
                 </div>
 
@@ -1506,7 +1497,7 @@ function EditEmployee({
                     <input
                       value={dingtalkClientId}
                       onChange={(e) => setDingtalkClientId(e.target.value)}
-                      placeholder="从钉钉开发者控制台获取"
+                      placeholder={t('manage.dingtalkClientPlaceholder')}
                       className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                     />
                   </div>
@@ -1516,12 +1507,12 @@ function EditEmployee({
                       value={dingtalkClientSecret}
                       onChange={(e) => setDingtalkClientSecret(e.target.value)}
                       type="password"
-                      placeholder={hasSavedDingtalkSecret ? '已保存，留空保持不变' : '请输入 Client Secret'}
+                      placeholder={hasSavedDingtalkSecret ? t('manage.savedLeaveEmpty') : t('manage.enterClientSecret')}
                       className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                     />
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">默认接收会话 ID</label>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{t('manage.defaultChannelId')}</label>
                     <input
                       value={dingtalkHomeChannel}
                       onChange={(e) => setDingtalkHomeChannel(e.target.value)}
@@ -1535,7 +1526,7 @@ function EditEmployee({
 
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs text-[var(--text-dim)]">
-                保存后会重启当前{lexicon.entities.employee}，让后台网关和日程调度读取最新配置。
+                {t('manage.integrationSaveHint', { entity: lexicon.entities.employee })}
               </p>
               <button
                 onClick={handleSaveIntegrations}
@@ -1543,7 +1534,7 @@ function EditEmployee({
                 className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 cursor-pointer transition-all"
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                {saving ? '保存中...' : '保存集成'}
+                {saving ? t('common.saving') : t('manage.saveIntegration')}
               </button>
             </div>
           </div>
@@ -1553,13 +1544,12 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Zap size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                工具是员工可以使用的<strong className="text-[var(--text-primary)]">能力</strong>，
-                就像一个人掌握的技能工具箱，启用越多能力越强。
+                <span dangerouslySetInnerHTML={{ __html: t('manage.toolsDesc') }} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               {ALL_TOOLS.map(t => {
-                const meta = TOOL_META[t]
+                const meta = toolMeta[t]
                 const enabled = tools.includes(t)
                 return (
                   <div
@@ -1588,7 +1578,7 @@ function EditEmployee({
             </div>
             {tools.filter(t => !ALL_TOOLS.includes(t)).length > 0 && (
               <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
-              <div className="text-sm font-medium text-[var(--text-primary)] mb-3">其他已启用工具</div>
+              <div className="text-sm font-medium text-[var(--text-primary)] mb-3">{lexicon.concepts.otherEnabledTools}</div>
                 <div className="flex flex-wrap gap-2">
                   {tools.filter(t => !ALL_TOOLS.includes(t)).map(t => (
                     <span key={t} className="inline-flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-xl text-[13px] text-[var(--text-primary)] border border-[var(--border)]">
@@ -1631,7 +1621,7 @@ function EditEmployee({
                             ) : (
                               <Download size={14} />
                             )}
-                            安装
+                            {t('manage.install')}
                           </button>
                         )
                       ) : (
@@ -1642,7 +1632,7 @@ function EditEmployee({
                             className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
                           >
                             {actionInProgress === (detailSkill as InstalledSkill).id && <Loader2 size={14} className="animate-spin" />}
-                            {(detailSkill as InstalledSkill).enabled ? '停用' : '启用'}
+                            {(detailSkill as InstalledSkill).enabled ? t('manage.disable') : t('manage.enable')}
                           </button>
                           <button
                             onClick={() => handleUninstallSkill((detailSkill as InstalledSkill).name)}
@@ -1654,7 +1644,7 @@ function EditEmployee({
                             ) : (
                               <Trash2 size={14} />
                             )}
-                            移除
+                            {t('manage.uninstall')}
                           </button>
                         </>
                       )}
@@ -1674,7 +1664,7 @@ function EditEmployee({
                     ) : (
                       <div className="text-center py-8 text-[var(--text-dim)]">
                         <div className="text-3xl mb-2 opacity-30">📄</div>
-                        <p className="text-sm">{isBundledSkill ? '技能预览不可用，请安装后查看' : '技能说明加载失败'}</p>
+                        <p className="text-sm">{isBundledSkill ? t('manage.skillPreviewUnavailable') : t('manage.skillLoadFailed')}</p>
                       </div>
                     )}
                   </div>
@@ -1685,8 +1675,7 @@ function EditEmployee({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 flex items-start gap-3">
               <Puzzle size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                技能是员工可以学习的<strong className="text-[var(--text-primary)]">专业知识包</strong>，
-                就像一个人通过学习获得的新能力。
+                <span dangerouslySetInnerHTML={{ __html: t('manage.skillsDesc') }} />
               </div>
             </div>
 
@@ -1696,13 +1685,13 @@ function EditEmployee({
                 onClick={() => setSkillTab('installed')}
                 className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${skillTab === 'installed' ? 'text-[var(--accent)] border-[var(--accent)]' : 'text-[var(--text-dim)] border-transparent hover:text-[var(--text-primary)]'}`}
               >
-                已安装 ({skills.length})
+                {t('manage.skillInstalledTab', { count: skills.length })}
               </button>
               <button
                 onClick={() => setSkillTab('browse')}
                 className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${skillTab === 'browse' ? 'text-[var(--accent)] border-[var(--accent)]' : 'text-[var(--text-dim)] border-transparent hover:text-[var(--text-primary)]'}`}
               >
-                技能库 ({bundledSkills.length})
+                {t('manage.skillBrowseTab', { count: bundledSkills.length })}
               </button>
             </div>
 
@@ -1712,7 +1701,7 @@ function EditEmployee({
               <input
                 value={skillSearch}
                 onChange={(e) => setSkillSearch(e.target.value)}
-                placeholder={skillTab === 'installed' ? '搜索已安装技能...' : '搜索技能库...'}
+                placeholder={skillTab === 'installed' ? t('manage.searchInstalledSkills') : t('manage.searchSkillLibrary')}
                 className="w-full glass-medium border border-[var(--border)] rounded-lg pl-9 pr-3 py-2.5 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
               />
               {skillSearch && (
@@ -1732,7 +1721,7 @@ function EditEmployee({
                   onClick={() => setSkillCategoryFilter(null)}
                   className={`px-3 py-1.5 rounded-full text-sm transition-colors ${skillCategoryFilter === null ? 'bg-[var(--accent)] text-white' : 'glass-medium border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}`}
                 >
-                  全部
+                  {t('manage.all')}
                 </button>
                 {Array.from(new Set(bundledSkills.map(s => s.category))).sort().map(cat => (
                   <button
@@ -1768,7 +1757,7 @@ function EditEmployee({
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className={`text-[11px] px-2.5 py-0.5 rounded-xl font-medium ${s.enabled ? 'bg-[rgba(34,197,94,0.1)] text-[var(--success)]' : 'bg-[var(--bg-surface)] text-[var(--text-dim)]'}`}>
-                            {s.enabled ? '已启用' : '已停用'}
+                            {s.enabled ? t('manage.skillEnabled') : t('manage.skillDisabled')}
                           </span>
                           <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
                             <input
@@ -1787,7 +1776,7 @@ function EditEmployee({
                       )}
                       <div className="flex items-center gap-2 mt-3 text-[11px] text-[var(--text-dim)]">
                         <span className="px-2 py-0.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">{s.type}</span>
-                        {s.stats && <span>{s.stats.uses} 次使用 · XP {s.stats.xp}</span>}
+                        {s.stats && <span>{t('manage.usesCount', { count: s.stats.uses, xp: s.stats.xp })}</span>}
                       </div>
                     </div>
                   ))}
@@ -1795,8 +1784,8 @@ function EditEmployee({
               ) : (
                 <div className="text-center py-12 text-[var(--text-dim)]">
                   <div className="text-4xl mb-3 opacity-30">🧩</div>
-                  <p className="text-sm">暂无已安装技能</p>
-                  <p className="text-xs mt-1 text-[var(--text-dim)]/70">切换到技能库浏览可用技能</p>
+                  <p className="text-sm">{t('manage.noInstalledSkills')}</p>
+                  <p className="text-xs mt-1 text-[var(--text-dim)]/70">{t('manage.browseSkillsHint')}</p>
                 </div>
               )
             )}
@@ -1831,7 +1820,7 @@ function EditEmployee({
                               </div>
                             </div>
                             {isInstalled ? (
-                              <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium shrink-0">已安装</span>
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium shrink-0">{t('manage.skillInstalled')}</span>
                             ) : (
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleInstallSkill(s.name) }}
@@ -1843,7 +1832,7 @@ function EditEmployee({
                                 ) : (
                                   <Download size={12} />
                                 )}
-                                安装
+                                {t('manage.install')}
                               </button>
                             )}
                           </div>
@@ -1853,7 +1842,7 @@ function EditEmployee({
                           <div className="flex items-center gap-2 mt-3 text-[11px] text-[var(--text-dim)]">
                             <span className="px-2 py-0.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">{s.type}</span>
                             <span>{s.source}</span>
-                            {s.requiredTools && s.requiredTools.length > 0 && <span>需要 {s.requiredTools.join(', ')}</span>}
+                            {s.requiredTools && s.requiredTools.length > 0 && <span>{t('manage.requiresTools', { tools: s.requiredTools.join(', ') })}</span>}
                           </div>
                         </div>
                       );
@@ -1863,7 +1852,7 @@ function EditEmployee({
               ) : (
                 <div className="text-center py-12 text-[var(--text-dim)]">
                   <div className="text-4xl mb-3 opacity-30">📚</div>
-                  <p className="text-sm">暂无可用技能</p>
+                  <p className="text-sm">{t('manage.noAvailableSkills')}</p>
                 </div>
               )
             )}
@@ -1873,7 +1862,7 @@ function EditEmployee({
               <input
                 value={skillInstallUrl}
                 onChange={(e) => setSkillInstallUrl(e.target.value)}
-                placeholder="输入技能 URL 或名称安装..."
+                placeholder={t('manage.skillInstallPlaceholder')}
                 className="flex-1 glass-medium border border-[var(--border)] rounded-lg py-2 px-3 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
                 onKeyDown={(e) => { if (e.key === 'Enter') handleInstallSkillFromUrl() }}
               />
@@ -1887,7 +1876,7 @@ function EditEmployee({
                 ) : (
                   <Plus size={14} />
                 )}
-                安装
+                {t('manage.install')}
               </button>
             </div>
           </div>

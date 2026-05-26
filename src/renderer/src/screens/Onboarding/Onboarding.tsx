@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { translateError } from '../../../../shared/i18n'
 import { Download, Check, ChevronRight, Eye, EyeOff, AlertCircle, Loader2, Server, Monitor } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import loginBg from '../../assets/login-bg.jpg'
@@ -22,16 +24,16 @@ interface OnboardingProps {
 
 type Step = 'mode' | 'install' | 'apikey' | 'remote' | 'password'
 
-const STAGE_LABELS = [
-  '检查 Python',
-  '检查 Git',
-  '准备 Agent',
-  '创建虚拟环境',
-  '安装依赖',
-  '完成设置',
-]
-
 export default function Onboarding({ onComplete }: OnboardingProps) {
+  const { t } = useTranslation()
+  const stageLabels = useMemo(() => [
+    t('onboarding.stageCheckPython'),
+    t('onboarding.stageCheckGit'),
+    t('onboarding.stagePrepareAgent'),
+    t('onboarding.stageCreateVenv'),
+    t('onboarding.stageInstallDeps'),
+    t('onboarding.stageComplete'),
+  ], [t])
   const [step, setStep] = useState<Step>('mode')
   const [deploymentMode, setDeploymentMode] = useState<DeploymentMode | null>(null)
   const [installStatus, setInstallStatus] = useState<'checking' | 'not-installed' | 'installing' | 'installed' | 'error'>('checking')
@@ -102,14 +104,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       if (result.success) {
         setInstallStatus('installed')
       } else {
-        setInstallError(result.error || '安装失败')
+        setInstallError(translateError(result.error, t) || t('onboarding.installFailed'))
         setInstallStatus('error')
       }
     } catch (e: unknown) {
-      setInstallError((e as Error).message || '安装失败')
+      setInstallError(translateError((e as Error).message, t) || t('onboarding.installFailed'))
       setInstallStatus('error')
     }
-  }, [])
+  }, [t])
 
   const handleSaveApiKey = useCallback(async () => {
     try {
@@ -136,10 +138,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       }
       setStep('password')
     } catch {
-      showToast('API 密钥保存失败，可以稍后在设置中配置', 'error')
+      showToast(t('onboarding.apiKeySaveFailed'), 'error')
       setStep('password')
     }
-  }, [apiKey, modelId, provider])
+  }, [apiKey, modelId, provider, t])
 
   const handleSkipApiKey = useCallback(async () => {
     try {
@@ -179,14 +181,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   const handleSaveRemote = useCallback(async () => {
     if (!remoteHost.trim() || !remoteToken.trim()) {
-      setRemoteError('请填写主机地址和 API Token')
+      setRemoteError(t('settings.fillHostToken'))
       return
     }
     setRemoteTesting(true)
     setRemoteError('')
     try {
       const result = await window.hermesAPI.saveRemoteConnection({
-        name: remoteName.trim() || '远程节点',
+        name: remoteName.trim() || t('onboarding.defaultRemoteName'),
         host: remoteHost.trim(),
         port: remotePort || 8787,
         api_token: remoteToken.trim(),
@@ -194,14 +196,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       if (result.success) {
         setStep('password')
       } else {
-        setRemoteError(result.error || '连接失败')
+        setRemoteError(translateError(result.error, t) || t('settings.connectionFailed'))
       }
     } catch (e: unknown) {
-      setRemoteError((e as Error).message || '连接失败')
+      setRemoteError(translateError((e as Error).message, t) || t('settings.connectionFailed'))
     } finally {
       setRemoteTesting(false)
     }
-  }, [remoteHost, remoteName, remotePort, remoteToken])
+  }, [remoteHost, remoteName, remotePort, remoteToken, t])
 
   const handleSetupPassword = useCallback(async () => {
     if (password.length < 4) return
@@ -213,14 +215,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       if (result.success) {
         onComplete()
       } else {
-        setSetupError(result.error || '设置密码失败')
+        setSetupError(translateError(result.error, t) || t('onboarding.setupPasswordFailed'))
       }
     } catch (e: unknown) {
-      setSetupError((e as Error).message || '设置密码失败')
+      setSetupError(translateError((e as Error).message, t) || t('onboarding.setupPasswordFailed'))
     } finally {
       setSettingUp(false)
     }
-  }, [password, confirmPassword, onComplete])
+  }, [password, confirmPassword, onComplete, t])
 
   const localSteps: Step[] = ['install', 'apikey', 'password']
   const clientSteps: Step[] = ['remote', 'password']
@@ -229,7 +231,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     ? -1
     : activeSteps.indexOf(step)
 
-  const installTotalSteps = installProgress?.totalSteps || STAGE_LABELS.length
+  const installTotalSteps = installProgress?.totalSteps || stageLabels.length
   const selectedPreset = PROVIDER_PRESETS.find(p => p.id === provider)
   const selectedPresetModels = selectedPreset?.models || []
   const modelSelectValue = selectedPresetModels.some(m => m.id === modelId) ? modelId : '_custom'
@@ -265,10 +267,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       <div className="relative w-full max-w-[480px] mx-4 animate-slide-up">
         <div className="text-center mb-8">
           <div className="mx-auto mb-4 w-24 h-24 rounded-2xl overflow-hidden" style={{ boxShadow: '0 8px 40px rgba(124,106,239,0.18), 0 2px 8px rgba(0,0,0,0.06)' }}>
-            <img src={logoImg} alt="落云.Hermes" className="w-full h-full object-cover" />
+            <img src={logoImg} alt={t('app.name')} className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-2xl font-bold text-accent-gradient" style={{ letterSpacing: '-0.5px' }}>欢迎使用 落云.Hermes</h1>
-          <p className="text-sm text-[var(--text-secondary)] mt-2">让我们完成初始设置，开始你的 AI 之旅</p>
+          <h1 className="text-2xl font-bold text-accent-gradient" style={{ letterSpacing: '-0.5px' }}>{t('onboarding.welcome')}</h1>
+          <p className="text-sm text-[var(--text-secondary)] mt-2">{t('onboarding.welcomeHint')}</p>
         </div>
 
         {step !== 'mode' && (
@@ -293,8 +295,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         }}>
           {step === 'mode' && (
             <>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">选择使用方式</h2>
-              <p className="text-sm text-[var(--text-secondary)] mb-5">本机运行 AI 员工，或连接远程 Hermes 节点</p>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{t('onboarding.chooseMode')}</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">{t('onboarding.chooseModeHint')}</p>
               <div className="flex-1 flex flex-col gap-3">
                 <button
                   onClick={() => handleSelectMode('local')}
@@ -304,8 +306,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     <Monitor size={22} className="text-[var(--accent)]" />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">本机模式</div>
-                    <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">在本机安装并运行 Hermes Agent，可管理 AI 员工，也可开启远程连接供其他客户端访问。</p>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{t('onboarding.localMode')}</div>
+                    <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">{t('onboarding.localModeDesc')}</p>
                   </div>
                 </button>
                 <button
@@ -316,8 +318,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     <Server size={22} className="text-[var(--accent)]" />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">远程客户端</div>
-                    <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">仅作为客户端连接一台远程 Hermes 节点，无需在本机安装 Agent。</p>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{t('onboarding.remoteClient')}</div>
+                    <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">{t('onboarding.remoteClientDesc')}</p>
                   </div>
                 </button>
               </div>
@@ -326,13 +328,13 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
           {step === 'install' && (
             <>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">安装 Hermes Agent</h2>
-              <p className="text-sm text-[var(--text-secondary)] mb-5">Hermes Agent 是 AI 员工的运行引擎，需要先安装它</p>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{t('onboarding.installTitle')}</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">{t('onboarding.installHint')}</p>
 
               {installStatus === 'checking' && (
                 <div className="flex-1 flex items-center justify-center">
                   <Loader2 size={24} className="animate-spin text-[var(--accent)]" />
-                  <span className="ml-3 text-sm text-[var(--text-secondary)]">检测安装状态...</span>
+                  <span className="ml-3 text-sm text-[var(--text-secondary)]">{t('onboarding.checkingInstall')}</span>
                 </div>
               )}
 
@@ -341,12 +343,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="w-16 h-16 rounded-2xl bg-[var(--accent-glow)] flex items-center justify-center">
                     <Download size={28} className="text-[var(--accent)]" />
                   </div>
-                  <p className="text-sm text-[var(--text-secondary)] text-center">未检测到 Hermes Agent。Windows 下会自动检测并尝试安装 Python 3.12 与 Git。</p>
+                  <p className="text-sm text-[var(--text-secondary)] text-center">{t('onboarding.notInstalledHint')}</p>
                   <div className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--text-dim)]">
-                    如果自动安装 Python 失败，请手动安装 Python 3.11+ 并勾选 Add python.exe to PATH；如果缺少 Git，安装器会优先通过 winget 静默安装 Git for Windows，失败时会降级为压缩包安装 Agent。
+                    {t('onboarding.installManualHint')}
                   </div>
                   <button onClick={handleInstall} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
-                    <Download size={16} /> 开始安装
+                    <Download size={16} /> {t('onboarding.startInstall')}
                   </button>
                 </div>
               )}
@@ -355,7 +357,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 <div className="flex-1 flex flex-col">
                   <div className="mb-3">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm font-medium text-[var(--text-primary)]">{installProgress?.title || '准备中...'}</span>
+                      <span className="text-sm font-medium text-[var(--text-primary)]">{installProgress?.title || t('onboarding.preparing')}</span>
                       <span className="text-xs text-[var(--text-dim)]">{installProgress?.step || 0}/{installTotalSteps}</span>
                     </div>
                     <div className="w-full h-1.5 rounded-full bg-[var(--bg-surface)] overflow-hidden">
@@ -363,7 +365,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     </div>
                   </div>
                   <div className="flex gap-1.5 mb-3">
-                    {STAGE_LABELS.map((label, i) => (
+                    {stageLabels.map((label, i) => (
                       <div key={i} className={`flex-1 text-center text-[10px] py-1 rounded ${
                         i < (installProgress?.step || 0) - 1 ? 'text-[var(--accent)]' :
                         i === (installProgress?.step || 0) - 1 ? 'text-[var(--text-primary)] font-medium' :
@@ -380,7 +382,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     ))}
                     {!installLog.length && (
                       <div className="text-[var(--text-dim)] animate-pulse">
-                        {installProgress?.detail || '等待安装输出...'}
+                        {installProgress?.detail || t('onboarding.waitingOutput')}
                       </div>
                     )}
                   </div>
@@ -392,9 +394,9 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="w-16 h-16 rounded-2xl bg-[rgba(34,197,94,0.1)] flex items-center justify-center">
                     <Check size={28} className="text-[var(--success)]" />
                   </div>
-                  <p className="text-sm text-[var(--text-secondary)]">Hermes Agent 已就绪</p>
+                  <p className="text-sm text-[var(--text-secondary)]">{t('onboarding.agentReady')}</p>
                   <button onClick={() => setStep('apikey')} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
-                    下一步 <ChevronRight size={16} />
+                    {t('onboarding.next')} <ChevronRight size={16} />
                   </button>
                 </div>
               )}
@@ -404,19 +406,19 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="w-16 h-16 rounded-2xl bg-[rgba(239,68,68,0.1)] flex items-center justify-center">
                     <AlertCircle size={28} className="text-[var(--danger)]" />
                   </div>
-                  <p className="text-sm text-[var(--danger)] text-center">{installError || '安装失败'}</p>
+                  <p className="text-sm text-[var(--danger)] text-center">{installError || t('onboarding.installFailed')}</p>
                   {installError.includes('Python') && (
                     <div className="w-full rounded-lg border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.08)] px-3 py-2 text-xs leading-relaxed text-[var(--text-secondary)]">
-                      安装好 Python 后无需重装客户端，直接点击“重试安装”即可继续安装 Hermes Agent。
+                      {t('onboarding.pythonRetryHint')}
                     </div>
                   )}
                   <button onClick={handleInstall} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
-                    <Download size={16} /> 重试安装
+                    <Download size={16} /> {t('onboarding.retryInstall')}
                   </button>
                   <div className="mt-2 w-full">
-                    <p className="text-xs text-[var(--text-dim)] mb-2 text-center">安装器已记录错误信息，可重试或到设置中查看日志：</p>
+                    <p className="text-xs text-[var(--text-dim)] mb-2 text-center">{t('onboarding.errorLogHint')}</p>
                     <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3 font-mono text-[11px] text-[var(--text-secondary)] overflow-x-auto whitespace-pre-wrap break-words">
-                      {installError || '请检查网络环境后重试安装'}
+                      {installError || t('onboarding.checkNetworkRetry')}
                     </div>
                   </div>
                 </div>
@@ -425,7 +427,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               {installStatus !== 'installing' && (
                 <div className="flex items-center mt-4">
                   <button onClick={() => setStep('mode')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
-                    上一步
+                    {t('onboarding.prev')}
                   </button>
                 </div>
               )}
@@ -434,12 +436,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
           {step === 'apikey' && (
             <>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">配置 AI 模型</h2>
-              <p className="text-sm text-[var(--text-secondary)] mb-5">选择服务商、模型 ID 并填入 API 密钥，也可以稍后配置</p>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{t('onboarding.configModel')}</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">{t('onboarding.configModelHint')}</p>
 
               <div className="flex-1 flex flex-col gap-4">
                 <div>
-                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">服务商</label>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.provider')}</label>
                   <select
                     value={provider}
                     onChange={(e) => {
@@ -457,7 +459,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">模型 ID</label>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.modelId')}</label>
                   <select
                     value={modelSelectValue}
                     onChange={(e) => {
@@ -469,25 +471,25 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     {selectedPresetModels.map(m => (
                       <option key={m.id} value={m.id}>{m.label} · {m.id}</option>
                     ))}
-                    <option value="_custom">自定义模型 ID...</option>
+                    <option value="_custom">{t('onboarding.customModelId')}</option>
                   </select>
                   {isCustomModelId && (
                     <input
                       type="text"
                       value={modelId}
                       onChange={(e) => setModelId(e.target.value)}
-                      placeholder="输入模型 ID"
+                      placeholder={t('onboarding.customModelPlaceholder')}
                       className="mt-2 w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                     />
                   )}
                   <p className="mt-1.5 text-xs text-[var(--text-dim)]">
-                    将写入配置：{modelId.trim() || selectedPresetModels[0]?.id || '未选择模型'}
+                    {t('onboarding.configWillWrite', { model: modelId.trim() || selectedPresetModels[0]?.id || t('onboarding.noModelSelected') })}
                   </p>
                 </div>
 
                 <div>
                   <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">
-                    {PROVIDER_API_KEY_MAP[provider]?.label || 'API 密钥'}
+                    {PROVIDER_API_KEY_MAP[provider]?.label || t('settings.apiKey')}
                   </label>
                   <input
                     type="password"
@@ -501,14 +503,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
               <div className="flex items-center justify-between mt-6">
                 <button onClick={() => setStep('mode')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
-                  上一步
+                  {t('onboarding.prev')}
                 </button>
                 <div className="flex items-center gap-3">
                   <button onClick={handleSkipApiKey} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
-                    稍后配置
+                    {t('onboarding.configureLater')}
                   </button>
                   <button onClick={handleSaveApiKey} className="flex items-center gap-2 rounded-xl bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 transition-all">
-                    下一步 <ChevronRight size={16} />
+                    {t('onboarding.next')} <ChevronRight size={16} />
                   </button>
                 </div>
               </div>
@@ -517,22 +519,22 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
           {step === 'remote' && (
             <>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">连接远程节点</h2>
-              <p className="text-sm text-[var(--text-secondary)] mb-5">输入远程 Hermes 节点的地址和 API Token</p>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{t('onboarding.connectRemote')}</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">{t('onboarding.connectRemoteHint')}</p>
               <div className="flex-1 flex flex-col gap-4">
                 <div>
-                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">节点名称（可选）</label>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.nodeNameOptional')}</label>
                   <input
                     type="text"
                     value={remoteName}
                     onChange={(e) => setRemoteName(e.target.value)}
-                    placeholder="我的服务器"
+                    placeholder={t('onboarding.nodeNamePlaceholder')}
                     className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                   />
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">主机地址</label>
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.host')}</label>
                     <input
                       type="text"
                       value={remoteHost}
@@ -542,7 +544,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     />
                   </div>
                   <div className="w-28">
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">端口</label>
+                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.port')}</label>
                     <input
                       type="number"
                       value={remotePort}
@@ -554,12 +556,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">API Token</label>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('settings.apiToken')}</label>
                   <input
                     type="password"
                     value={remoteToken}
                     onChange={(e) => setRemoteToken(e.target.value)}
-                    placeholder="远程节点提供的 Token"
+                    placeholder={t('onboarding.remoteTokenPlaceholder')}
                     className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                   />
                 </div>
@@ -569,7 +571,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               </div>
               <div className="flex items-center justify-between mt-6">
                 <button onClick={() => setStep('mode')} className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors">
-                  上一步
+                  {t('onboarding.prev')}
                 </button>
                 <button
                   onClick={handleSaveRemote}
@@ -577,7 +579,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   className="flex items-center gap-2 rounded-xl bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                 >
                   {remoteTesting ? <Loader2 size={14} className="animate-spin" /> : null}
-                  {remoteTesting ? '连接中...' : '测试并继续'} <ChevronRight size={16} />
+                  {remoteTesting ? t('onboarding.connecting') : t('onboarding.testAndContinue')} <ChevronRight size={16} />
                 </button>
               </div>
             </>
@@ -585,18 +587,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
           {step === 'password' && (
             <>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">设置登录密码</h2>
-              <p className="text-sm text-[var(--text-secondary)] mb-5">设置一个密码来保护你的 Hermes 桌面端</p>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{t('onboarding.setPassword')}</h2>
+              <p className="text-sm text-[var(--text-secondary)] mb-5">{t('onboarding.setPasswordHint')}</p>
 
               <div className="flex-1 flex flex-col gap-4">
                 <div>
-                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">密码</label>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.password')}</label>
                   <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="至少 4 个字符"
+                      placeholder={t('onboarding.passwordMinPlaceholder')}
                       className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] pr-10"
                     />
                     <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer">
@@ -606,16 +608,16 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">确认密码</label>
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('onboarding.confirmPassword')}</label>
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="再次输入密码"
+                    placeholder={t('onboarding.confirmPasswordPlaceholder')}
                     className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
                   />
                   {confirmPassword && password !== confirmPassword && (
-                    <p className="text-xs text-[var(--danger)] mt-1.5">两次密码不一致</p>
+                    <p className="text-xs text-[var(--danger)] mt-1.5">{t('onboarding.passwordMismatch')}</p>
                   )}
                 </div>
                 {setupError && (
@@ -628,7 +630,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   onClick={() => setStep(deploymentMode === 'client_only' ? 'remote' : 'apikey')}
                   className="text-sm text-[var(--text-dim)] hover:text-[var(--text-secondary)] cursor-pointer transition-colors"
                 >
-                  上一步
+                  {t('onboarding.prev')}
                 </button>
                 <button
                   onClick={handleSetupPassword}
@@ -636,7 +638,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   className="flex items-center gap-2 rounded-xl bg-accent-gradient px-6 py-2.5 text-sm font-medium text-white cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                 >
                   {settingUp ? <Loader2 size={14} className="animate-spin" /> : null}
-                  {settingUp ? '设置中...' : '完成设置'}
+                  {settingUp ? t('onboarding.settingUp') : t('onboarding.completeSetup')}
                 </button>
               </div>
             </>

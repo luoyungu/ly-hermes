@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+import { translateError } from '../../../../shared/i18n'
 import { usePlatform } from '../../hooks/usePlatform'
 import {
   Plus,
@@ -55,66 +58,66 @@ interface JobWithProfile extends CronJobDisplay {
   employeeDisplayName: string
 }
 
-const SCHEDULE_PRESETS = [
-  { label: '每30分钟', value: 'every 30m' },
-  { label: '每1小时', value: 'every 1h' },
-  { label: '每2小时', value: 'every 2h' },
-  { label: '每6小时', value: 'every 6h' },
-  { label: '每天9点', value: '0 9 * * *' },
-  { label: '每天18点', value: '0 18 * * *' },
-  { label: '每周一9点', value: '0 9 * * 1' },
-  { label: '每月1号9点', value: '0 9 1 * *' },
+const getSchedulePresets = (t: TFunction) => [
+  { label: t('schedule.presetEvery30m'), value: 'every 30m' },
+  { label: t('schedule.presetEvery1h'), value: 'every 1h' },
+  { label: t('schedule.presetEvery2h'), value: 'every 2h' },
+  { label: t('schedule.presetEvery6h'), value: 'every 6h' },
+  { label: t('schedule.presetDaily9'), value: '0 9 * * *' },
+  { label: t('schedule.presetDaily18'), value: '0 18 * * *' },
+  { label: t('schedule.presetWeeklyMon9'), value: '0 9 * * 1' },
+  { label: t('schedule.presetMonthly1st9'), value: '0 9 1 * *' },
 ]
 
 type ExternalDelivery = 'none' | 'feishu' | 'weixin' | 'dingtalk'
 
-const formatDeliverTarget = (deliver?: string): string => {
+const formatDeliverTarget = (deliver: string | undefined, t: TFunction): string => {
   if (!deliver) return ''
   return deliver.split(',').map(part => {
     const target = part.trim()
-    if (target === 'local') return '桌面历史'
-    if (target === 'origin') return '来源平台'
-    if (target === 'feishu') return '飞书'
-    if (target === 'weixin') return '微信'
-    if (target === 'dingtalk') return '钉钉'
-    if (target.startsWith('feishu:')) return `飞书:${target.slice('feishu:'.length)}`
-    if (target.startsWith('weixin:')) return `微信:${target.slice('weixin:'.length)}`
-    if (target.startsWith('dingtalk:')) return `钉钉:${target.slice('dingtalk:'.length)}`
+    if (target === 'local') return t('schedule.desktopHistory')
+    if (target === 'origin') return t('schedule.originPlatform')
+    if (target === 'feishu') return t('schedule.feishu')
+    if (target === 'weixin') return t('schedule.weixin')
+    if (target === 'dingtalk') return t('schedule.dingtalk')
+    if (target.startsWith('feishu:')) return `${t('schedule.feishu')}:${target.slice('feishu:'.length)}`
+    if (target.startsWith('weixin:')) return `${t('schedule.weixin')}:${target.slice('weixin:'.length)}`
+    if (target.startsWith('dingtalk:')) return `${t('schedule.dingtalk')}:${target.slice('dingtalk:'.length)}`
     return target
   }).join(' + ')
 }
 
-function formatRelativeTime(d: string | null | undefined): string {
+function formatRelativeTime(d: string | null | undefined, t: TFunction): string {
   if (!d) return '-'
   try {
     const date = new Date(d)
     if (isNaN(date.getTime())) return d
     const now = Date.now()
     const diff = date.getTime() - now
-    if (Math.abs(diff) < 60000) return '刚刚'
+    if (Math.abs(diff) < 60000) return t('schedule.relativeJustNow')
     const absDiff = Math.abs(diff)
     const isFuture = diff > 0
     if (absDiff < 3600000) {
       const mins = Math.floor(absDiff / 60000)
-      return isFuture ? `${mins}分钟后` : `${mins}分钟前`
+      return isFuture ? t('schedule.relativeMinutesLater', { count: mins }) : t('schedule.relativeMinutesAgo', { count: mins })
     }
     if (absDiff < 86400000) {
       const hours = Math.floor(absDiff / 3600000)
-      return isFuture ? `${hours}小时后` : `${hours}小时前`
+      return isFuture ? t('schedule.relativeHoursLater', { count: hours }) : t('schedule.relativeHoursAgo', { count: hours })
     }
     const days = Math.floor(absDiff / 86400000)
-    return isFuture ? `${days}天后` : `${days}天前`
+    return isFuture ? t('schedule.relativeDaysLater', { count: days }) : t('schedule.relativeDaysAgo', { count: days })
   } catch {
     return d
   }
 }
 
-function formatFullDate(d: string | null | undefined): string {
+function formatFullDate(d: string | null | undefined, locale: string): string {
   if (!d) return '-'
   try {
     const date = new Date(d)
     if (isNaN(date.getTime())) return d
-    return date.toLocaleString('zh-CN', {
+    return date.toLocaleString(locale, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -128,6 +131,8 @@ function formatFullDate(d: string | null | undefined): string {
 }
 
 export default function Schedule(): React.ReactElement {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language === 'en' ? 'en' : 'zh-CN'
   const { isMac } = usePlatform()
   const { lexicon } = useTheme()
   const [employees, setEmployees] = useState<EmployeeInfo[]>([])
@@ -190,49 +195,49 @@ export default function Schedule(): React.ReactElement {
   const handlePause = async (jobId: string, profileName: string): Promise<void> => {
     try {
       await window.hermesAPI.pauseCronJob(jobId, profileName)
-      showToast('已暂停')
+      showToast(t('schedule.pausedToast'))
       refreshJobs()
-    } catch { showToast('暂停失败', 'error') }
+    } catch { showToast(t('schedule.pauseFailed'), 'error') }
   }
 
   const handleResume = async (jobId: string, profileName: string): Promise<void> => {
     try {
       await window.hermesAPI.resumeCronJob(jobId, profileName)
-      showToast('已恢复')
+      showToast(t('schedule.resumedToast'))
       refreshJobs()
-    } catch { showToast('恢复失败', 'error') }
+    } catch { showToast(t('schedule.resumeFailed'), 'error') }
   }
 
   const handleTrigger = async (jobId: string, profileName: string): Promise<void> => {
     try {
       const result = await window.hermesAPI.triggerCronJob(jobId, profileName)
       if (result.success) {
-        showToast('已触发')
+        showToast(t('schedule.triggeredToast'))
       } else {
-        showToast(result.output || '触发失败', 'error')
+        showToast(translateError(result.output, t) || t('schedule.triggerFailed'), 'error')
       }
       refreshJobs()
-    } catch { showToast('触发失败', 'error') }
+    } catch { showToast(t('schedule.triggerFailed'), 'error') }
   }
 
   const handleFixDelivery = async (jobId: string, profileName: string): Promise<void> => {
     try {
       const result = await window.hermesAPI.updateCronJobDeliver(jobId, 'local', profileName)
       if (result.success) {
-        showToast('已改为本地保存')
+        showToast(t('schedule.fixedLocalToast'))
       } else {
-        showToast(result.output || '修复失败', 'error')
+        showToast(translateError(result.output, t) || t('schedule.fixFailed'), 'error')
       }
       refreshJobs()
-    } catch { showToast('修复失败', 'error') }
+    } catch { showToast(t('schedule.fixFailed'), 'error') }
   }
 
   const handleDelete = async (jobId: string, profileName: string): Promise<void> => {
     try {
       await window.hermesAPI.deleteCronJob(jobId, profileName)
-      showToast('已删除')
+      showToast(t('common.deleteSuccess'))
       refreshJobs()
-    } catch { showToast('删除失败', 'error') }
+    } catch { showToast(t('common.deleteFailed'), 'error') }
   }
 
   const filteredJobs = filterEmployee
@@ -261,7 +266,7 @@ export default function Schedule(): React.ReactElement {
               }`}
             >
               <span className="text-base">📋</span>
-              <span className="text-[13px] font-medium">全部</span>
+              <span className="text-[13px] font-medium">{t('schedule.all')}</span>
               <span className="text-[11px] opacity-60">{allJobs.length}</span>
             </button>
             {employeesWithJobs.map(emp => {
@@ -289,7 +294,7 @@ export default function Schedule(): React.ReactElement {
               onClick={refreshJobs}
               className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg-hover)] transition-all"
             >
-              <RefreshCw size={16} /> 刷新
+              <RefreshCw size={16} /> {t('common.refresh')}
             </button>
             <button
               onClick={() => setShowCreate(true)}
@@ -327,6 +332,7 @@ export default function Schedule(): React.ReactElement {
                 job={job}
                 lexicon={lexicon}
                 showEmployee={!filterEmployee}
+                locale={locale}
                 onClick={() => setDetailJob(job)}
                 onPause={() => handlePause(job.id, job.profileName)}
                 onResume={() => handleResume(job.id, job.profileName)}
@@ -345,6 +351,7 @@ export default function Schedule(): React.ReactElement {
         <JobDetail
           job={detailJob}
           lexicon={lexicon}
+          locale={locale}
           showEmployee={!filterEmployee}
           onClose={() => setDetailJob(null)}
           onEdit={() => { setDetailJob(null); setEditingJob(detailJob) }}
@@ -380,6 +387,7 @@ export default function Schedule(): React.ReactElement {
 function JobCard({
   job,
   lexicon,
+  locale,
   showEmployee,
   onClick,
   onPause,
@@ -391,6 +399,7 @@ function JobCard({
 }: {
   job: JobWithProfile
   lexicon: ReturnType<typeof useTheme>['lexicon']
+  locale: string
   showEmployee: boolean
   onClick: () => void
   onPause: () => void
@@ -400,6 +409,7 @@ function JobCard({
   onDelete: () => void
   onEdit: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
   const deliveryError = job.last_delivery_error || ''
   const deliveryNeedsFix = job.deliver === 'origin' || /no delivery target resolved|deliver=origin/i.test(`${job.last_error || ''} ${deliveryError}`)
   const lastRunFailed = job.last_status && job.last_status !== 'ok' && job.last_status !== 'success'
@@ -423,7 +433,7 @@ function JobCard({
                     ? 'bg-[rgba(34,197,94,0.1)] text-[var(--success)]'
                     : 'bg-[rgba(156,163,175,0.1)] text-[var(--text-dim)]'
                 }`}>
-                  {job.enabled ? '活跃' : '暂停'}
+                  {job.enabled ? t('schedule.active') : t('schedule.paused')}
                 </span>
                 {showEmployee && (
                   <span className="flex items-center gap-1 px-2 py-0.5 rounded-full glass-medium border border-[var(--border)] text-[11px] text-[var(--text-dim)]">
@@ -446,14 +456,14 @@ function JobCard({
                 {job.next_run_at && (
                   <div className="flex items-center gap-1.5 text-[11px]">
                     <Zap size={11} className="text-[var(--accent)]" />
-                    <span className="text-[var(--text-dim)]">下次:</span>
-                    <span className="text-[var(--text-secondary)] font-medium" title={formatFullDate(job.next_run_at)}>{formatRelativeTime(job.next_run_at)}</span>
+                    <span className="text-[var(--text-dim)]">{t('schedule.nextRun')}:</span>
+                    <span className="text-[var(--text-secondary)] font-medium" title={formatFullDate(job.next_run_at, locale)}>{formatRelativeTime(job.next_run_at, t)}</span>
                   </div>
                 )}
                 {job.last_run_at && (
                   <div className="flex items-center gap-1.5 text-[11px]">
-                    <span className="text-[var(--text-dim)]">上次:</span>
-                    <span className="text-[var(--text-secondary)]" title={formatFullDate(job.last_run_at)}>{formatRelativeTime(job.last_run_at)}</span>
+                    <span className="text-[var(--text-dim)]">{t('schedule.lastRun')}:</span>
+                    <span className="text-[var(--text-secondary)]" title={formatFullDate(job.last_run_at, locale)}>{formatRelativeTime(job.last_run_at, t)}</span>
                     {lastRunFailed && <AlertCircle size={11} className="text-[var(--danger)]" />}
                   </div>
                 )}
@@ -474,12 +484,12 @@ function JobCard({
               {deliveryNeedsFix && (
                 <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-[rgba(234,179,8,0.28)] bg-[rgba(234,179,8,0.08)] px-2.5 py-2 text-xs text-[var(--warning)]" onClick={e => e.stopPropagation()}>
                   <AlertCircle size={13} className="shrink-0" />
-                  <span className="flex-1">桌面端没有可解析的 origin 来源，建议改为桌面历史。</span>
+                  <span className="flex-1">{t('schedule.deliveryFixHint')}</span>
                   <button
                     onClick={onFixDelivery}
                     className="rounded-md border border-[rgba(234,179,8,0.35)] px-2 py-1 text-[11px] font-medium hover:bg-[rgba(234,179,8,0.12)] cursor-pointer"
                   >
-                    改为桌面
+                    {t('schedule.deliveryFixBtn')}
                   </button>
                 </div>
               )}
@@ -487,22 +497,22 @@ function JobCard({
           </div>
           <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
             {job.enabled ? (
-              <button onClick={onPause} title="暂停" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer transition-all">
+              <button onClick={onPause} title={t('schedule.pause')} className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] cursor-pointer transition-all">
                 <Pause size={14} />
               </button>
             ) : (
-              <button onClick={onResume} title="恢复" className="w-8 h-8 rounded-lg border border-[rgba(34,197,94,0.3)] flex items-center justify-center text-[var(--success)] hover:bg-[rgba(34,197,94,0.1)] cursor-pointer transition-all">
+              <button onClick={onResume} title={t('schedule.resume')} className="w-8 h-8 rounded-lg border border-[rgba(34,197,94,0.3)] flex items-center justify-center text-[var(--success)] hover:bg-[rgba(34,197,94,0.1)] cursor-pointer transition-all">
                 <Play size={14} />
               </button>
             )}
-            <button onClick={onTrigger} title="立即执行" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] cursor-pointer transition-all">
+            <button onClick={onTrigger} title={t('schedule.triggerNow')} className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] cursor-pointer transition-all">
               <Play size={14} />
             </button>
-            <button onClick={onEdit} title="编辑" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] cursor-pointer transition-all">
+            <button onClick={onEdit} title={t('common.edit')} className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] cursor-pointer transition-all">
               <Pencil size={14} />
             </button>
             <Popconfirm title={lexicon.schedule.deleteConfirm} onConfirm={onDelete}>
-              <button title="删除" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] cursor-pointer transition-all">
+              <button title={t('common.delete')} className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] cursor-pointer transition-all">
                 <Trash2 size={14} />
               </button>
             </Popconfirm>
@@ -510,7 +520,7 @@ function JobCard({
         </div>
       </div>
       <div className="flex items-center justify-center gap-1.5 py-2 border-t border-[var(--border)] text-[11px] text-[var(--text-dim)] opacity-0 group-hover:opacity-100 transition-opacity">
-        <span>点击查看详情</span>
+        <span>{t('schedule.clickForDetail')}</span>
         <ChevronRight size={12} />
       </div>
     </div>
@@ -520,6 +530,7 @@ function JobCard({
 function JobDetail({
   job,
   lexicon,
+  locale,
   showEmployee,
   onClose,
   onEdit,
@@ -531,6 +542,7 @@ function JobDetail({
 }: {
   job: JobWithProfile
   lexicon: ReturnType<typeof useTheme>['lexicon']
+  locale: string
   showEmployee: boolean
   onClose: () => void
   onEdit: () => void
@@ -540,6 +552,7 @@ function JobDetail({
   onDelete: () => void
   onFixDelivery: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
   const deliveryError = job.last_delivery_error || ''
   const deliveryNeedsFix = job.deliver === 'origin' || /no delivery target resolved|deliver=origin/i.test(`${job.last_error || ''} ${deliveryError}`)
   const hasDeliver = job.deliver && job.deliver !== 'local'
@@ -558,7 +571,7 @@ function JobDetail({
                 ? 'bg-[rgba(34,197,94,0.1)] text-[var(--success)]'
                 : 'bg-[rgba(156,163,175,0.1)] text-[var(--text-dim)]'
             }`}>
-              {job.enabled ? '活跃' : '暂停'}
+              {job.enabled ? t('schedule.active') : t('schedule.paused')}
             </span>
           </div>
           <button onClick={onClose} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"><X size={18} /></button>
@@ -584,34 +597,34 @@ function JobDetail({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-3.5">
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-dim)] mb-1.5">
                 <Clock size={12} className="text-[var(--accent)]" />
-                <span>调度规则</span>
+                <span>{t('schedule.scheduleRule')}</span>
               </div>
               <div className="font-mono text-sm text-[var(--text-primary)]">{job.schedule_display || job.schedule}</div>
             </div>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-3.5">
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-dim)] mb-1.5">
                 <Activity size={12} className="text-[var(--accent)]" />
-                <span>上次状态</span>
+                <span>{t('schedule.lastStatus')}</span>
               </div>
               <div className={`text-sm font-medium ${job.last_status ? (job.last_status === 'ok' || job.last_status === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]') : 'text-[var(--text-dim)]'}`}>
-                {job.last_status || '未执行'}
+                {job.last_status || t('schedule.notExecuted')}
               </div>
             </div>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-3.5">
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-dim)] mb-1.5">
                 <Zap size={12} className="text-[var(--accent)]" />
-                <span>下次执行</span>
+                <span>{t('schedule.nextExecution')}</span>
               </div>
-              <div className="text-sm text-[var(--text-primary)]" title={formatFullDate(job.next_run_at)}>{formatRelativeTime(job.next_run_at)}</div>
-              {job.next_run_at && <div className="text-[11px] text-[var(--text-dim)] mt-0.5">{formatFullDate(job.next_run_at)}</div>}
+              <div className="text-sm text-[var(--text-primary)]" title={formatFullDate(job.next_run_at, locale)}>{formatRelativeTime(job.next_run_at, t)}</div>
+              {job.next_run_at && <div className="text-[11px] text-[var(--text-dim)] mt-0.5">{formatFullDate(job.next_run_at, locale)}</div>}
             </div>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-3.5">
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-dim)] mb-1.5">
                 <Clock size={12} className="text-[var(--text-dim)]" />
-                <span>上次执行</span>
+                <span>{t('schedule.lastExecution')}</span>
               </div>
-              <div className="text-sm text-[var(--text-primary)]" title={formatFullDate(job.last_run_at)}>{formatRelativeTime(job.last_run_at)}</div>
-              {job.last_run_at && <div className="text-[11px] text-[var(--text-dim)] mt-0.5">{formatFullDate(job.last_run_at)}</div>}
+              <div className="text-sm text-[var(--text-primary)]" title={formatFullDate(job.last_run_at, locale)}>{formatRelativeTime(job.last_run_at, t)}</div>
+              {job.last_run_at && <div className="text-[11px] text-[var(--text-dim)] mt-0.5">{formatFullDate(job.last_run_at, locale)}</div>}
             </div>
           </div>
 
@@ -619,7 +632,7 @@ function JobDetail({
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-dim)] mb-2">
                 <FileText size={12} className="text-[var(--accent)]" />
-                <span>提示词</span>
+                <span>{t('schedule.prompt')}</span>
               </div>
               <pre className="text-[13px] text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">{job.prompt}</pre>
             </div>
@@ -627,13 +640,13 @@ function JobDetail({
 
           {(hasDeliver || hasSkills || job.repeat || job.script) && (
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4 space-y-3">
-              <div className="text-[11px] text-[var(--text-dim)] font-medium">配置详情</div>
+              <div className="text-[11px] text-[var(--text-dim)] font-medium">{t('schedule.configDetails')}</div>
               {hasDeliver && (
                 <div className="flex items-center gap-2.5">
                   <Send size={14} className="text-[var(--accent)] shrink-0" />
                   <div>
-                    <div className="text-[11px] text-[var(--text-dim)]">投递目标</div>
-                    <div className="text-[13px] text-[var(--text-primary)]">{formatDeliverTarget(job.deliver)}</div>
+                    <div className="text-[11px] text-[var(--text-dim)]">{t('schedule.deliverTarget')}</div>
+                    <div className="text-[13px] text-[var(--text-primary)]">{formatDeliverTarget(job.deliver, t)}</div>
                   </div>
                 </div>
               )}
@@ -641,7 +654,7 @@ function JobDetail({
                 <div className="flex items-center gap-2.5">
                   <Brain size={14} className="text-[var(--accent)] shrink-0" />
                   <div>
-                    <div className="text-[11px] text-[var(--text-dim)]">使用技能</div>
+                    <div className="text-[11px] text-[var(--text-dim)]">{t('schedule.skillsUsed')}</div>
                     <div className="text-[13px] text-[var(--text-primary)]">{job.skills}</div>
                   </div>
                 </div>
@@ -650,7 +663,7 @@ function JobDetail({
                 <div className="flex items-center gap-2.5">
                   <Repeat size={14} className="text-[var(--text-dim)] shrink-0" />
                   <div>
-                    <div className="text-[11px] text-[var(--text-dim)]">重复执行</div>
+                    <div className="text-[11px] text-[var(--text-dim)]">{t('schedule.repeatExec')}</div>
                     <div className="text-[13px] text-[var(--text-primary)]">{job.repeat}</div>
                   </div>
                 </div>
@@ -659,7 +672,7 @@ function JobDetail({
                 <div className="flex items-center gap-2.5">
                   <FileText size={14} className="text-[var(--accent)] shrink-0" />
                   <div>
-                    <div className="text-[11px] text-[var(--text-dim)]">关联脚本</div>
+                    <div className="text-[11px] text-[var(--text-dim)]">{t('schedule.linkedScript')}</div>
                     <code className="text-[13px] text-[var(--accent)] bg-[var(--accent-glow)] px-1.5 py-0.5 rounded font-mono">{job.script}</code>
                   </div>
                 </div>
@@ -671,7 +684,7 @@ function JobDetail({
             <div className="rounded-[var(--radius-lg)] border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.06)] p-4">
               <div className="flex items-center gap-2 text-[11px] text-[var(--danger)] font-medium mb-2">
                 <AlertCircle size={13} />
-                <span>执行错误</span>
+                <span>{t('schedule.execError')}</span>
               </div>
               <pre className="text-[13px] text-[var(--danger)] whitespace-pre-wrap leading-relaxed">{job.last_error}</pre>
             </div>
@@ -681,14 +694,14 @@ function JobDetail({
             <div className="rounded-[var(--radius-lg)] border border-[rgba(234,179,8,0.28)] bg-[rgba(234,179,8,0.06)] p-4">
               <div className="flex items-center gap-2 text-[11px] text-[var(--warning)] font-medium mb-2">
                 <AlertCircle size={13} />
-                <span>投递问题</span>
+                <span>{t('schedule.deliveryIssue')}</span>
               </div>
-              <p className="text-[13px] text-[var(--warning)] mb-3">桌面端没有可解析的 origin 来源，建议改为桌面历史。</p>
+              <p className="text-[13px] text-[var(--warning)] mb-3">{t('schedule.deliveryFixHint')}</p>
               <button
                 onClick={onFixDelivery}
                 className="rounded-[var(--radius)] border border-[rgba(234,179,8,0.35)] px-3 py-1.5 text-xs font-medium text-[var(--warning)] hover:bg-[rgba(234,179,8,0.12)] cursor-pointer"
               >
-                改为桌面保存
+                {t('schedule.deliveryFixSave')}
               </button>
             </div>
           )}
@@ -699,24 +712,24 @@ function JobDetail({
             onClick={onEdit}
             className="flex items-center gap-1.5 rounded-[var(--radius)] bg-accent-gradient px-4 py-2 text-sm font-medium text-white hover:opacity-90 cursor-pointer transition-all"
           >
-            <Pencil size={14} /> 编辑
+            <Pencil size={14} /> {t('common.edit')}
           </button>
           {job.enabled ? (
             <button onClick={onPause} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all">
-              <Pause size={14} /> 暂停
+              <Pause size={14} /> {t('schedule.pause')}
             </button>
           ) : (
             <button onClick={onResume} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(34,197,94,0.3)] px-4 py-2 text-sm text-[var(--success)] hover:bg-[rgba(34,197,94,0.1)] cursor-pointer transition-all">
-              <Play size={14} /> 恢复
+              <Play size={14} /> {t('schedule.resume')}
             </button>
           )}
           <button onClick={onTrigger} className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all">
-            <Play size={14} /> 立即执行
+            <Play size={14} /> {t('schedule.triggerNow')}
           </button>
           <div className="flex-1" />
           <Popconfirm title={lexicon.schedule.deleteConfirm} onConfirm={onDelete}>
             <button className="flex items-center gap-1.5 rounded-[var(--radius)] border border-[rgba(239,68,68,0.25)] px-4 py-2 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.1)] cursor-pointer transition-all">
-              <Trash2 size={14} /> 删除
+              <Trash2 size={14} /> {t('common.delete')}
             </button>
           </Popconfirm>
         </div>
@@ -736,6 +749,8 @@ function EditJob({
   onSaved: () => void
   onCancel: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
+  const schedulePresets = getSchedulePresets(t)
   const [name, setName] = useState(job.name || '')
   const [schedule, setSchedule] = useState(job.schedule || '')
   const [prompt, setPrompt] = useState(job.prompt || '')
@@ -743,8 +758,8 @@ function EditJob({
   const [showPresets, setShowPresets] = useState(false)
 
   const handleSave = async (): Promise<void> => {
-    if (!schedule.trim()) { showToast('请输入调度规则', 'error'); return }
-    if (!prompt.trim()) { showToast('请输入提示词', 'error'); return }
+    if (!schedule.trim()) { showToast(t('schedule.enterScheduleRule'), 'error'); return }
+    if (!prompt.trim()) { showToast(t('schedule.enterPrompt'), 'error'); return }
     setSaving(true)
     try {
       const updates: Record<string, string> = {}
@@ -759,12 +774,12 @@ function EditJob({
 
       const result = await window.hermesAPI.updateCronJob(job.id, updates, job.profileName)
       if (result.success) {
-        showToast('已保存')
+        showToast(t('common.saved'))
         onSaved()
       } else {
-        showToast(result.output || '保存失败', 'error')
+        showToast(translateError(result.output, t) || t('common.saveFailed'), 'error')
       }
-    } catch { showToast('保存失败', 'error') }
+    } catch { showToast(t('common.saveFailed'), 'error') }
     finally { setSaving(false) }
   }
 
@@ -773,7 +788,7 @@ function EditJob({
       <div className="absolute inset-0 bg-[rgba(0,0,0,0.5)] backdrop-blur-sm" onClick={onCancel} />
       <div className="relative glass-heavy border border-[var(--border)] rounded-[var(--radius-xl)] w-[90%] max-w-[560px] animate-scale-in shadow-[0_24px_80px_rgba(0,0,0,0.4)] max-h-[85vh] overflow-y-auto">
         <div className="flex justify-between items-center px-6 border-b border-[var(--border)] h-14">
-          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">编辑日程</h3>
+          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">{t('schedule.editSchedule')}</h3>
           <button onClick={onCancel} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"><X size={18} /></button>
         </div>
         <div className="p-6 space-y-5">
@@ -789,29 +804,29 @@ function EditJob({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="日程名称"
+              placeholder={t('schedule.namePlaceholder')}
               className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
             />
           </div>
 
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Clock size={14} /> 调度规则</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Clock size={14} /> {t('schedule.scheduleRule')}</label>
             <div className="relative">
               <input
                 value={schedule}
                 onChange={(e) => setSchedule(e.target.value)}
-                placeholder="例如: every 30m / 0 9 * * *"
+                placeholder={t('schedule.schedulePlaceholder')}
                 className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] pr-16"
               />
               <button
                 onClick={() => setShowPresets(!showPresets)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--accent)] hover:underline cursor-pointer"
               >
-                预设
+                {t('schedule.presets')}
               </button>
               {showPresets && (
                 <div className="absolute top-full left-0 right-0 mt-1 rounded-xl glass-heavy border border-[var(--border)] z-10 shadow-lg p-2 grid grid-cols-2 gap-1">
-                  {SCHEDULE_PRESETS.map(p => (
+                  {schedulePresets.map(p => (
                     <button
                       key={p.value}
                       onClick={() => { setSchedule(p.value); setShowPresets(false) }}
@@ -827,7 +842,7 @@ function EditJob({
           </div>
 
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">提示词</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('schedule.prompt')}</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -838,39 +853,39 @@ function EditJob({
 
           {(job.deliver || job.repeat || job.skills || job.script || job.last_status) && (
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5 space-y-2">
-              <div className="text-xs font-medium text-[var(--text-dim)] mb-1">只读信息</div>
+              <div className="text-xs font-medium text-[var(--text-dim)] mb-1">{t('schedule.readonlyInfo')}</div>
               {job.deliver && (
                 <div className="flex items-center gap-2 text-xs">
                   <Send size={12} className="text-[var(--accent)]" />
-                  <span className="text-[var(--text-dim)]">投递:</span>
-                  <span className="text-[var(--text-secondary)]">{formatDeliverTarget(job.deliver)}</span>
+                  <span className="text-[var(--text-dim)]">{t('schedule.deliverLabel')}:</span>
+                  <span className="text-[var(--text-secondary)]">{formatDeliverTarget(job.deliver, t)}</span>
                 </div>
               )}
               {job.repeat && (
                 <div className="flex items-center gap-2 text-xs">
                   <Repeat size={12} className="text-[var(--text-dim)]" />
-                  <span className="text-[var(--text-dim)]">执行:</span>
+                  <span className="text-[var(--text-dim)]">{t('schedule.execLabel')}:</span>
                   <span className="text-[var(--text-secondary)]">{job.repeat}</span>
                 </div>
               )}
               {job.skills && (
                 <div className="flex items-center gap-2 text-xs">
                   <Brain size={12} className="text-[var(--accent)]" />
-                  <span className="text-[var(--text-dim)]">技能:</span>
+                  <span className="text-[var(--text-dim)]">{t('schedule.skillsLabel')}:</span>
                   <span className="text-[var(--text-secondary)]">{job.skills}</span>
                 </div>
               )}
               {job.script && (
                 <div className="flex items-center gap-2 text-xs">
                   <FileText size={12} className="text-[var(--accent)]" />
-                  <span className="text-[var(--text-dim)]">脚本:</span>
+                  <span className="text-[var(--text-dim)]">{t('schedule.scriptLabel')}:</span>
                   <code className="text-[var(--accent)] bg-[var(--accent-glow)] px-1.5 py-0.5 rounded text-[11px] font-mono">{job.script}</code>
                 </div>
               )}
               {job.last_status && (
                 <div className="flex items-center gap-2 text-xs">
                   <Activity size={12} className="text-[var(--text-dim)]" />
-                  <span className="text-[var(--text-dim)]">上次状态:</span>
+                  <span className="text-[var(--text-dim)]">{t('schedule.lastStatus')}:</span>
                   <span className={job.last_status === 'ok' || job.last_status === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>{job.last_status}</span>
                 </div>
               )}
@@ -885,13 +900,13 @@ function EditJob({
             className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            {saving ? '保存中...' : '保存'}
+            {saving ? t('common.saving') : t('common.save')}
           </button>
           <button
             onClick={onCancel}
             className="rounded-[var(--radius)] border border-[var(--border)] px-5 py-2.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
           >
-            取消
+            {t('common.cancel')}
           </button>
         </div>
       </div>
@@ -910,6 +925,10 @@ function CreateJob({
   onCreated: () => void
   onCancel: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
+  const { uiTheme } = useTheme()
+  const schedulePresets = getSchedulePresets(t)
+  const isCultivation = uiTheme === 'cultivation'
   const [selectedEmployee, setSelectedEmployee] = useState<string>(employees[0]?.name || '')
   const [name, setName] = useState('')
   const [schedule, setSchedule] = useState('')
@@ -973,11 +992,11 @@ function CreateJob({
     if (externalDelivery === 'feishu') {
       const chatId = feishuChatId.trim()
       if (!hasFeishuConfig) {
-        showToast('请先在员工详情的「集成」里配置飞书机器人', 'error')
+        showToast(t('schedule.configureFeishuFirst'), 'error')
         return null
       }
       if (!chatId) {
-        showToast('请输入飞书接收会话 ID', 'error')
+        showToast(t('schedule.enterFeishuChatId'), 'error')
         return null
       }
       targets.push(`feishu:${chatId}`)
@@ -985,11 +1004,11 @@ function CreateJob({
     if (externalDelivery === 'weixin') {
       const chatId = weixinChatId.trim()
       if (!hasWeixinConfig) {
-        showToast('请先在员工详情的「集成」里配置微信接入', 'error')
+        showToast(t('schedule.configureWeixinFirst'), 'error')
         return null
       }
       if (!chatId) {
-        showToast('请输入微信接收对象 ID', 'error')
+        showToast(t('schedule.enterWeixinTargetId'), 'error')
         return null
       }
       targets.push(`weixin:${chatId}`)
@@ -997,11 +1016,11 @@ function CreateJob({
     if (externalDelivery === 'dingtalk') {
       const chatId = dingtalkChatId.trim()
       if (!hasDingtalkConfig) {
-        showToast('请先在员工详情的「集成」里配置钉钉机器人', 'error')
+        showToast(t('schedule.configureDingtalkFirst'), 'error')
         return null
       }
       if (!chatId) {
-        showToast('请输入钉钉接收会话 ID', 'error')
+        showToast(t('schedule.enterDingtalkChatId'), 'error')
         return null
       }
       targets.push(`dingtalk:${chatId}`)
@@ -1010,9 +1029,9 @@ function CreateJob({
   }
 
   const handleCreate = async (): Promise<void> => {
-    if (!selectedEmployee) { showToast(`请选择${lexicon.entities.employee}`, 'error'); return }
-    if (!schedule.trim()) { showToast('请输入调度规则', 'error'); return }
-    if (!prompt.trim()) { showToast('请输入提示词', 'error'); return }
+    if (!selectedEmployee) { showToast(t('manage.enterName', { entity: lexicon.entities.employee }), 'error'); return }
+    if (!schedule.trim()) { showToast(t('schedule.enterScheduleRule'), 'error'); return }
+    if (!prompt.trim()) { showToast(t('schedule.enterPrompt'), 'error'); return }
     const deliver = buildDelivery()
     if (!deliver) return
     setCreating(true)
@@ -1028,9 +1047,9 @@ function CreateJob({
         showToast(lexicon.schedule.success)
         onCreated()
       } else {
-        showToast(result.output || '创建失败', 'error')
+        showToast(translateError(result.output, t) || t('common.createFailed'), 'error')
       }
-    } catch { showToast('创建失败', 'error') }
+    } catch { showToast(t('common.createFailed'), 'error') }
     finally { setCreating(false) }
   }
 
@@ -1083,29 +1102,29 @@ function CreateJob({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={lexicon.schedule.title === '法旨' ? '例如: 每日巡山札记' : '例如: 每日新闻摘要'}
+              placeholder={isCultivation ? t('schedule.nameExampleCultivation') : t('schedule.nameExample')}
               className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
             />
           </div>
 
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Clock size={14} /> 调度规则</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Clock size={14} /> {t('schedule.scheduleRule')}</label>
             <div className="relative">
               <input
                 value={schedule}
                 onChange={(e) => setSchedule(e.target.value)}
-                placeholder="例如: every 30m / 0 9 * * *"
+                placeholder={t('schedule.schedulePlaceholder')}
                 className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] pr-16"
               />
               <button
                 onClick={() => setShowPresets(!showPresets)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--accent)] hover:underline cursor-pointer"
               >
-                预设
+                {t('schedule.presets')}
               </button>
               {showPresets && (
                 <div className="absolute top-full left-0 right-0 mt-1 rounded-xl glass-heavy border border-[var(--border)] z-10 shadow-lg p-2 grid grid-cols-2 gap-1">
-                  {SCHEDULE_PRESETS.map(p => (
+                  {schedulePresets.map(p => (
                     <button
                       key={p.value}
                       onClick={() => { setSchedule(p.value); setShowPresets(false) }}
@@ -1119,12 +1138,12 @@ function CreateJob({
               )}
             </div>
             <p className="mt-1.5 text-[11px] text-[var(--text-dim)]">
-              支持: 间隔(every 30m)、Cron(0 9 * * *)、一次性(2026-06-01T10:00)
+              {t('schedule.scheduleFormatHint')}
             </p>
           </div>
 
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">提示词</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('schedule.prompt')}</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -1134,24 +1153,24 @@ function CreateJob({
           </div>
 
           <div>
-            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">结果投递</label>
+            <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('schedule.resultDelivery')}</label>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5 text-sm text-[var(--text-primary)] space-y-3">
               <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2">
                 <div className="min-w-0">
-                  <div className="font-medium">桌面历史</div>
+                  <div className="font-medium">{t('schedule.desktopHistory')}</div>
                   <div className="text-[11px] text-[var(--text-dim)] truncate">
-                    写入 {currentEmployee?.displayName || selectedEmployee} 的日程会话
+                    {t('schedule.desktopHistoryDesc', { name: currentEmployee?.displayName || selectedEmployee })}
                   </div>
                 </div>
-                <span className="rounded-full bg-[rgba(34,197,94,0.12)] px-2 py-0.5 text-[11px] font-medium text-[var(--success)]">固定开启</span>
+                <span className="rounded-full bg-[rgba(34,197,94,0.12)] px-2 py-0.5 text-[11px] font-medium text-[var(--success)]">{t('schedule.alwaysOn')}</span>
               </div>
 
               <div className="grid grid-cols-4 gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1">
                 {([
-                  ['none', '不外发'],
-                  ['feishu', '飞书'],
-                  ['weixin', '微信'],
-                  ['dingtalk', '钉钉'],
+                  ['none', t('schedule.noExternal')],
+                  ['feishu', t('schedule.feishu')],
+                  ['weixin', t('schedule.weixin')],
+                  ['dingtalk', t('schedule.dingtalk')],
                 ] as Array<[ExternalDelivery, string]>).map(([value, label]) => (
                   <button
                     key={value}
@@ -1170,10 +1189,10 @@ function CreateJob({
               {externalDelivery === 'feishu' && (
                 <div className="space-y-3 border-t border-[var(--border)] pt-3">
                   <div className={`rounded-lg border px-3 py-2 text-xs ${hasFeishuConfig ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.08)] text-[var(--success)]' : 'border-[rgba(234,179,8,0.28)] bg-[rgba(234,179,8,0.08)] text-[var(--warning)]'}`}>
-                    {hasFeishuConfig ? '已读取到该员工的飞书机器人配置' : '该员工还没有飞书机器人配置，请先到员工详情的「集成」里保存'}
+                    {hasFeishuConfig ? t('schedule.feishuConfigOk') : t('schedule.feishuConfigMissing')}
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] text-[var(--text-dim)]">接收会话 ID</label>
+                    <label className="mb-1 block text-[11px] text-[var(--text-dim)]">{t('schedule.receiveChatId')}</label>
                     <input
                       value={feishuChatId}
                       onChange={(e) => setFeishuChatId(e.target.value)}
@@ -1187,10 +1206,10 @@ function CreateJob({
               {externalDelivery === 'weixin' && (
                 <div className="space-y-3 border-t border-[var(--border)] pt-3">
                   <div className={`rounded-lg border px-3 py-2 text-xs ${hasWeixinConfig ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.08)] text-[var(--success)]' : 'border-[rgba(234,179,8,0.28)] bg-[rgba(234,179,8,0.08)] text-[var(--warning)]'}`}>
-                    {hasWeixinConfig ? '已读取到该员工的微信接入配置' : '该员工还没有微信接入配置，请先到员工详情的「集成」里保存'}
+                    {hasWeixinConfig ? t('schedule.weixinConfigOk') : t('schedule.weixinConfigMissing')}
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] text-[var(--text-dim)]">接收对象 ID</label>
+                    <label className="mb-1 block text-[11px] text-[var(--text-dim)]">{t('schedule.receiveTargetId')}</label>
                     <input
                       value={weixinChatId}
                       onChange={(e) => setWeixinChatId(e.target.value)}
@@ -1204,10 +1223,10 @@ function CreateJob({
               {externalDelivery === 'dingtalk' && (
                 <div className="space-y-3 border-t border-[var(--border)] pt-3">
                   <div className={`rounded-lg border px-3 py-2 text-xs ${hasDingtalkConfig ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.08)] text-[var(--success)]' : 'border-[rgba(234,179,8,0.28)] bg-[rgba(234,179,8,0.08)] text-[var(--warning)]'}`}>
-                    {hasDingtalkConfig ? '已读取到该员工的钉钉机器人配置' : '该员工还没有钉钉机器人配置，请先到员工详情的「集成」里保存'}
+                    {hasDingtalkConfig ? t('schedule.dingtalkConfigOk') : t('schedule.dingtalkConfigMissing')}
                   </div>
                   <div>
-                    <label className="mb-1 block text-[11px] text-[var(--text-dim)]">接收会话 ID</label>
+                    <label className="mb-1 block text-[11px] text-[var(--text-dim)]">{t('schedule.receiveChatId')}</label>
                     <input
                       value={dingtalkChatId}
                       onChange={(e) => setDingtalkChatId(e.target.value)}
@@ -1220,12 +1239,12 @@ function CreateJob({
 
               {loadingDeliveryConfig && (
                 <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-dim)]">
-                  <Loader2 size={12} className="animate-spin" /> 正在读取该 agent 的投递配置
+                  <Loader2 size={12} className="animate-spin" /> {t('schedule.loadingDeliveryConfig')}
                 </div>
               )}
             </div>
             <p className="mt-1.5 text-[11px] text-[var(--text-dim)]">
-              外部凭据在员工详情的「集成」里维护；这里仅选择本次日程是否额外投递到飞书、微信或钉钉。
+              {t('schedule.deliveryHint')}
             </p>
           </div>
         </div>
@@ -1237,13 +1256,13 @@ function CreateJob({
             className="flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-5 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
           >
             {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            {creating ? '创建中...' : lexicon.schedule.createSchedule}
+            {creating ? t('common.creating') : lexicon.schedule.createSchedule}
           </button>
           <button
             onClick={onCancel}
             className="rounded-[var(--radius)] border border-[var(--border)] px-5 py-2.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer"
           >
-            取消
+            {t('common.cancel')}
           </button>
         </div>
       </div>

@@ -1,5 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Lock, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { translateError } from '../../../../shared/i18n'
 import logoImg from '../../assets/logo.png'
 import loginBg from '../../assets/login-bg.jpg'
 import WindowControls from '../../components/WindowControls'
@@ -10,6 +12,7 @@ interface LoginProps {
 }
 
 export default function Login({ onSuccess }: LoginProps): React.ReactElement {
+  const { t } = useTranslation()
   const { lexicon, resolvedMode } = useTheme()
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -35,10 +38,10 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
       if (result.success) {
         onSuccess()
       } else {
-        setError(result.error || '认证失败')
+        setError(translateError(result.error, t) || t('login.authFailed'))
       }
     } catch {
-      setError('连接错误')
+      setError(t('login.connectionError'))
     } finally {
       setLoading(false)
     }
@@ -53,7 +56,7 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
         src={loginBg}
         alt=""
         className="absolute inset-0 w-full h-full object-cover"
-        style={{ filter: isDark ? 'brightness(0.55) saturate(1.2)' : 'brightness(0.7) saturate(0.9)' }}
+        style={{ filter: isDark ? 'brightness(0.55) saturate(1.2)' : 'brightness(0.9) saturate(0.9)' }}
       />
       <div
         className="absolute inset-0 pointer-events-none"
@@ -94,7 +97,7 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
         >
           <img
             src={logoImg}
-            alt="落云.Hermes"
+            alt={t('app.name')}
             className="w-full h-full object-cover"
           />
         </div>
@@ -102,7 +105,7 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
           className="text-accent-gradient mb-1.5"
           style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.5px' }}
         >
-          落云.Hermes
+          {t('app.name')}
         </h1>
         <p className="text-[var(--text-dim)] mb-9" style={{ fontSize: 13.5 }}>
           {lexicon.appSubtitle}
@@ -118,7 +121,7 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="输入密码解锁"
+              placeholder={t('login.passwordPlaceholder')}
               autoFocus
               disabled={loading}
               className="w-full border rounded-xl text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
@@ -153,16 +156,16 @@ export default function Login({ onSuccess }: LoginProps): React.ReactElement {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <Loader2 size={17} className="animate-spin" />
-                解锁中...
+                {t('login.unlocking')}
               </span>
             ) : (
-              '进入落云'
+              t('login.enter')
             )}
           </button>
         </form>
 
         <p className="text-[var(--text-dim)]" style={{ marginTop: 28, fontSize: 11, opacity: 0.35 }}>
-          落云.Hermes{appVersion ? ` v${appVersion}` : ''}
+          {t('app.name')}{appVersion ? ` v${appVersion}` : ''}
         </p>
       </div>
     </div>

@@ -1,3 +1,6 @@
+import { useMemo, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   Globe,
   Terminal,
@@ -24,12 +27,17 @@ export function mapStatus(status: string): string {
   return status || 'unknown'
 }
 
-export function statusText(s: string): string {
-  if (s === 'awake') return '在线'
-  if (s === 'busy') return '忙碌...'
-  if (s === 'sleeping') return '离线'
-  if (s === 'error') return '异常'
-  return s || '未知'
+const STATUS_KEYS: Record<string, string> = {
+  awake: 'employee.status.awake',
+  busy: 'employee.status.busy',
+  sleeping: 'employee.status.sleeping',
+  error: 'employee.status.error',
+}
+
+export function statusText(s: string, t?: TFunction): string {
+  const key = STATUS_KEYS[s]
+  if (key) return t ? t(key) : ({ awake: '在线', busy: '忙碌...', sleeping: '离线', error: '异常' } as Record<string, string>)[s]
+  return s || (t ? t('employee.status.unknown') : '未知')
 }
 
 export function statusColor(s: string): string {
@@ -120,6 +128,98 @@ export const GLOBAL_CONFIG_FIELDS: ConfigFieldDef[] = [
 ]
 
 export const CONFIG_FIELDS: ConfigFieldDef[] = [...AGENT_CONFIG_FIELDS, ...GLOBAL_CONFIG_FIELDS]
+
+const CONFIG_FIELD_I18N: Record<string, { field: string; group: string }> = {
+  'model.temperature': { field: 'temperature', group: 'model' },
+  'model.max_tokens': { field: 'maxTokens', group: 'model' },
+  'agent.max_turns': { field: 'maxTurns', group: 'behavior' },
+  'agent.reasoning_effort': { field: 'reasoningEffort', group: 'behavior' },
+  'agent.verbose': { field: 'verbose', group: 'behavior' },
+  'memory.memory_enabled': { field: 'memoryEnabled', group: 'memory' },
+  'memory.memory_char_limit': { field: 'memoryCharLimit', group: 'memory' },
+  'memory.user_char_limit': { field: 'userCharLimit', group: 'memory' },
+  'memory.flush_min_turns': { field: 'flushMinTurns', group: 'memory' },
+  'compression.enabled': { field: 'compressionEnabled', group: 'compression' },
+  'compression.target_ratio': { field: 'targetRatio', group: 'compression' },
+  'compression.threshold': { field: 'threshold', group: 'compression' },
+  'compression.protect_last_n': { field: 'protectLastN', group: 'compression' },
+  'terminal.timeout': { field: 'terminalTimeout', group: 'terminal' },
+  'terminal.lifetime_seconds': { field: 'terminalLifetime', group: 'terminal' },
+  'code_execution.max_tool_calls': { field: 'codeMaxCalls', group: 'codeExecution' },
+  'code_execution.timeout': { field: 'codeTimeout', group: 'codeExecution' },
+  'browser.inactivity_timeout': { field: 'browserTimeout', group: 'browser' },
+  'session_reset.idle_minutes': { field: 'idleMinutes', group: 'sessionReset' },
+  'session_reset.at_hour': { field: 'atHour', group: 'sessionReset' },
+}
+
+function buildConfigFields(t: TFunction, source: ConfigFieldDef[]): ConfigFieldDef[] {
+  return source.map(field => {
+    const i18n = CONFIG_FIELD_I18N[field.key]
+    if (!i18n) return field
+    const base = `employee.configFields.${i18n.field}`
+    const groupKey = `employee.configGroups.${i18n.group}`
+    return {
+      ...field,
+      label: t(`${base}.label`),
+      desc: t(`${base}.desc`),
+      placeholder: field.placeholder ? t(`${base}.placeholder`, { defaultValue: field.placeholder }) : undefined,
+      group: t(groupKey),
+      options: field.options?.map(o => ({
+        value: o.value,
+        label: t(`employee.reasoningLevels.${o.value}`, { defaultValue: o.label }),
+      })),
+    }
+  })
+}
+
+function buildToolMeta(t: TFunction): Record<string, { icon: React.ReactElement; label: string; desc: string }> {
+  const result: Record<string, { icon: React.ReactElement; label: string; desc: string }> = {}
+  for (const key of ALL_TOOLS) {
+    result[key] = {
+      icon: TOOL_META[key].icon,
+      label: t(`employee.tools.${key}.label`),
+      desc: t(`employee.tools.${key}.desc`),
+    }
+  }
+  return result
+}
+
+export function useEmployeeShared() {
+  const { t } = useTranslation()
+
+  const statusTextFn = useCallback((s: string) => statusText(s, t), [t])
+
+  const toolMeta = useMemo(() => buildToolMeta(t), [t])
+  const agentConfigFields = useMemo(() => buildConfigFields(t, AGENT_CONFIG_FIELDS), [t])
+  const globalConfigFields = useMemo(() => buildConfigFields(t, GLOBAL_CONFIG_FIELDS), [t])
+  const configFields = useMemo(() => [...agentConfigFields, ...globalConfigFields], [agentConfigFields, globalConfigFields])
+
+  const soulStyles = useMemo(() => [
+    { value: 'balanced', label: t('employee.soulStyles.balanced') },
+    { value: 'detailed', label: t('employee.soulStyles.detailed') },
+    { value: 'expert', label: t('employee.soulStyles.expert') },
+    { value: 'companion', label: t('employee.soulStyles.companion') },
+    { value: 'executor', label: t('employee.soulStyles.executor') },
+  ], [t])
+
+  const soulPrompts = useMemo(() => [
+    { label: t('employee.soulPrompts.detailed.label'), value: t('employee.soulPrompts.detailed.value') },
+    { label: t('employee.soulPrompts.professional.label'), value: t('employee.soulPrompts.professional.value') },
+    { label: t('employee.soulPrompts.warm.label'), value: t('employee.soulPrompts.warm.value') },
+    { label: t('employee.soulPrompts.executor.label'), value: t('employee.soulPrompts.executor.value') },
+  ], [t])
+
+  return {
+    t,
+    statusText: statusTextFn,
+    toolMeta,
+    agentConfigFields,
+    globalConfigFields,
+    configFields,
+    soulStyles,
+    soulPrompts,
+  }
+}
 
 export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const keys = path.split('.')

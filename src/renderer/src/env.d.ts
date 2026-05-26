@@ -87,6 +87,8 @@ declare global {
     setAccentColor: (accent: AccentColor) => Promise<boolean>
     getUiTheme: () => Promise<UiTheme>
     setUiTheme: (theme: UiTheme) => Promise<boolean>
+    getLanguage: () => Promise<string>
+    setLanguage: (language: string) => Promise<boolean>
     startGateway: (employeeId?: string) => Promise<boolean>
     stopGateway: (employeeId?: string) => Promise<boolean>
     gatewayStatus: (employeeId?: string) => Promise<boolean>

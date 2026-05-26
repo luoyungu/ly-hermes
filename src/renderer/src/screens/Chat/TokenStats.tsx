@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { usePlatform } from '../../hooks/usePlatform';
 import type { TokenStats as TokenStatsType } from '../../../../preload/index';
 import { useTheme } from '../../components/ThemeProvider';
 
 const DAYS_OPTIONS = [
-  { label: '7天', value: 7 },
-  { label: '30天', value: 30 },
-  { label: '90天', value: 90 },
-];
+  { key: 'days7', value: 7 },
+  { key: 'days30', value: 30 },
+  { key: 'days90', value: 90 },
+] as const;
 
 function formatNumber(num: number | undefined | null): string {
   if (!num) return '0';
@@ -85,6 +86,7 @@ function ChartBar({ date, value, maxValue }: { date: string; value: number; maxV
 }
 
 export function TokenStats() {
+  const { t } = useTranslation()
   const { isMac } = usePlatform()
   const { lexicon } = useTheme()
   const [days, setDays] = useState(30);
@@ -146,7 +148,7 @@ export function TokenStats() {
                   : 'glass-medium border border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
               }`}
             >
-              {opt.label}
+              {lexicon.usage[opt.key]}
             </button>
           ))}
         </div>
@@ -187,7 +189,7 @@ export function TokenStats() {
               {/* By Model */}
               <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
                 <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
-                  <span>🤖</span> 按模型
+                  <span>🤖</span> {lexicon.usage.byModel}
                 </h3>
                 <div className="space-y-1 max-h-[200px] overflow-y-auto">
                   {byModel.length === 0 ? (
@@ -199,7 +201,7 @@ export function TokenStats() {
                       return (
                         <ListItem
                           key={idx}
-                          label={(model.model as string) || 'Unknown'}
+                          label={(model.model as string) || t('common.unknown')}
                           value={formatNumber(modelTokens)}
                           percentage={pct}
                           color={modelColors[idx % modelColors.length]}
@@ -224,7 +226,7 @@ export function TokenStats() {
                       return (
                         <ListItem
                           key={idx}
-                          label={(agent.agent as string) || 'Unknown'}
+                          label={(agent.agent as string) || t('common.unknown')}
                           value={formatNumber(agentTokens)}
                           percentage={(agent.percentage as number) || 0}
                           color={modelColors[idx % modelColors.length]}
@@ -239,7 +241,7 @@ export function TokenStats() {
             {/* Daily Trend */}
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-4">
               <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
-                <span>📈</span> 每日趋势
+                <span>📈</span> {lexicon.usage.dailyTrend}
               </h3>
               {daily.length === 0 ? (
                 <div className="text-center py-8 text-[var(--text-dim)] text-sm">{lexicon.usage.noData}</div>

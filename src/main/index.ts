@@ -1,7 +1,6 @@
 import {
   app,
   BrowserWindow,
-  Tray,
   Menu,
   protocol,
   net,
@@ -13,7 +12,7 @@ import fs from "fs";
 import { ensureApiServerConfig } from "./config";
 import { _gatewayProcesses, _idleTimers, clearIdleTimer } from "./employees";
 import { _pendingApprovals } from "./chat";
-import { createTrayIcon } from "./utils";
+import { createTray } from "./tray";
 import { getSetting, setSetting } from "./db";
 import { registerAuthIpcHandlers } from "./auth";
 import { registerConfigIpcHandlers } from "./config";
@@ -43,7 +42,6 @@ process.on("unhandledRejection", (reason) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
-let tray: Tray | null = null;
 let _isQuitting = false;
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -174,47 +172,10 @@ function createWindow(): void {
   });
 }
 
-function createTray(): void {
-  const icon = createTrayIcon();
-  tray = new Tray(icon);
-  tray.setToolTip("落云.Hermes");
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: "显示窗口",
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
-    },
-    {
-      label: "新对话",
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-          mainWindow.webContents.send("new-conversation");
-        }
-      },
-    },
-    { type: "separator" },
-    {
-      label: "退出",
-      click: () => {
-        _isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
-  tray.on("click", () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+function createTrayMenu(): void {
+  createTray(getMainWindow, () => {
+    _isQuitting = true;
+    app.quit();
   });
 }
 
@@ -330,7 +291,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
-  createTray();
+  createTrayMenu();
   applyDesktopWebServerConfig().catch((error: unknown) => {
     logError("server", "Failed to apply desktop web server config", error);
   });

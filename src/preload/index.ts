@@ -622,6 +622,12 @@ const hermesAPI = {
   setUiTheme: (theme: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('set-ui-theme', theme),
 
+  getLanguage: (): Promise<string> =>
+    ipcRenderer.invoke('get-language'),
+
+  setLanguage: (language: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('set-language', language),
+
   readLogs: (logFile?: string, lines?: number): Promise<{ content: string; path: string }> =>
     ipcRenderer.invoke('read-logs', logFile, lines ?? 300),
 

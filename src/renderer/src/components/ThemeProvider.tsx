@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react'
+import { useState, useEffect, useCallback, createContext, useContext, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ThemeMode, AccentColor, UiTheme } from '../../../preload/index'
+import { buildClassicLexicon } from '../../../shared/i18n'
 import { DEFAULT_UI_THEME, getThemePreset, type ThemeLexicon } from '../theme/presets'
 
 type ResolvedMode = 'dark' | 'light'
@@ -45,11 +47,15 @@ function applyToDOM(resolvedMode: ResolvedMode, accent: AccentColor, uiTheme: Ui
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.ReactElement {
+  const { t, i18n } = useTranslation()
   const [mode, setModeState] = useState<ThemeMode>('light')
   const [accent, setAccentState] = useState<AccentColor>('violet')
   const [uiTheme, setUiThemeState] = useState<UiTheme>(DEFAULT_UI_THEME)
   const [resolvedMode, setResolvedMode] = useState<ResolvedMode>('light')
-  const lexicon = getThemePreset(uiTheme).lexicon
+  const lexicon = useMemo(
+    () => uiTheme === 'cultivation' ? getThemePreset('cultivation').lexicon : buildClassicLexicon(t),
+    [uiTheme, t, i18n.language],
+  )
 
   useEffect(() => {
     Promise.all([
@@ -59,13 +65,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
     ]).then(([savedMode, savedAccent, savedUiTheme]) => {
       const m = (savedMode || 'light') as ThemeMode
       const a = (savedAccent || 'violet') as AccentColor
-      const t = (savedUiTheme || DEFAULT_UI_THEME) as UiTheme
+      const tTheme = (savedUiTheme || DEFAULT_UI_THEME) as UiTheme
       setModeState(m)
       setAccentState(a)
-      setUiThemeState(t)
+      setUiThemeState(tTheme)
       const r = resolveMode(m)
       setResolvedMode(r)
-      applyToDOM(r, a, t)
+      applyToDOM(r, a, tTheme)
     }).catch(() => {
       applyToDOM('light', 'violet', DEFAULT_UI_THEME)
     })

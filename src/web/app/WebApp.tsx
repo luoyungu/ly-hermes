@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createWebHermesAPI } from "../../shared/hermes-api/web-hermes-api";
 import { HermesAPIProvider } from "@renderer/components/HermesAPIProvider";
+import { I18nProvider } from "@renderer/components/I18nProvider";
 import { ThemeProvider } from "@renderer/components/ThemeProvider";
 import WebLogin from "./WebLogin";
 import App from "@renderer/App";
@@ -25,11 +26,13 @@ export default function WebApp(): React.ReactElement {
 
   if (!authed) {
     return (
-      <ThemeProvider>
-        <HermesAPIProvider api={webApi}>
-          <WebLogin onSuccess={() => setAuthed(true)} />
-        </HermesAPIProvider>
-      </ThemeProvider>
+      <I18nProvider>
+        <ThemeProvider>
+          <HermesAPIProvider api={webApi}>
+            <WebLogin onSuccess={() => setAuthed(true)} />
+          </HermesAPIProvider>
+        </ThemeProvider>
+      </I18nProvider>
     );
   }
 

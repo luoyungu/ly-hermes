@@ -7,6 +7,7 @@ import https from "https";
 import * as yaml from "./lib/yaml-simple";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 import { getSetting, loadDbSavedModels, saveDbSavedModels, setSetting } from "./db";
+import { refreshTrayMenu } from "./tray";
 import { webIpc } from "./ipc/web-api-ipc";
 import { ipcHandle } from "./ipc/remote-handle";
 import { registerWebApiChannel } from "../server/web-api-registry";
@@ -1505,6 +1506,19 @@ export function registerConfigIpcHandlers(): void {
     const prefs = loadPreferences();
     prefs.ui_theme = theme;
     savePreferences(prefs);
+    return { success: true };
+  });
+
+  webIpc("get-language", async () => {
+    const prefs = loadPreferences();
+    return (prefs.language as string) || "zh-CN";
+  });
+
+  webIpc("set-language", async (_, language: string) => {
+    const prefs = loadPreferences();
+    prefs.language = language;
+    savePreferences(prefs);
+    refreshTrayMenu();
     return { success: true };
   });
 

@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luoyun Hermes - AI Employee Management Platform</title>
+    <meta
+      name="description"
+      content="Luoyun Hermes is an AI employee management platform for Chinese and global teams. Built on Hermes Agent with desktop install, employee orchestration, remote nodes, scheduled delivery, and office integrations."
+    />
+    <meta name="keywords" content="AI employees, Agent management, Hermes Agent, Electron, desktop app, Feishu, WeChat, DingTalk" />
+    <meta name="author" content="luoyun" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Luoyun Hermes - AI Employee Management Platform" />
+    <meta property="og:description" content="Turn self-improving Agents into a manageable AI employee team. Desktop install, scheduling, remote nodes, office delivery." />
+    <meta property="og:image" content="./img/logo.png" />
+    <link rel="icon" type="image/png" href="./img/logo.png" />
+    <link rel="alternate" hreflang="zh-CN" href="./index.html" />
+    <link rel="alternate" hreflang="en" href="./en.html" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header" data-elevated="false">
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="Luoyun Hermes home">
+          <img src="./img/logo.png" alt="" width="36" height="36" />
+          <span>Luoyun Hermes</span>
+        </a>
+        <nav class="desktop-nav" aria-label="Main navigation">
+          <a href="#platform">Platform</a>
+          <a href="#showcase">Screenshots</a>
+          <a href="#advantages">Why Us</a>
+          <a href="#compare">Compare</a>
+          <a href="#usecases">Use Cases</a>
+          <a href="#faq">FAQ</a>
+          <a href="https://github.com/luoyungu/ly-hermes" target="_blank" rel="noreferrer" class="nav-github">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            GitHub
+          </a>
+        </nav>
+        <div class="header-actions">
+          <div class="lang-switch" aria-label="Language">
+            <a href="./index.html" hreflang="zh-CN">中文</a>
+            <a href="./en.html" class="is-active" hreflang="en">EN</a>
+          </div>
+          <a class="header-cta" href="#download">Get Desktop App</a>
+        </div>
+        <button class="menu-button" type="button" aria-label="Open menu" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </header>
+
+    <div class="mobile-nav" hidden>
+      <a href="#platform">Platform</a>
+      <a href="#showcase">Screenshots</a>
+      <a href="#advantages">Why Us</a>
+      <a href="#compare">Compare</a>
+      <a href="#usecases">Use Cases</a>
+      <a href="#faq">FAQ</a>
+      <a href="./index.html">中文</a>
+      <a href="https://github.com/luoyungu/ly-hermes" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="#download">Download</a>
+    </div>
+
+    <main id="top">
+      <section class="hero">
+        <img class="hero-bg" src="./img/login-bg.jpg" alt="" />
+        <div class="hero-orb hero-orb-a" aria-hidden="true"></div>
+        <div class="hero-orb hero-orb-b" aria-hidden="true"></div>
+
+        <div class="hero-grid">
+          <div class="hero-content reveal">
+            <div class="github-badge">
+              <a href="https://github.com/luoyungu/ly-hermes" target="_blank" rel="noreferrer">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                <span>Star on GitHub</span>
+              </a>
+            </div>
+            <p class="eyebrow">Desktop workbench for Hermes Agent</p>
+            <h1>Turn self-improving Agents into a manageable AI employee team.</h1>
+            <p class="hero-copy">
+              Built on Nous Research Hermes Agent — memory, skills, self-improvement, and tool use —
+              Luoyun Hermes adds desktop install, employee orchestration, remote nodes, scheduled delivery,
+              and office collaboration for everyday workflows.
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="#download">Download</a>
+              <a class="btn btn-secondary" href="https://github.com/luoyungu/ly-hermes" target="_blank" rel="noreferrer">View Source</a>
+            </div>
+            <div class="hero-stats">
+              <div><strong>Local</strong><span>One-click engine install</span></div>
+              <div><strong>Remote</strong><span>Light client to nodes</span></div>
+              <div><strong>Office</strong><span>Feishu / WeChat / DingTalk</span></div>
+            </div>
+          </div>
+
+          <div class="hero-visual reveal">
+            <div class="product-frame">
+              <div class="window-bar">
+                <span></span><span></span><span></span>
+                <strong>Luoyun Hermes · Chat</strong>
+              </div>
+              <img src="./img/对话主界面.png" alt="Luoyun Hermes chat screenshot" />
+            </div>
+            <div class="float-card float-card-a">
+              <span>Online</span>
+              <strong>4</strong>
+              <small>Research, support, data, ops</small>
+            </div>
+            <div class="float-card float-card-b">
+              <span>Next delivery</span>
+              <strong>09:00</strong>
+              <small>Daily report to Feishu</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-strip reveal">
+          <div><strong>Local</strong><span>Install Hermes Agent locally</span></div>
+          <div><strong>Remote</strong><span>Desktop connects to remote nodes</span></div>
+          <div><strong>Office</strong><span>Feishu / WeChat / DingTalk</span></div>
+          <div><strong>Embed</strong><span>Per-employee web access</span></div>
+        </div>
+      </section>
+
+      <section id="platform" class="section section-light">
+        <div class="section-shell">
+          <div class="section-heading narrow center reveal">
+            <p class="section-kicker">One control plane</p>
+            <h2>Organize Hermes Agent capabilities into an operable desktop product.</h2>
+            <p>
+              Official Hermes Agent is a powerful self-evolving engine. Luoyun Hermes adds a graphical console
+              so you can see employees, tasks, channels, models, usage, and remote connection status.
+            </p>
+          </div>
+          <div class="platform-grid">
+            <article class="platform-card large reveal">
+              <div>
+                <p class="card-kicker">Employee management</p>
+                <h3>Every profile is an AI employee with a clear role.</h3>
+                <p>Create employees, set roles, write SOUL personas, enable tools, install skills, configure models, and manage Feishu/WeChat/DingTalk credentials per profile.</p>
+              </div>
+              <div class="employee-stack" aria-hidden="true">
+                <span><b>D</b> Data analyst <em>Running</em></span>
+                <span><b>R</b> Research assistant <em>Searching</em></span>
+                <span><b>S</b> Support agent <em>Online</em></span>
+              </div>
+            </article>
+            <article class="platform-card reveal">
+              <p class="card-kicker">Remote nodes</p>
+              <h3>Light desktop client, long-running server.</h3>
+              <p>client_only mode connects via API Token — ideal for VPS, workstations, or office hosts.</p>
+            </article>
+            <article class="platform-card reveal">
+              <p class="card-kicker">Web embed</p>
+              <h3>Expose selected employees to external users.</h3>
+              <p>Token-protected web entry for support, internal Q&amp;A, knowledge assistants, and lightweight customer interaction.</p>
+            </article>
+            <article class="platform-card reveal">
+              <p class="card-kicker">Skills &amp; tools</p>
+              <h3>Visual tool toggles and skill library.</h3>
+              <p>MCP server management, official/custom skill install, isolated per employee profile.</p>
+            </article>
+            <article class="platform-card reveal">
+              <p class="card-kicker">Multi-model</p>
+              <h3>Model config and token analytics.</h3>
+              <p>DeepSeek, OpenAI-compatible APIs, custom base URLs; usage aggregated by model, employee, and date.</p>
+            </article>
+            <article class="platform-card wide reveal">
+              <p class="card-kicker">Scheduled delivery</p>
+              <h3>AI employees work on a schedule — not only when you open chat.</h3>
+              <div class="schedule-row">
+                <span>09:00 Daily summary</span>
+                <span>18:00 Project review</span>
+                <span>Every 30 min health check</span>
+                <span>Mon 09:30 Weekly report</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="showcase" class="section section-muted">
+        <div class="section-shell">
+          <div class="section-heading center reveal">
+            <p class="section-kicker">Product UI</p>
+            <h2>Every screen designed for long-running agent operations.</h2>
+            <p class="section-lead">Real screenshots from the current release — login, chat, employees, schedule, tools, and token stats.</p>
+          </div>
+
+          <div class="showcase-layout reveal" data-showcase>
+            <div class="showcase-tabs">
+              <button type="button" class="showcase-tab is-active" data-showcase-tab="chat" data-image="./img/对话主界面.png" data-alt="Chat">
+                <strong>Chat</strong><span>Multi-employee, streaming, tools</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="employees" data-image="./img/员工管理界面.png" data-alt="Employees">
+                <strong>Employees</strong><span>Role, SOUL, model, web access</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="schedule" data-image="./img/日程界面.png" data-alt="Schedule">
+                <strong>Schedule</strong><span>Cross-employee cron board</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="tools" data-image="./img/工具界面.png" data-alt="Tools">
+                <strong>Tools</strong><span>MCP servers and toggles</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="stats" data-image="./img/token用量界面.png" data-alt="Token stats">
+                <strong>Token stats</strong><span>Cost by model and employee</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="login" data-image="./img/登录界面.png" data-alt="Login">
+                <strong>Login &amp; onboarding</strong><span>Local auth and install wizard</span>
+              </button>
+            </div>
+            <div>
+              <div class="showcase-stage">
+                <img data-showcase-preview src="./img/对话主界面.png" alt="Chat screenshot" />
+              </div>
+              <div class="showcase-caption">
+                <div class="showcase-panel is-active" data-showcase-panel="chat">
+                  <h3>Employee-centric chat workspace</h3>
+                  <p>Each Hermes profile becomes an AI employee with history, streaming, tool progress, and approvals.</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="employees">
+                  <h3>Visual employee lifecycle</h3>
+                  <p>Create, wake, configure SOUL and skills, web tokens, and channel credentials in one place.</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="schedule">
+                  <h3>Automation operations panel</h3>
+                  <p>See all cron jobs, enable/disable, next run, and delivery errors across employees.</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="tools">
+                  <h3>Unified tools &amp; MCP</h3>
+                  <p>Parse MCP configs, test connections, enable tools per employee with clear boundaries.</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="stats">
+                  <h3>Observable cost</h3>
+                  <p>Token usage by model, employee, and time — for long-running cost control.</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="login">
+                  <h3>Lower barrier to entry</h3>
+                  <p>Guided install checks Python, Git, and Hermes Agent engine for non-CLI users.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="carousel reveal" data-carousel>
+            <div class="carousel-track" data-carousel-track style="--carousel-index: 0">
+              <figure class="carousel-slide is-active" data-carousel-slide>
+                <img src="./img/对话主界面.png" alt="Chat" />
+                <figcaption class="carousel-caption"><strong>Chat</strong><span>Multi-employee workspace</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/员工管理界面.png" alt="Employees" />
+                <figcaption class="carousel-caption"><strong>Employees</strong><span>Roles, SOUL, models</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/日程界面.png" alt="Schedule" />
+                <figcaption class="carousel-caption"><strong>Schedule</strong><span>Cron job board</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/工具界面.png" alt="Tools" />
+                <figcaption class="carousel-caption"><strong>Tools</strong><span>MCP integration</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/token用量界面.png" alt="Token stats" />
+                <figcaption class="carousel-caption"><strong>Token stats</strong><span>Usage analytics</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/登录界面.png" alt="Login" />
+                <figcaption class="carousel-caption"><strong>Login</strong><span>Secure local access</span></figcaption>
+              </figure>
+            </div>
+            <div class="carousel-dots">
+              <button type="button" class="carousel-dot is-active" data-carousel-dot aria-label="Slide 1"></button>
+              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 2"></button>
+              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 3"></button>
+              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 4"></button>
+              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 5"></button>
+              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 6"></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-dark">
+        <div class="section-shell">
+          <div class="section-heading center reveal">
+            <p class="section-kicker">Getting started</p>
+            <h2>Four steps from Hermes Agent to a daily AI employee team.</h2>
+          </div>
+          <div class="workflow-grid">
+            <article class="workflow-step reveal"><span>01</span><h3>Install engine</h3><p>Desktop wizard installs Python, Git, and Hermes Agent with venv and dependency checks.</p></article>
+            <article class="workflow-step reveal"><span>02</span><h3>Create employees</h3><p>Profiles for each role — SOUL, model, tools, and permissions.</p></article>
+            <article class="workflow-step reveal"><span>03</span><h3>Connect channels</h3><p>Feishu, WeChat, or DingTalk per employee, or web embed for external users.</p></article>
+            <article class="workflow-step reveal"><span>04</span><h3>Automate delivery</h3><p>Scheduled summaries, inspections, and reviews pushed to your office stack.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="advantages" class="section section-light">
+        <div class="section-shell split-shell">
+          <div class="sticky-copy reveal">
+            <p class="section-kicker">Why Luoyun Hermes</p>
+            <h2>Not a replacement for official Hermes — a easier-to-ship workbench.</h2>
+            <p class="section-lead">
+              The value is turning long-running agent capabilities into something desktop users can configure, observe, back up, and operate — not just another chat UI.
+            </p>
+          </div>
+          <div class="advantage-list">
+            <article class="advantage-item reveal"><span>01</span><div><h3>Install, diagnose, update in one place</h3><p>Python, Git, Hermes repo, venv, dependencies, and engine version checks in a guided flow.</p></div></article>
+            <article class="advantage-item reveal"><span>02</span><div><h3>Multi-employee operations</h3><p>Employees are work units with name, avatar, role, SOUL, tools, skills, model, and web access — not just chat threads.</p></div></article>
+            <article class="advantage-item reveal"><span>03</span><div><h3>Built for Chinese office stacks</h3><p>Feishu, WeChat, DingTalk credentials per profile; scheduled results delivered to the right channel.</p></div></article>
+            <article class="advantage-item reveal"><span>04</span><div><h3>Cross-employee schedule board</h3><p>All cron jobs, status, next run, last result, and delivery errors in one operations view.</p></div></article>
+            <article class="advantage-item reveal"><span>05</span><div><h3>Cost &amp; data governance</h3><p>Token stats by model, employee, and date; backup/export and restore for migration.</p></div></article>
+            <article class="advantage-item reveal"><span>06</span><div><h3>Bilingual UI</h3><p>Chinese and English in the desktop app; web admin and embed for remote access and mixed teams.</p></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-muted">
+        <div class="section-shell">
+          <div class="experience-layout">
+            <div class="experience-copy reveal">
+              <p class="section-kicker">Experience</p>
+              <h2>From "using Hermes" to "running an agent team".</h2>
+              <p class="section-lead">
+                Luoyun Hermes is about continuously working AI employees — models, skills, tasks, channels, and data around them.
+                Desktop, built-in web server, and embed URLs complete the delivery loop.
+              </p>
+            </div>
+            <div class="experience-board reveal">
+              <div class="board-column"><span>Models</span><strong>DeepSeek / OpenAI Compatible / custom base URL</strong></div>
+              <div class="board-column"><span>Skills</span><strong>Tool toggles, skill library, SOUL editing</strong></div>
+              <div class="board-column"><span>Channels</span><strong>Feishu, WeChat, DingTalk bots</strong></div>
+              <div class="board-column"><span>Data</span><strong>Token stats, backup, restore</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="compare" class="section section-light">
+        <div class="section-shell">
+          <div class="section-heading center reveal">
+            <p class="section-kicker">Ecosystem</p>
+            <h2>Official engine, web clients, and Luoyun Hermes solve different layers.</h2>
+          </div>
+          <div class="compare-grid">
+            <article class="compare-card reveal">
+              <span>Official</span>
+              <h3>Hermes Agent</h3>
+              <p>Self-improving open-source engine — memory, skills, tools, Gateway, multi-model backends.</p>
+              <ul><li>CLI / Gateway first</li><li>Strong agent core</li><li>Engineering-oriented config</li></ul>
+            </article>
+            <article class="compare-card reveal">
+              <span>Community</span>
+              <h3>Typical web clients</h3>
+              <p>Browser chat and light dashboards; good for remote access when a server already exists.</p>
+              <ul><li>Web / PWA entry</li><li>Session-focused UX</li><li>Depends on backend setup</li></ul>
+            </article>
+            <article class="compare-card featured reveal">
+              <span>Luoyun</span>
+              <h3>Luoyun Hermes</h3>
+              <p>Desktop AI employee platform — install, employees, schedule, remote, channels, and data in one workbench.</p>
+              <ul><li>Local + remote modes</li><li>Employee operations view</li><li>Feishu / WeChat / DingTalk</li></ul>
+            </article>
+          </div>
+          <p class="source-note">Hermes Agent info from Nous Research; Luoyun Hermes features from this project's source code.</p>
+        </div>
+      </section>
+
+      <section id="usecases" class="section section-muted">
+        <div class="section-shell">
+          <div class="section-heading center reveal">
+            <p class="section-kicker">Use cases</p>
+            <h2>For workflows that need to run, reuse, and deliver over time.</h2>
+          </div>
+          <div class="usecase-grid">
+            <article class="usecase-card reveal"><span>Knowledge</span><h3>Personal knowledge assistant</h3><p>Research, notes, code help, and retrospectives in long-term memory and skills.</p></article>
+            <article class="usecase-card reveal"><span>Ops</span><h3>Team reports &amp; inspections</h3><p>Scheduled summaries, project follow-ups, anomaly checks pushed to office apps.</p></article>
+            <article class="usecase-card reveal"><span>Service</span><h3>Support &amp; internal Q&amp;A</h3><p>Web embed with token access and isolated employee context.</p></article>
+            <article class="usecase-card reveal"><span>Remote</span><h3>Remote AI node</h3><p>Agents on servers; desktop for connect, configure, observe, and schedule.</p></article>
+            <article class="usecase-card reveal"><span>Research</span><h3>Research &amp; intel</h3><p>Multi-employee division of search, summary, and archival with scheduled reports.</p></article>
+            <article class="usecase-card reveal"><span>Dev</span><h3>Dev assistant bench</h3><p>Code review, docs, issue follow-up — dedicated employees for repeat work.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" class="section section-light">
+        <div class="section-shell faq-shell">
+          <div class="section-heading reveal">
+            <p class="section-kicker">FAQ</p>
+            <h2>Common questions.</h2>
+          </div>
+          <div class="faq-list">
+            <details class="reveal" open>
+              <summary>How does Luoyun Hermes relate to official Hermes Agent?</summary>
+              <p>Luoyun Hermes is a desktop workbench on the Hermes Agent ecosystem — graphical install, employee management, remote control, channels, and data governance.</p>
+            </details>
+            <details class="reveal">
+              <summary>Is it local-only?</summary>
+              <p>No. Local mode and client_only remote mode via API Token; built-in web server for browser admin.</p>
+            </details>
+            <details class="reveal">
+              <summary>Why "AI employees"?</summary>
+              <p>Hermes profiles map well to roles. Luoyun Hermes productizes them with separate SOUL, skills, models, channels, and tasks.</p>
+            </details>
+            <details class="reveal">
+              <summary>Individual or team?</summary>
+              <p>Individuals get a long-running assistant bench; teams use multiple employees, schedules, and office integrations.</p>
+            </details>
+            <details class="reveal">
+              <summary>Where is data stored?</summary>
+              <p>Local SQLite (~/.lyhermes/ and ~/.hermes/), not uploaded to cloud. Backup export and restore supported.</p>
+            </details>
+            <details class="reveal">
+              <summary>Which OS are supported?</summary>
+              <p>Windows, macOS, and Linux installers. Windows local mode recommends Python 3.11+ and Git; remote client mode needs no local Python.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="download" class="download-section">
+        <div class="section-shell download-shell reveal">
+          <div>
+            <p class="section-kicker">Get started</p>
+            <h2>A desktop console built for everyday agent work.</h2>
+            <p>Open source under MIT. macOS, Windows, and Linux.</p>
+            <div class="download-platforms">
+              <span class="platform-tag">macOS</span>
+              <span class="platform-tag">Windows 11</span>
+              <span class="platform-tag">Linux</span>
+            </div>
+          </div>
+          <div class="download-actions">
+            <a class="btn btn-primary" href="https://github.com/luoyungu/ly-hermes/releases" target="_blank" rel="noreferrer">Download releases</a>
+            <a class="btn btn-secondary" href="https://github.com/luoyungu/ly-hermes" target="_blank" rel="noreferrer">GitHub repo</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-shell">
+        <div>
+          <strong>Luoyun Hermes</strong>
+          <p>AI employee management platform on Hermes Agent. MIT licensed.</p>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">中文</a>
+          <a href="https://github.com/luoyungu/ly-hermes" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noreferrer">Hermes Agent</a>
+          <a href="https://hermes-agent.nousresearch.com/docs" target="_blank" rel="noreferrer">Official docs</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

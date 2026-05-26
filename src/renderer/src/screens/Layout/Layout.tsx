@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { MessageSquare, Settings, Info, LogOut, Users, Calendar, BarChart3, Menu, X, Wrench } from 'lucide-react'
 import logoImg from '../../assets/logo.png'
 import Chat from '../Chat/Chat'
@@ -37,6 +38,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
+  const { t } = useTranslation()
   const { lexicon } = useTheme()
   const deploymentMode = useDeploymentMode()
   const remoteStatus = useRemoteConnectionStatus(deploymentMode === 'client_only')
@@ -91,14 +93,14 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
       {isWeb && mobileNavOpen && (
         <button
           type="button"
-          aria-label="关闭导航"
+          aria-label={t('common.closeNav')}
           className="fixed inset-0 z-20 bg-black/40 md:hidden"
           onClick={() => setMobileNavOpen(false)}
         />
       )}
 
       <aside className={`flex w-[80px] min-w-[80px] flex-col items-center glass-medium border-r border-[var(--border)] z-30 relative transition-transform max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:shadow-xl ${mobileNavOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}`} style={{ paddingTop: showWindowChrome ? 40 : 16, paddingBottom: 16 }}>
-        <img src={logoImg} alt="落云.Hermes" className="w-14 h-14 mb-4 rounded-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(124,106,239,0.25))' }} />
+        <img src={logoImg} alt={t('app.name')} className="w-14 h-14 mb-4 rounded-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(124,106,239,0.25))' }} />
         <nav className="flex flex-1 flex-col items-center gap-1.5">
           {NAV_ITEMS.map((item) => (
             <button
@@ -123,12 +125,12 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
         <div className="flex flex-col items-center gap-1.5">
           <button
             onClick={handleLogout}
-            title="退出登录"
+            title={t('common.logoutTitle')}
             className="flex flex-col items-center gap-1.5 w-16 rounded-[var(--radius)] cursor-pointer transition-all text-[var(--text-dim)] hover:text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)]"
             style={{ padding: '10px 0' }}
           >
             <LogOut size={22} />
-            <span style={{ fontSize: 11, fontWeight: 500, lineHeight: 1 }}>退出</span>
+            <span style={{ fontSize: 11, fontWeight: 500, lineHeight: 1 }}>{t('common.logout')}</span>
           </button>
         </div>
       </aside>
@@ -143,7 +145,7 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
                 type="button"
                 onClick={() => setMobileNavOpen((v) => !v)}
                 className="rounded-lg p-1.5 text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:hidden"
-                aria-label="打开导航"
+                aria-label={t('common.openNav')}
               >
                 {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
               </button>
@@ -164,7 +166,7 @@ export default function Layout({ onLogout }: LayoutProps): React.ReactElement {
             type="button"
             onClick={() => setMobileNavOpen((v) => !v)}
             className="rounded-lg p-1.5 text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-            aria-label="打开导航"
+            aria-label={t('common.openNav')}
           >
             {mobileNavOpen ? <X size={18} /> : <Menu size={18} />}
           </button>

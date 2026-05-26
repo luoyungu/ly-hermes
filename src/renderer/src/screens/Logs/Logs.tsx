@@ -1,19 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { RefreshCw, Copy, Check, FileText, AlertTriangle, Terminal, Trash2 } from 'lucide-react'
 import { useTheme } from '../../components/ThemeProvider'
 import { usePlatform } from '../../hooks/usePlatform'
 import Popconfirm from '../../components/Popconfirm'
 import { showToast } from '../../App'
 
-const LOG_FILES = [
-  { key: 'agent.log', label: 'Agent 日志', icon: Terminal, color: 'var(--accent)' },
-  { key: 'gateway.log', label: 'Gateway 日志', icon: FileText, color: 'var(--info, #3b82f6)' },
-  { key: 'errors.log', label: '错误日志', icon: AlertTriangle, color: 'var(--danger, #ef4444)' },
-]
-
 export default function LogsScreen(): React.ReactElement {
+  const { t, i18n } = useTranslation()
   const { lexicon } = useTheme()
   const { isMac } = usePlatform()
+  const locale = i18n.language === 'en' ? 'en' : 'zh-CN'
+  const logFiles = useMemo(() => ([
+    { key: 'agent.log', label: t('logs.agentLog'), icon: Terminal, color: 'var(--accent)' },
+    { key: 'gateway.log', label: t('logs.gatewayLog'), icon: FileText, color: 'var(--info, #3b82f6)' },
+    { key: 'errors.log', label: t('logs.errorsLog'), icon: AlertTriangle, color: 'var(--danger, #ef4444)' },
+  ]), [t])
   const [activeLog, setActiveLog] = useState('agent.log')
   const [logContent, setLogContent] = useState('')
   const [loading, setLoading] = useState(false)
@@ -77,13 +79,13 @@ export default function LogsScreen(): React.ReactElement {
       const result = await window.hermesAPI?.clearLogs(activeLog)
       if (result?.success) {
         setLogContent('')
-        showToast('日志已清空')
+        showToast(t('logs.cleared'))
         loadLogs(activeLog)
       } else {
-        showToast('清空日志失败', 'error')
+        showToast(t('logs.clearFailed'), 'error')
       }
     } catch {
-      showToast('清空日志失败', 'error')
+      showToast(t('logs.clearFailed'), 'error')
     }
   }
 
@@ -129,7 +131,7 @@ export default function LogsScreen(): React.ReactElement {
   const formatTimestamp = (ts: string) => {
     try {
       const d = new Date(ts)
-      return d.toLocaleTimeString('zh-CN', { hour12: false })
+      return d.toLocaleTimeString(locale, { hour12: false })
     } catch {
       return ts
     }
@@ -140,7 +142,6 @@ export default function LogsScreen(): React.ReactElement {
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-      {/* Header */}
       <div className="screen-header drag-region flex items-center justify-between border-b border-[var(--border)] glass-medium shrink-0" style={{ paddingTop: isMac ? 20 : 0, paddingBottom: isMac ? 20 : 0 }}>
         <h1 className="screen-header-title">{lexicon.nav.logs}</h1>
         <div className="no-drag flex items-center gap-2">
@@ -152,21 +153,21 @@ export default function LogsScreen(): React.ReactElement {
                 : 'bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)]'
             }`}
           >
-            自动刷新
+            {t('logs.autoRefresh')}
           </button>
           <button
             onClick={handleCopyLogs}
             disabled={!logContent}
             className="p-2 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            title="复制日志"
+            title={t('logs.copyLogs')}
           >
             {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
           </button>
-          <Popconfirm title="确认清空当前日志？" confirmText="清空" onConfirm={handleClearLog}>
+          <Popconfirm title={t('logs.clearConfirm')} confirmText={t('logs.clearBtn')} onConfirm={handleClearLog}>
             <button
               disabled={!logContent}
               className="p-2 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-              title="清空当前日志"
+              title={t('logs.clearLogs')}
             >
               <Trash2 size={16} />
             </button>
@@ -175,16 +176,15 @@ export default function LogsScreen(): React.ReactElement {
             onClick={() => loadLogs()}
             disabled={loading}
             className="p-2 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-50"
-            title="刷新"
+            title={t('common.refresh')}
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* Log File Tabs */}
       <div className="flex items-center gap-3 px-6 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]/50">
-        {LOG_FILES.map(log => {
+        {logFiles.map(log => {
           const Icon = log.icon
           const isActive = activeLog === log.key
           return (
@@ -203,11 +203,10 @@ export default function LogsScreen(): React.ReactElement {
           )
         })}
         <span className="ml-auto text-xs text-[var(--text-dim)]">
-          共 {lineCount} 行
+          {t('logs.lineCount', { count: lineCount })}
         </span>
       </div>
 
-      {/* Log Content */}
       <div
         ref={logContainerRef}
         className="flex-1 overflow-auto px-4 py-3 bg-[var(--bg-primary)]"
@@ -215,13 +214,13 @@ export default function LogsScreen(): React.ReactElement {
         {loading && !logContent ? (
           <div className="flex items-center justify-center h-full text-[var(--text-dim)]">
             <RefreshCw size={20} className="animate-spin mr-2" />
-            加载日志中...
+            {t('logs.loading')}
           </div>
         ) : !logContent ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--text-dim)]">
             <FileText size={48} className="mb-4 opacity-30" />
-            <p className="text-sm">暂无日志记录</p>
-            <p className="text-xs mt-2 opacity-60">请确保 Hermes 服务正在运行</p>
+            <p className="text-sm">{t('logs.empty')}</p>
+            <p className="text-xs mt-2 opacity-60">{t('logs.emptyHint')}</p>
           </div>
         ) : (
           <div className="space-y-1">

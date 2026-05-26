@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import { I18nProvider } from './components/I18nProvider'
 import { ThemeProvider } from './components/ThemeProvider'
 import { RemoteConnectionProvider } from './components/RemoteConnectionProvider'
 import Login from './screens/Login/Login'
@@ -24,7 +26,8 @@ export function showToast(message: string, type: 'success' | 'error' | 'info' = 
   }, 3000)
 }
 
-export default function App(): React.ReactElement {
+function AppContent(): React.ReactElement {
+  const { t } = useTranslation()
   const [screen, setScreen] = useState<Screen>('onboarding')
   const [loading, setLoading] = useState(true)
 
@@ -79,9 +82,9 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     if (!window.hermesAPI?.onCronSessionCreated) return
     return window.hermesAPI.onCronSessionCreated((data) => {
-      showToast(`日程执行完成：${data.title || data.sessionId}`, 'success')
+      showToast(t('app.cronDone', { title: data.title || data.sessionId }), 'success')
     })
-  }, [])
+  }, [t])
 
   const handleLoginSuccess = (): void => {
     setScreen('main')
@@ -105,13 +108,13 @@ export default function App(): React.ReactElement {
             }} />
             <div className="relative flex flex-col items-center gap-5 animate-scale-in">
               <div className="w-20 h-20 rounded-2xl overflow-hidden" style={{ boxShadow: '0 8px 40px rgba(124,106,239,0.25), 0 2px 8px rgba(0,0,0,0.3)' }}>
-                <img src={logoImg} alt="落云.Hermes" className="w-full h-full object-cover" />
+                <img src={logoImg} alt={t('app.name')} className="w-full h-full object-cover" />
               </div>
               <div className="flex flex-col items-center gap-2">
-                <span className="text-lg font-semibold text-accent-gradient" style={{ letterSpacing: '-0.3px' }}>落云.Hermes</span>
+                <span className="text-lg font-semibold text-accent-gradient" style={{ letterSpacing: '-0.3px' }}>{t('app.name')}</span>
                 <div className="flex items-center gap-2">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
-                  <span className="text-xs text-[var(--text-dim)]">正在初始化...</span>
+                  <span className="text-xs text-[var(--text-dim)]">{t('app.initializing')}</span>
                 </div>
               </div>
             </div>
@@ -126,5 +129,13 @@ export default function App(): React.ReactElement {
         <div id="toastContainer" />
       </RemoteConnectionProvider>
     </ThemeProvider>
+  )
+}
+
+export default function App(): React.ReactElement {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
   )
 }

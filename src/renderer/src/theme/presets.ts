@@ -1,87 +1,7 @@
 import type { AccentColor, UiTheme } from '../../../preload/index'
+import type { ThemeLexicon } from '../../../shared/i18n/lexicon-types'
 
-export interface ThemeLexicon {
-  appSubtitle: string
-  nav: {
-    chat: string
-    manage: string
-    schedule: string
-    tools: string
-    tokenStats: string
-    appearance: string
-    settings: string
-    logs: string
-    about: string
-  }
-  entities: {
-    employee: string
-    employeePlural: string
-    employeeList: string
-    virtualEmployee: string
-    createEmployee: string
-    selectEmployee: string
-    searchEmployee: string
-    noEmployees: string
-    noEmployeeMatches: string
-    defaultRole: string
-    employeeInfo: string
-    employeeDetail: string
-    deleteEmployeeConfirm: string
-  }
-  concepts: {
-    soul: string
-    soulSetting: string
-    soulEmpty: string
-    tools: string
-    enabledTools: string
-    otherEnabledTools: string
-    noTools: string
-    skills: string
-    skillLibrary: string
-    noSkills: string
-    memory: string
-    memoryCapacity: string
-    systemMemory: string
-    noMemory: string
-    userProfile: string
-    config: string
-  }
-  chat: {
-    startTitle: string
-    startHint: (name: string) => string
-    chooseEmployee: string
-    statusLabel: string
-    usageTitle: string
-    noUsage: string
-  }
-  schedule: {
-    title: string
-    newSchedule: string
-    createSchedule: string
-    unnamed: string
-    empty: string
-    emptyForEmployee: string
-    emptyHint: string
-    deleteConfirm: string
-    scheduleName: string
-    promptPlaceholder: string
-    success: string
-  }
-  usage: {
-    title: string
-    subtitle: string
-    input: string
-    output: string
-    cache: string
-    cost: string
-    byAgent: string
-    noData: string
-  }
-  appearance: {
-    themePack: string
-    themePackDesc: string
-  }
-}
+export type { ThemeLexicon } from '../../../shared/i18n/lexicon-types'
 
 export interface ThemePreset {
   id: UiTheme
@@ -174,6 +94,11 @@ export const THEME_PRESETS: Record<UiTheme, ThemePreset> = {
         cache: '缓存读取',
         cost: '预估费用',
         byAgent: '按 Agent',
+        byModel: '按模型',
+        dailyTrend: '每日趋势',
+        days7: '7天',
+        days30: '30天',
+        days90: '90天',
         noData: '暂无数据',
       },
       appearance: {
@@ -263,6 +188,11 @@ export const THEME_PRESETS: Record<UiTheme, ThemePreset> = {
         cache: '灵脉回流',
         cost: '灵石估算',
         byAgent: '按门人',
+        byModel: '按法器',
+        dailyTrend: '日度灵耗',
+        days7: '7日',
+        days30: '30日',
+        days90: '90日',
         noData: '暂无账簿记录',
       },
       appearance: {

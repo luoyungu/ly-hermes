@@ -1,5 +1,6 @@
 import { useState, useRef, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 
 type Placement = 'top' | 'bottom'
@@ -53,12 +54,16 @@ function Arrow({ placement, triggerRect, style }: { placement: Placement; trigge
 }
 
 export default function Popconfirm({
-  title = '确认删除？',
-  confirmText = '删除',
-  cancelText = '取消',
+  title,
+  confirmText,
+  cancelText,
   onConfirm,
   children,
 }: PopconfirmProps): React.ReactElement {
+  const { t } = useTranslation()
+  const resolvedTitle = title ?? t('common.confirmDelete')
+  const resolvedConfirmText = confirmText ?? t('common.delete')
+  const resolvedCancelText = cancelText ?? t('common.cancel')
   const [open, setOpen] = useState(false)
   const [placement, setPlacement] = useState<Placement>('top')
   const [style, setStyle] = useState<React.CSSProperties>({})
@@ -121,20 +126,20 @@ export default function Popconfirm({
       <div className="glass-heavy border border-[var(--border)] rounded-[var(--radius-lg)] shadow-[0_8px_32px_rgba(0,0,0,0.3)] p-3 min-w-[180px]">
         <div className="flex items-start gap-2 mb-3">
           <AlertTriangle size={16} className="text-[var(--danger)] shrink-0 mt-0.5" />
-          <span className="text-sm text-[var(--text-primary)] leading-snug">{title}</span>
+          <span className="text-sm text-[var(--text-primary)] leading-snug">{resolvedTitle}</span>
         </div>
         <div className="flex items-center justify-end gap-2">
           <button
             onClick={(e) => { e.stopPropagation(); setOpen(false) }}
             className="px-3 py-1.5 rounded-[var(--radius)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer transition-all"
           >
-            {cancelText}
+            {resolvedCancelText}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onConfirm(); setOpen(false) }}
             className="px-3 py-1.5 rounded-[var(--radius)] bg-[var(--danger)] text-xs font-medium text-white hover:opacity-90 cursor-pointer transition-all"
           >
-            {confirmText}
+            {resolvedConfirmText}
           </button>
         </div>
       </div>

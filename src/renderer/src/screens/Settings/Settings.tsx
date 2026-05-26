@@ -1,4 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { translateError } from '../../../../shared/i18n'
+import { useLocale } from '../../components/I18nProvider'
 import { usePlatform } from '../../hooks/usePlatform'
 import type { SavedModel } from '../../../../preload/index'
 import {
@@ -33,7 +36,7 @@ import {
   Palette,
   Globe
 } from 'lucide-react'
-import { PROVIDER_PRESETS, GLOBAL_CONFIG_FIELDS, getNestedValue, setNestedValue, type ConfigFieldDef } from '../../shared/employee-shared'
+import { PROVIDER_PRESETS, getNestedValue, setNestedValue, useEmployeeShared, type ConfigFieldDef } from '../../shared/employee-shared'
 import Popconfirm from '../../components/Popconfirm'
 import ConnectionStatus from '../../components/ConnectionStatus'
 import { useTheme } from '../../components/ThemeProvider'
@@ -43,26 +46,25 @@ import type { ThemeMode, AccentColor, UiTheme, DesktopWebServerStatus, Deploymen
 
 type Section = 'basic' | 'appearance' | 'runtime' | 'models' | 'engine' | 'data' | 'logs'
 
-const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ReactNode; desc: string }> = [
-  { value: 'dark', label: '暗夜', icon: <Moon size={20} />, desc: '始终使用深色外观' },
-  { value: 'light', label: '明亮', icon: <Sun size={20} />, desc: '始终使用浅色外观' },
-  { value: 'auto', label: '跟随系统', icon: <Monitor size={20} />, desc: '自动匹配系统外观设置' },
-]
+const ACCENT_COLORS: Record<AccentColor, string> = {
+  violet: '#7c6aef',
+  indigo: '#7878c0',
+  blue: '#4a9ed6',
+  green: '#4a9e5c',
+  orange: '#d08040',
+  lavender: '#9080c8',
+  rose: '#c87090',
+  slate: '#7a8a9e',
+}
 
-const ACCENT_OPTIONS: Array<{ value: AccentColor; label: string; color: string }> = [
-  { value: 'violet', label: '紫罗兰', color: '#7c6aef' },
-  { value: 'indigo', label: '靛蓝', color: '#7878c0' },
-  { value: 'blue', label: '海蓝', color: '#4a9ed6' },
-  { value: 'green', label: '翠绿', color: '#4a9e5c' },
-  { value: 'orange', label: '暖橙', color: '#d08040' },
-  { value: 'lavender', label: '薰衣草', color: '#9080c8' },
-  { value: 'rose', label: '玫瑰', color: '#c87090' },
-  { value: 'slate', label: '石板灰', color: '#7a8a9e' },
-]
+const ACCENT_VALUES: AccentColor[] = ['violet', 'indigo', 'blue', 'green', 'orange', 'lavender', 'rose', 'slate']
 
 export default function SettingsScreen(): React.ReactElement {
+  const { t } = useTranslation()
+  const { locale, setLocale } = useLocale()
   const { isMac, isElectron } = usePlatform()
   const { lexicon, mode, accent, uiTheme, setMode, setAccent, setUiTheme } = useTheme()
+  const { globalConfigFields } = useEmployeeShared()
   const [section, setSection] = useState<Section>('basic')
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<'idle' | 'success' | 'error'>('idle')
@@ -186,12 +188,12 @@ export default function SettingsScreen(): React.ReactElement {
           break
         case 'error':
           setAppUpdateStatus('error')
-          setAppUpdateError(data.error || '未知错误')
+          setAppUpdateError(translateError(data.error, t) || t('common.unknownError'))
           break
       }
     })
     return unsub
-  }, [])
+  }, [t])
 
   useEffect(() => {
     const unsub = window.hermesAPI.onInstallProgress((progress) => {
@@ -263,11 +265,11 @@ export default function SettingsScreen(): React.ReactElement {
     const result = await window.hermesAPI.runHermesUpdate()
     setUpdating(false)
     if (result.success) {
-      setUpdateResult('更新成功！')
+      setUpdateResult(t('settings.updateSuccess'))
       setUpdateResultType('success')
       refreshVersion()
     } else {
-      setUpdateResult(result.error || '更新失败')
+      setUpdateResult(translateError(result.error, t) || t('settings.updateFailed'))
       setUpdateResultType('error')
     }
   }
@@ -280,15 +282,15 @@ export default function SettingsScreen(): React.ReactElement {
     try {
       const result = await window.hermesAPI.startInstall()
       if (result.success) {
-        setUpdateResult('重新安装成功！')
+        setUpdateResult(t('settings.reinstallSuccess'))
         setUpdateResultType('success')
         refreshVersion()
       } else {
-        setUpdateResult(result.error || '安装失败')
+        setUpdateResult(translateError(result.error, t) || t('settings.installFailed'))
         setUpdateResultType('error')
       }
     } catch (e: unknown) {
-      setUpdateResult((e as Error).message || '安装失败')
+      setUpdateResult(translateError((e as Error).message, t) || t('settings.installFailed'))
       setUpdateResultType('error')
     } finally {
       setReinstalling(false)
@@ -301,15 +303,15 @@ export default function SettingsScreen(): React.ReactElement {
       const result = await window.hermesAPI.restartAllEngines()
       if (result.success) {
         if (result.restarted === 0) {
-          showToast('当前没有在线引擎')
+          showToast(t('settings.noOnlineEngine'))
         } else {
-          showToast(`已重启 ${result.restarted}/${result.total} 个引擎`)
+          showToast(t('settings.enginesRestarted', { restarted: result.restarted, total: result.total }))
         }
       } else {
-        showToast('重启引擎失败', 'error')
+        showToast(t('settings.restartEnginesFailed'), 'error')
       }
     } catch {
-      showToast('重启引擎失败', 'error')
+      showToast(t('settings.restartEnginesFailed'), 'error')
     } finally {
       setRestartingEngines(false)
     }
@@ -364,12 +366,12 @@ export default function SettingsScreen(): React.ReactElement {
       setWebServerStatus(status)
       setWebServerPort(status.port || webServerPort)
       if (status.error) {
-        showToast(`Web 服务启动失败：${status.error}`, 'error')
+        showToast(t('settings.webServerStartFailed', { error: translateError(status.error, t) }), 'error')
       } else {
-        showToast(enabled ? 'Web 服务已开启' : 'Web 服务已关闭')
+        showToast(enabled ? t('settings.webServerEnabled') : t('settings.webServerDisabled'))
       }
     } catch {
-      showToast('Web 服务设置失败', 'error')
+      showToast(t('settings.webServerSetFailed'), 'error')
     } finally {
       setWebServerSaving(false)
     }
@@ -385,9 +387,9 @@ export default function SettingsScreen(): React.ReactElement {
       setWebServerStatus(status)
       setWebServerPort(status.port || webServerPort)
       setRemoteServerToken(status.apiToken || remoteServerToken)
-      showToast(status.error ? `Web 服务启动失败：${status.error}` : 'Web 服务配置已保存')
+      showToast(status.error ? t('settings.webServerStartFailed', { error: translateError(status.error, t) }) : t('settings.webServerConfigSaved'))
     } catch {
-      showToast('Web 服务设置失败', 'error')
+      showToast(t('settings.webServerSetFailed'), 'error')
     } finally {
       setWebServerSaving(false)
     }
@@ -400,9 +402,9 @@ export default function SettingsScreen(): React.ReactElement {
       setWebServerStatus(status)
       setRemoteServerEnabled(status.remoteEnabled === true)
       setRemoteServerToken(status.apiToken || '')
-      showToast(enabled ? '已允许远程连接' : '已关闭远程连接')
+      showToast(enabled ? t('settings.remoteEnabled') : t('settings.remoteDisabled'))
     } catch {
-      showToast('远程连接设置失败', 'error')
+      showToast(t('settings.remoteSetFailed'), 'error')
     } finally {
       setRemoteServerSaving(false)
     }
@@ -414,9 +416,9 @@ export default function SettingsScreen(): React.ReactElement {
       const result = await window.hermesAPI.rotateRemoteServerToken()
       setRemoteServerToken(result.api_token)
       setWebServerStatus(result.status)
-      showToast('API Token 已轮换')
+      showToast(t('settings.tokenRotated'))
     } catch {
-      showToast('Token 轮换失败', 'error')
+      showToast(t('settings.tokenRotateFailed'), 'error')
     } finally {
       setRemoteServerSaving(false)
     }
@@ -424,7 +426,7 @@ export default function SettingsScreen(): React.ReactElement {
 
   const handleSaveRemoteConnection = async (): Promise<void> => {
     if (!remoteConnection.host.trim() || !remoteConnection.api_token.trim()) {
-      showToast('请填写主机地址和 API Token', 'error')
+      showToast(t('settings.fillHostToken'), 'error')
       return
     }
     setRemoteSaving(true)
@@ -432,12 +434,12 @@ export default function SettingsScreen(): React.ReactElement {
       const result = await window.hermesAPI.saveRemoteConnection(remoteConnection)
       if (result.success) {
         window.dispatchEvent(new Event('hermes:workspace-changed'))
-        showToast('远程连接已保存')
+        showToast(t('settings.remoteSaved'))
       } else {
-        showToast(result.error || '连接失败', 'error')
+        showToast(translateError(result.error, t) || t('settings.connectionFailed'), 'error')
       }
     } catch {
-      showToast('保存失败', 'error')
+      showToast(t('common.saveFailed'), 'error')
     } finally {
       setRemoteSaving(false)
     }
@@ -448,12 +450,12 @@ export default function SettingsScreen(): React.ReactElement {
     try {
       const result = await window.hermesAPI.testRemoteConnection(remoteConnection)
       if (result.success) {
-        showToast('连接成功')
+        showToast(t('settings.connectionSuccess'))
       } else {
-        showToast(result.error || '连接失败', 'error')
+        showToast(translateError(result.error, t) || t('settings.connectionFailed'), 'error')
       }
     } catch {
-      showToast('测试失败', 'error')
+      showToast(t('settings.testFailed'), 'error')
     } finally {
       setRemoteSaving(false)
     }
@@ -463,9 +465,9 @@ export default function SettingsScreen(): React.ReactElement {
     try {
       await window.hermesAPI.switchToLocalMode()
       window.dispatchEvent(new Event('hermes:deployment-changed'))
-      showToast('已切换为本机模式，请完成 Agent 安装')
+      showToast(t('settings.switchedToLocal'))
     } catch {
-      showToast('切换失败', 'error')
+      showToast(t('settings.switchFailed'), 'error')
     }
   }
 
@@ -478,9 +480,9 @@ export default function SettingsScreen(): React.ReactElement {
     try {
       await window.hermesAPI.setRuntimeConfig(runtimeObj)
       setRuntimeOriginal(JSON.parse(JSON.stringify(runtimeObj)))
-      showToast('运行参数已保存')
+      showToast(t('settings.runtimeSaved'))
     } catch {
-      showToast('保存运行参数失败', 'error')
+      showToast(t('settings.runtimeSaveFailed'), 'error')
     } finally {
       setRuntimeSaving(false)
     }
@@ -493,15 +495,15 @@ export default function SettingsScreen(): React.ReactElement {
     try {
       const result = await window.hermesAPI.authChangePassword(oldPassword, newPassword)
       if (result.success) {
-        setChangePasswordResult({ success: true, message: '密码修改成功' })
+        setChangePasswordResult({ success: true, message: t('settings.passwordChanged') })
         setOldPassword('')
         setNewPassword('')
         setConfirmNewPassword('')
       } else {
-        setChangePasswordResult({ success: false, message: result.error || '密码修改失败' })
+        setChangePasswordResult({ success: false, message: translateError(result.error, t) || t('settings.passwordChangeFailed') })
       }
     } catch {
-      setChangePasswordResult({ success: false, message: '密码修改失败' })
+      setChangePasswordResult({ success: false, message: t('settings.passwordChangeFailed') })
     } finally {
       setChangingPassword(false)
     }
@@ -512,9 +514,9 @@ export default function SettingsScreen(): React.ReactElement {
     setBackupResult(null)
     try {
       const result = await window.hermesAPI.runHermesBackup()
-      setBackupResult({ success: result.success, message: result.success ? '备份成功！文件已保存到 ~/.hermes/backups/' : (result.output || '备份失败') })
+      setBackupResult({ success: result.success, message: result.success ? t('settings.backupSuccess') : (translateError(result.output, t) || t('settings.backupFailed')) })
     } catch {
-      setBackupResult({ success: false, message: '备份失败' })
+      setBackupResult({ success: false, message: t('settings.backupFailed') })
     } finally {
       setBackingUp(false)
     }
@@ -525,9 +527,9 @@ export default function SettingsScreen(): React.ReactElement {
     setBackupResult(null)
     try {
       const result = await window.hermesAPI.runHermesImport(filePath)
-      setBackupResult({ success: result.success, message: result.success ? '导入成功！部分配置可能需要重启应用生效。' : (result.output || '导入失败') })
+      setBackupResult({ success: result.success, message: result.success ? t('settings.importSuccess') : (translateError(result.output, t) || t('settings.importFailed')) })
     } catch {
-      setBackupResult({ success: false, message: '导入失败' })
+      setBackupResult({ success: false, message: t('settings.importFailed') })
     } finally {
       setImporting(false)
       setImportConfirm(false)
@@ -602,15 +604,15 @@ export default function SettingsScreen(): React.ReactElement {
   const handleSaveModel = async (): Promise<void> => {
     const provider = modelFormProvider === '_custom' ? modelFormCustomProvider.trim() : modelFormProvider
     if (!provider && !modelFormModel.trim()) {
-      setModelFormError('请选择服务商并选择或输入模型')
+      setModelFormError(t('settings.selectProvider'))
       return
     }
     if (!provider) {
-      setModelFormError('请选择服务商')
+      setModelFormError(t('settings.selectProviderOnly'))
       return
     }
     if (!modelFormModel.trim()) {
-      setModelFormError('请选择或输入模型')
+      setModelFormError(t('settings.selectModel'))
       return
     }
     setModelFormSaving(true)
@@ -626,7 +628,7 @@ export default function SettingsScreen(): React.ReactElement {
           modelFormApiKey.trim()
         )
         if (result.error) {
-          setModelFormError(result.error)
+          setModelFormError(translateError(result.error, t))
           return
         }
       } else {
@@ -641,7 +643,7 @@ export default function SettingsScreen(): React.ReactElement {
       closeModelForm()
       loadSavedModels()
     } catch (e) {
-      setModelFormError((e as Error).message || '保存失败')
+      setModelFormError(translateError((e as Error).message, t) || t('common.saveFailed'))
     } finally {
       setModelFormSaving(false)
     }
@@ -654,23 +656,44 @@ export default function SettingsScreen(): React.ReactElement {
     } catch { /* ignore */ }
   }
 
-  const sectionItems: { key: Section; label: string; icon: React.ReactNode }[] = [
-    { key: 'basic', label: '基础设置', icon: <SettingsIcon size={16} /> },
-    { key: 'appearance', label: '外观', icon: <Palette size={16} /> },
-    ...(deploymentMode === 'local'
-      ? [
-          { key: 'runtime' as Section, label: '运行参数', icon: <Wrench size={16} /> },
-          { key: 'models' as Section, label: '模型管理', icon: <Box size={16} /> },
-          ...(isElectron ? [{ key: 'engine' as Section, label: '引擎管理', icon: <Terminal size={16} /> }] : []),
-          ...(isElectron
-            ? [
-                { key: 'data' as Section, label: '数据管理', icon: <Download size={16} /> },
-                { key: 'logs' as Section, label: '系统日志', icon: <FileText size={16} /> },
-              ]
-            : []),
-        ]
-      : []),
-  ]
+  const modeOptions = useMemo(
+    () => [
+      { value: 'dark' as ThemeMode, label: t('themeMode.dark.label'), icon: <Moon size={20} />, desc: t('themeMode.dark.desc') },
+      { value: 'light' as ThemeMode, label: t('themeMode.light.label'), icon: <Sun size={20} />, desc: t('themeMode.light.desc') },
+      { value: 'auto' as ThemeMode, label: t('themeMode.auto.label'), icon: <Monitor size={20} />, desc: t('themeMode.auto.desc') },
+    ],
+    [t],
+  )
+
+  const accentOptions = useMemo(
+    () => ACCENT_VALUES.map((value) => ({
+      value,
+      label: t(`accent.${value}`),
+      color: ACCENT_COLORS[value],
+    })),
+    [t],
+  )
+
+  const sectionItems = useMemo(
+    (): { key: Section; label: string; icon: React.ReactNode }[] => [
+      { key: 'basic', label: t('settings.sections.basic'), icon: <SettingsIcon size={16} /> },
+      { key: 'appearance', label: t('settings.sections.appearance'), icon: <Palette size={16} /> },
+      ...(deploymentMode === 'local'
+        ? [
+            { key: 'runtime' as Section, label: t('settings.sections.runtime'), icon: <Wrench size={16} /> },
+            { key: 'models' as Section, label: t('settings.sections.models'), icon: <Box size={16} /> },
+            ...(isElectron ? [{ key: 'engine' as Section, label: t('settings.sections.engine'), icon: <Terminal size={16} /> }] : []),
+            ...(isElectron
+              ? [
+                  { key: 'data' as Section, label: t('settings.sections.data'), icon: <Download size={16} /> },
+                  { key: 'logs' as Section, label: t('settings.sections.logs'), icon: <FileText size={16} /> },
+                ]
+              : []),
+          ]
+        : []),
+    ],
+    [t, deploymentMode, isElectron],
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -702,13 +725,26 @@ export default function SettingsScreen(): React.ReactElement {
           <div className="mx-auto max-w-2xl p-6">
             {section === 'basic' && (
               <section className="animate-fade-in">
-                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">基础设置</h3>
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{t('settings.sections.basic')}</h3>
                 <div className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                      <Globe size={14} /> {t('language.label')}
+                    </label>
+                    <select
+                      value={locale}
+                      onChange={(e) => void setLocale(e.target.value as 'zh-CN' | 'en')}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                    >
+                      <option value="zh-CN">{t('language.zhCN')}</option>
+                      <option value="en">{t('language.en')}</option>
+                    </select>
+                  </div>
                   {deploymentMode === 'local' && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="mb-1.5 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                        <Clock size={14} /> 空闲超时（秒）
+                        <Clock size={14} /> {t('settings.idleTimeoutSeconds')}
                       </label>
                       <input
                         type="number"
@@ -721,7 +757,7 @@ export default function SettingsScreen(): React.ReactElement {
                     </div>
                     <div>
                       <label className="mb-1.5 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                        <Users size={14} /> 最大在线数
+                        <Users size={14} /> {t('settings.maxOnline')}
                       </label>
                       <input
                         type="number"
@@ -740,14 +776,14 @@ export default function SettingsScreen(): React.ReactElement {
                     <ConnectionStatus />
                     <div>
                       <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-                        <Globe size={15} /> 远程节点连接
+                        <Globe size={15} /> {t('settings.remoteNodeConnection')}
                       </h4>
                       <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                        连接远程 Hermes 节点以管理员工和聊天。
+                        {t('settings.remoteNodeDesc')}
                       </p>
                     </div>
                     <div>
-                      <label className="mb-1.5 text-sm text-[var(--text-secondary)]">节点名称</label>
+                      <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.nodeName')}</label>
                       <input
                         type="text"
                         value={remoteConnection.name}
@@ -757,7 +793,7 @@ export default function SettingsScreen(): React.ReactElement {
                     </div>
                     <div className="flex gap-3">
                       <div className="flex-1">
-                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">主机地址</label>
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.remoteHost')}</label>
                         <input
                           type="text"
                           value={remoteConnection.host}
@@ -766,7 +802,7 @@ export default function SettingsScreen(): React.ReactElement {
                         />
                       </div>
                       <div className="w-28">
-                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">端口</label>
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.remotePort')}</label>
                         <input
                           type="number"
                           value={remoteConnection.port}
@@ -778,7 +814,7 @@ export default function SettingsScreen(): React.ReactElement {
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1.5 text-sm text-[var(--text-secondary)]">API Token</label>
+                      <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.remoteToken')}</label>
                       <input
                         type="password"
                         value={remoteConnection.api_token}
@@ -793,7 +829,7 @@ export default function SettingsScreen(): React.ReactElement {
                         className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
                       >
                         {remoteSaving ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                        测试连接
+                        {t('settings.testConnection')}
                       </button>
                       <button
                         onClick={handleSaveRemoteConnection}
@@ -801,17 +837,17 @@ export default function SettingsScreen(): React.ReactElement {
                         className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
                       >
                         {remoteSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                        保存连接
+                        {t('settings.saveConnection')}
                       </button>
                     </div>
                     <div className="border-t border-[var(--border)] pt-4">
-                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">切换部署模式</h4>
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.switchDeploymentMode')}</h4>
                       <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                        切换为本机模式后，需在本机安装 Hermes Agent 才能运行员工。
+                        {t('settings.switchDeploymentModeDesc')}
                       </p>
                       <Popconfirm
-                        title="确认切换为本机模式？将清除远程连接并进入 Agent 安装引导。"
-                        confirmText="确认切换"
+                        title={t('settings.switchToLocalConfirm')}
+                        confirmText={t('settings.switchToLocalConfirmBtn')}
                         onConfirm={handleSwitchToLocal}
                       >
                         <button
@@ -819,147 +855,39 @@ export default function SettingsScreen(): React.ReactElement {
                           className="mt-3 flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                         >
                           <Monitor size={14} />
-                          切换为本机模式
+                          {t('settings.switchToLocal')}
                         </button>
                       </Popconfirm>
                     </div>
                   </div>
                   )}
 
-                  {deploymentMode === 'local' && (
                   <div className="border-t border-[var(--border)] pt-4 mt-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-                          <Globe size={15} /> 内置 Web 服务
-                        </h4>
-                        <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                          开启后，员工详情中启用 Web 访问的员工可以生成嵌入式聊天入口。
-                        </p>
-                        {webServerStatus?.running && (
-                          <p className="mt-2 truncate text-xs text-[var(--accent)]">{webServerStatus.url}</p>
-                        )}
-                        {webServerStatus?.error && (
-                          <p className="mt-2 text-xs text-[var(--danger)]">{webServerStatus.error}</p>
-                        )}
-                      </div>
-                      <label className="tools-toggle shrink-0">
-                        <input
-                          type="checkbox"
-                          checked={webServerStatus?.enabled === true}
-                          disabled={webServerSaving}
-                          onChange={(e) => handleToggleWebServer(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <span className={`tools-toggle-track ${webServerStatus?.enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
-                      </label>
-                    </div>
-                    <div className="mt-4 flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={webServerPort}
-                        min={1024}
-                        max={65535}
-                        disabled={webServerSaving}
-                        onChange={(e) => setWebServerPort(Number(e.target.value) || 8787)}
-                        className="w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
-                      />
-                      <button
-                        onClick={handleSaveWebServerPort}
-                        disabled={webServerSaving}
-                        className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
-                      >
-                        {webServerSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                        保存 Web 配置
-                      </button>
-                      <span className="text-xs text-[var(--text-dim)]">
-                        状态：{webServerStatus?.running ? '运行中' : '未运行'}
-                      </span>
-                    </div>
-                  </div>
-                  )}
-
-                  {deploymentMode === 'local' && (
-                  <div className="border-t border-[var(--border)] pt-4 mt-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-                          <Globe size={15} /> 允许远程连接
-                        </h4>
-                        <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                          开启后，其他 Hermes 客户端可通过 API Token 远程管理本机员工。
-                        </p>
-                      </div>
-                      <label className="tools-toggle shrink-0">
-                        <input
-                          type="checkbox"
-                          checked={remoteServerEnabled}
-                          disabled={remoteServerSaving}
-                          onChange={(e) => handleToggleRemoteServer(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <span className={`tools-toggle-track ${remoteServerEnabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
-                      </label>
-                    </div>
-                    {remoteServerEnabled && remoteServerToken && (
-                      <div className="mt-4 space-y-2">
-                        <label className="text-xs text-[var(--text-dim)]">API Token（提供给远程客户端）</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            readOnly
-                            value={remoteServerToken}
-                            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] outline-none"
-                          />
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(remoteServerToken)
-                              showToast('已复制 Token')
-                            }}
-                            className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-                          >
-                            <Copy size={12} /> 复制
-                          </button>
-                          <button
-                            onClick={handleRotateRemoteToken}
-                            disabled={remoteServerSaving}
-                            className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
-                          >
-                            {remoteServerSaving ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                            轮换
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  )}
-
-                  <div className="border-t border-[var(--border)] pt-4 mt-4">
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-3">修改密码</h4>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-3">{t('settings.changePassword')}</h4>
                     <div className="space-y-3">
                       <input
                         type="password"
                         value={oldPassword}
                         onChange={(e) => setOldPassword(e.target.value)}
-                        placeholder="当前密码"
+                        placeholder={t('settings.currentPassword')}
                         className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                       />
                       <input
                         type="password"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="新密码（至少 4 个字符）"
+                        placeholder={t('settings.newPassword')}
                         className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                       />
                       <input
                         type="password"
                         value={confirmNewPassword}
                         onChange={(e) => setConfirmNewPassword(e.target.value)}
-                        placeholder="确认新密码"
+                        placeholder={t('settings.confirmPassword')}
                         className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                       />
                       {confirmNewPassword && newPassword !== confirmNewPassword && (
-                        <p className="text-xs text-[var(--danger)]">两次密码不一致</p>
+                        <p className="text-xs text-[var(--danger)]">{t('settings.passwordMismatch')}</p>
                       )}
                       {changePasswordResult && (
                         <p className={`text-xs ${changePasswordResult.success ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{changePasswordResult.message}</p>
@@ -970,7 +898,7 @@ export default function SettingsScreen(): React.ReactElement {
                         className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {changingPassword ? <Loader2 size={14} className="animate-spin" /> : <LockIcon size={14} />}
-                        {changingPassword ? '修改中...' : '修改密码'}
+                        {changingPassword ? t('settings.changingPassword') : t('settings.changePassword')}
                       </button>
                     </div>
                   </div>
@@ -992,14 +920,14 @@ export default function SettingsScreen(): React.ReactElement {
                     ) : (
                       <Save size={16} />
                     )}
-                    {saving ? '保存中...' : saveResult === 'success' ? '✓ 已保存' : saveResult === 'error' ? '保存失败' : '保存设置'}
+                    {saving ? t('common.saving') : saveResult === 'success' ? t('settings.saveSettingsSuccess') : saveResult === 'error' ? t('common.saveFailed') : t('settings.saveSettings')}
                   </button>
                   )}
                   <button
                     onClick={handleLogout}
                     className="flex items-center gap-2 rounded-lg border border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.1)] px-5 py-2.5 text-sm font-medium text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.15)]"
                   >
-                    <LogOut size={16} /> 退出登录
+                    <LogOut size={16} /> {t('common.logoutTitle')}
                   </button>
                 </div>
               </section>
@@ -1007,7 +935,7 @@ export default function SettingsScreen(): React.ReactElement {
 
             {section === 'appearance' && (
               <section className="animate-fade-in">
-                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">外观</h3>
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{t('settings.sections.appearance')}</h3>
                 <div className="space-y-6">
                   <div>
                     <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{lexicon.appearance.themePack}</h4>
@@ -1038,10 +966,10 @@ export default function SettingsScreen(): React.ReactElement {
                             </div>
                             <div>
                               <div className={`text-sm font-semibold ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
-                                {preset.label}
+                                {preset.id === 'classic' ? t('themePreset.classic.label') : preset.label}
                               </div>
                               <div className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                                {preset.desc}
+                                {preset.id === 'classic' ? t('themePreset.classic.desc') : preset.desc}
                               </div>
                             </div>
                           </button>
@@ -1052,9 +980,9 @@ export default function SettingsScreen(): React.ReactElement {
                   </div>
 
                   <div>
-                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">模式</h4>
+                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t('appearance.mode')}</h4>
                     <div className="grid grid-cols-3 gap-3">
-                      {MODE_OPTIONS.map((opt) => {
+                      {modeOptions.map((opt) => {
                         const isActive = mode === opt.value
                         return (
                           <button
@@ -1086,10 +1014,10 @@ export default function SettingsScreen(): React.ReactElement {
                   </div>
 
                   <div>
-                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">主题色</h4>
+                    <h4 className="mb-3 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t('appearance.accentColor')}</h4>
                     <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
                       <div className="flex items-center gap-4 flex-wrap">
-                        {ACCENT_OPTIONS.map((opt) => {
+                        {accentOptions.map((opt) => {
                           const isActive = accent === opt.value
                           return (
                             <button
@@ -1127,17 +1055,17 @@ export default function SettingsScreen(): React.ReactElement {
 
             {section === 'runtime' && (
               <section className="animate-fade-in">
-                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">运行参数</h3>
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{t('settings.sections.runtime')}</h3>
                 <div className="space-y-4">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 flex items-start gap-3">
                     <Wrench size={18} className="text-[var(--accent)] shrink-0 mt-0.5" />
                     <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                      这些参数对所有员工<strong className="text-[var(--text-primary)]">全局生效</strong>，包括记忆、压缩、终端、代码执行、浏览器和会话重置策略。
+                      {t('settings.runtimeIntro')}
                     </div>
                   </div>
                   {(() => {
                     const groups: { name: string; fields: ConfigFieldDef[] }[] = []
-                    for (const f of GLOBAL_CONFIG_FIELDS) {
+                    for (const f of globalConfigFields) {
                       const g = groups.find(g => g.name === f.group)
                       if (g) g.fields.push(f)
                       else groups.push({ name: f.group, fields: [f] })
@@ -1166,7 +1094,7 @@ export default function SettingsScreen(): React.ReactElement {
                                       onChange={(e) => updateRuntimeField(field.key, e.target.value)}
                                       className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)] cursor-pointer"
                                     >
-                                      <option value="">默认</option>
+                                      <option value="">{t('common.default')}</option>
                                       {field.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                                     </select>
                                   ) : (
@@ -1190,10 +1118,10 @@ export default function SettingsScreen(): React.ReactElement {
                     ))
                   })()}
                   <div className="flex gap-2 justify-end">
-                    <button onClick={() => setRuntimeObj(JSON.parse(JSON.stringify(runtimeOriginal)))} className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] px-3.5 py-2 text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">重置</button>
+                    <button onClick={() => setRuntimeObj(JSON.parse(JSON.stringify(runtimeOriginal)))} className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] px-3.5 py-2 text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-all">{t('common.reset')}</button>
                     <button onClick={handleSaveRuntime} disabled={runtimeSaving} className="flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3.5 py-2 text-sm font-semibold text-white cursor-pointer hover:opacity-90 disabled:opacity-40 transition-all">
                       {runtimeSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                      {runtimeSaving ? '保存中...' : '保存'}
+                      {runtimeSaving ? t('common.saving') : t('common.save')}
                     </button>
                   </div>
                 </div>
@@ -1203,23 +1131,23 @@ export default function SettingsScreen(): React.ReactElement {
             {section === 'models' && (
               <section className="animate-fade-in">
                 <div className="mb-5 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">模型管理</h3>
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">{t('settings.sections.models')}</h3>
                   <button
                     onClick={openAddModel}
                     className="flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
                   >
-                    <Plus size={14} /> 添加模型
+                    <Plus size={14} /> {t('settings.addModel')}
                   </button>
                 </div>
 
                 {modelFormVisible && (
                   <div className="mb-5 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
                     <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
-                      {editingModelId ? '编辑模型' : '添加模型'}
+                      {editingModelId ? t('settings.editModel') : t('settings.addModel')}
                     </h4>
                     <div className="space-y-4">
                       <div>
-                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">服务商 *</label>
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.providerRequiredLabel')}</label>
                         <select
                           value={modelFormProvider}
                           onChange={(e) => {
@@ -1236,31 +1164,31 @@ export default function SettingsScreen(): React.ReactElement {
                           }}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                         >
-                          <option value="">选择服务商</option>
+                          <option value="">{t('settings.chooseProvider')}</option>
                           {PROVIDER_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                          <option value="_custom">自定义...</option>
+                          <option value="_custom">{t('settings.customProviderOption')}</option>
                         </select>
                       </div>
                       {modelFormProvider === '_custom' && (
                         <div>
-                          <label className="mb-1.5 text-sm text-[var(--text-secondary)]">自定义服务商名称 *</label>
+                          <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.customProviderName')}</label>
                           <input
                             type="text"
                             value={modelFormCustomProvider}
                             onChange={(e) => setModelFormCustomProvider(e.target.value)}
-                            placeholder="例如: openai、anthropic"
+                            placeholder={t('settings.providerExample')}
                             className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                           />
                         </div>
                       )}
                       {modelFormProvider === '_custom' && (
                         <div>
-                          <label className="mb-1.5 text-sm text-[var(--text-secondary)]">模型 ID *</label>
+                          <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.modelId')} *</label>
                           <input
                             type="text"
                             value={modelFormModel}
                             onChange={(e) => setModelFormModel(e.target.value)}
-                            placeholder="例如: gpt-4o、claude-sonnet-4-20250514"
+                            placeholder={t('settings.modelExample')}
                             className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                           />
                         </div>
@@ -1269,7 +1197,7 @@ export default function SettingsScreen(): React.ReactElement {
                         const preset = PROVIDER_PRESETS.find(p => p.id === modelFormProvider)
                         return preset ? (
                           <div>
-                            <label className="mb-1.5 text-sm text-[var(--text-secondary)]">模型 *</label>
+                            <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.modelRequiredLabel')}</label>
                             <select
                               value={preset.models.some(m => m.id === modelFormModel) ? modelFormModel : '_custom'}
                               onChange={(e) => {
@@ -1285,19 +1213,19 @@ export default function SettingsScreen(): React.ReactElement {
                               }}
                               className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                             >
-                              <option value="">选择模型</option>
+                              <option value="">{t('settings.chooseModel')}</option>
                               {preset.models.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                              <option value="_custom">自定义模型 ID...</option>
+                              <option value="_custom">{t('settings.customModelIdOption')}</option>
                             </select>
                           </div>
                         ) : (
                           <div>
-                            <label className="mb-1.5 text-sm text-[var(--text-secondary)]">模型 ID *</label>
+                            <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.modelId')} *</label>
                             <input
                               type="text"
                               value={modelFormModel}
                               onChange={(e) => setModelFormModel(e.target.value)}
-                              placeholder="例如: deepseek-chat"
+                              placeholder={t('settings.modelExampleDeepseek')}
                               className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                             />
                           </div>
@@ -1308,24 +1236,24 @@ export default function SettingsScreen(): React.ReactElement {
                         const isCustomModel = preset && !preset.models.some(m => m.id === modelFormModel)
                         return isCustomModel ? (
                           <div>
-                            <label className="mb-1.5 text-sm text-[var(--text-secondary)]">自定义模型 ID</label>
+                            <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.customModelId')}</label>
                             <input
                               type="text"
                               value={modelFormModel}
                               onChange={(e) => setModelFormModel(e.target.value)}
-                              placeholder="输入模型 ID"
+                              placeholder={t('settings.customModelIdPlaceholder')}
                               className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                             />
                           </div>
                         ) : null
                       })()}
                       <div>
-                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">显示名称</label>
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.displayName')}</label>
                         <input
                           type="text"
                           value={modelFormName}
                           onChange={(e) => setModelFormName(e.target.value)}
-                          placeholder="留空则使用模型名称"
+                          placeholder={t('settings.displayNamePlaceholder')}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                         />
                       </div>
@@ -1341,27 +1269,27 @@ export default function SettingsScreen(): React.ReactElement {
                         {(() => {
                           const preset = PROVIDER_PRESETS.find(p => p.id === modelFormProvider)
                           if (preset && modelFormBaseUrl === preset.baseUrl) {
-                            return <p className="mt-1 text-xs text-[var(--text-dim)]">已自动填充 {preset.label} 的 API 地址</p>
+                            return <p className="mt-1 text-xs text-[var(--text-dim)]">{t('settings.apiUrlAutoFilled', { provider: preset.label })}</p>
                           }
                           return null
                         })()}
                       </div>
                       <div>
-                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">API 密钥</label>
+                        <label className="mb-1.5 text-sm text-[var(--text-secondary)]">{t('settings.apiKeyLabel')}</label>
                         <input
                           type="password"
                           value={modelFormApiKey}
                           onChange={(e) => setModelFormApiKey(e.target.value)}
                           placeholder={(() => {
                             const preset = PROVIDER_PRESETS.find(p => p.id === modelFormProvider)
-                            return preset ? `输入 ${preset.apiKeyLabel}` : 'sk-...'
+                            return preset ? t('settings.apiKeyInputPlaceholder', { label: preset.apiKeyLabel }) : 'sk-...'
                           })()}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                         />
                         {(() => {
                           const preset = PROVIDER_PRESETS.find(p => p.id === modelFormProvider)
                           if (preset) {
-                            return <p className="mt-1 text-xs text-[var(--text-dim)]">将写入员工 .env 文件中的 {preset.apiKeyEnv}</p>
+                            return <p className="mt-1 text-xs text-[var(--text-dim)]">{t('settings.apiKeyEnvHint', { env: preset.apiKeyEnv })}</p>
                           }
                           return null
                         })()}
@@ -1378,13 +1306,13 @@ export default function SettingsScreen(): React.ReactElement {
                           className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
                         >
                           {modelFormSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                          {modelFormSaving ? '保存中...' : '保存'}
+                          {modelFormSaving ? t('common.saving') : t('common.save')}
                         </button>
                         <button
                           onClick={closeModelForm}
                           className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
                         >
-                          取消
+                          {t('common.cancel')}
                         </button>
                       </div>
                     </div>
@@ -1394,8 +1322,8 @@ export default function SettingsScreen(): React.ReactElement {
                 {savedModels.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] p-8 text-center">
                     <Box size={32} className="mx-auto mb-3 text-[var(--text-dim)]" />
-                    <p className="text-sm text-[var(--text-dim)]">暂无模型配置</p>
-                    <p className="mt-1 text-xs text-[var(--text-dim)]">点击「添加模型」来添加可用的 AI 模型</p>
+                    <p className="text-sm text-[var(--text-dim)]">{t('settings.noModels')}</p>
+                    <p className="mt-1 text-xs text-[var(--text-dim)]">{t('settings.noModelsHint')}</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -1423,14 +1351,14 @@ export default function SettingsScreen(): React.ReactElement {
                             <button
                               onClick={() => openEditModel(m)}
                               className="rounded-lg p-1.5 text-[var(--text-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                              title="编辑"
+                              title={t('common.edit')}
                             >
                               <Pencil size={14} />
                             </button>
-                            <Popconfirm title="确认删除此模型配置？" onConfirm={() => handleDeleteModel(m.id)}>
+                            <Popconfirm title={t('settings.deleteModelConfirm')} onConfirm={() => handleDeleteModel(m.id)}>
                               <button
                                 className="rounded-lg p-1.5 text-[var(--text-dim)] transition-colors hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)]"
-                                title="删除"
+                                title={t('common.delete')}
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -1446,19 +1374,128 @@ export default function SettingsScreen(): React.ReactElement {
 
             {section === 'engine' && (
               <section className="animate-fade-in">
-                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">更新与引擎</h3>
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{t('settings.engineAndUpdate')}</h3>
 
                 <div className="space-y-5">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
                     <div className="flex items-center gap-2 mb-4">
-                      <ArrowUpCircle size={16} className="text-[var(--accent)]" />
-                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">落云.Hermes 桌面端</h4>
-                      <span className="text-xs text-[var(--text-dim)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">应用本身</span>
+                      <Globe size={16} className="text-[var(--accent)]" />
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.serverNetwork')}</h4>
                     </div>
-                    <p className="text-xs text-[var(--text-dim)] mb-3">桌面应用的版本更新，包含界面功能改进和问题修复</p>
+
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h5 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                          {t('settings.builtinWebServer')}
+                        </h5>
+                        <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                          {t('settings.builtinWebServerDesc')}
+                        </p>
+                        {webServerStatus?.running && (
+                          <p className="mt-2 truncate text-xs text-[var(--accent)]">{webServerStatus.url}</p>
+                        )}
+                        {webServerStatus?.error && (
+                          <p className="mt-2 text-xs text-[var(--danger)]">{translateError(webServerStatus.error, t)}</p>
+                        )}
+                      </div>
+                      <label className="tools-toggle shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={webServerStatus?.enabled === true}
+                          disabled={webServerSaving}
+                          onChange={(e) => handleToggleWebServer(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <span className={`tools-toggle-track ${webServerStatus?.enabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
+                      </label>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={webServerPort}
+                        min={1024}
+                        max={65535}
+                        disabled={webServerSaving}
+                        onChange={(e) => setWebServerPort(Number(e.target.value) || 8787)}
+                        className="w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                      />
+                      <button
+                        onClick={handleSaveWebServerPort}
+                        disabled={webServerSaving}
+                        className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3.5 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
+                      >
+                        {webServerSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                        {t('settings.saveWebConfig')}
+                      </button>
+                      <span className="text-xs text-[var(--text-dim)]">
+                        {t('settings.webServerStatus', { status: webServerStatus?.running ? t('settings.webServerRunning') : t('settings.webServerStopped') })}
+                      </span>
+                    </div>
+
+                    <div className="border-t border-[var(--border)] pt-4 mt-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <h5 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                            {t('settings.allowRemoteConnection')}
+                          </h5>
+                          <p className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
+                            {t('settings.allowRemoteConnectionDesc')}
+                          </p>
+                        </div>
+                        <label className="tools-toggle shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={remoteServerEnabled}
+                            disabled={remoteServerSaving}
+                            onChange={(e) => handleToggleRemoteServer(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <span className={`tools-toggle-track ${remoteServerEnabled ? 'bg-[var(--accent)] border-[var(--accent)] after:bg-white' : ''}`} />
+                        </label>
+                      </div>
+                      {remoteServerEnabled && remoteServerToken && (
+                        <div className="mt-4 space-y-2">
+                          <label className="text-xs text-[var(--text-dim)]">{t('settings.apiTokenForRemote')}</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              readOnly
+                              value={remoteServerToken}
+                              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] outline-none"
+                            />
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(remoteServerToken)
+                                showToast(t('settings.tokenCopied'))
+                              }}
+                              className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                            >
+                              <Copy size={12} /> {t('common.copy')}
+                            </button>
+                            <button
+                              onClick={handleRotateRemoteToken}
+                              disabled={remoteServerSaving}
+                              className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                            >
+                              {remoteServerSaving ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                              {t('settings.rotate')}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <ArrowUpCircle size={16} className="text-[var(--accent)]" />
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.desktopApp')}</h4>
+                      <span className="text-xs text-[var(--text-dim)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">{t('settings.appItself')}</span>
+                    </div>
+                    <p className="text-xs text-[var(--text-dim)] mb-3">{t('settings.desktopAppDesc')}</p>
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="text-xs text-[var(--text-dim)]">当前版本</span>
+                        <span className="text-xs text-[var(--text-dim)]">{t('settings.currentVersion')}</span>
                         <div className="text-sm text-[var(--text-primary)] mt-0.5">v{appVersion || '—'}</div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1467,22 +1504,22 @@ export default function SettingsScreen(): React.ReactElement {
                             onClick={() => { setAppUpdateStatus('checking'); window.hermesAPI.checkAppUpdate() }}
                             className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                           >
-                            <ArrowUpCircle size={14} /> 检查更新
+                            <ArrowUpCircle size={14} /> {t('settings.checkUpdate')}
                           </button>
                         )}
                         {appUpdateStatus === 'checking' && (
                           <span className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
-                            <Loader2 size={14} className="animate-spin" /> 检查中...
+                            <Loader2 size={14} className="animate-spin" /> {t('settings.checkingUpdate')}
                           </span>
                         )}
                         {appUpdateStatus === 'available' && (
                           <>
-                            <span className="text-sm text-[var(--accent)]">发现新版本 v{appUpdateVersion}</span>
+                            <span className="text-sm text-[var(--accent)]">{t('settings.newVersionFound', { version: appUpdateVersion })}</span>
                             <button
                               onClick={() => { setAppUpdateStatus('downloading'); setAppUpdatePercent(0); window.hermesAPI.downloadAppUpdate() }}
                               className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
                             >
-                              <Download size={14} /> 下载更新
+                              <Download size={14} /> {t('settings.downloadUpdate')}
                             </button>
                           </>
                         )}
@@ -1499,12 +1536,12 @@ export default function SettingsScreen(): React.ReactElement {
                             onClick={() => window.hermesAPI.installAppUpdate()}
                             className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
                           >
-                            <RefreshCw size={14} /> 重启安装
+                            <RefreshCw size={14} /> {t('settings.restartInstall')}
                           </button>
                         )}
                         {appUpdateStatus === 'not-available' && (
                           <span className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
-                            <Check size={14} /> 已是最新版本
+                            <Check size={14} /> {t('settings.upToDate')}
                           </span>
                         )}
                         {appUpdateStatus === 'error' && (
@@ -1517,19 +1554,19 @@ export default function SettingsScreen(): React.ReactElement {
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
                     <div className="flex items-center gap-2 mb-4">
                       <Terminal size={16} className="text-[var(--accent)]" />
-                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">Hermes Agent 引擎</h4>
-                      <span className="text-xs text-[var(--text-dim)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">AI 后端</span>
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]">{t('settings.hermesAgentEngine')}</h4>
+                      <span className="text-xs text-[var(--text-dim)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">{t('settings.aiBackend')}</span>
                     </div>
-                    <p className="text-xs text-[var(--text-dim)] mb-3">AI 员工的运行引擎，负责对话推理和工具调用</p>
+                    <p className="text-xs text-[var(--text-dim)] mb-3">{t('settings.engineDesc')}</p>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                       <div>
-                        <span className="text-xs text-[var(--text-dim)]">引擎版本</span>
+                        <span className="text-xs text-[var(--text-dim)]">{t('settings.hermesVersion')}</span>
                         <div className="text-sm text-[var(--text-primary)] mt-0.5">
-                          {hermesVersion === null || hermesVersionRefreshing ? '检测中...' : parsedVersion ? `v${parsedVersion.version}` : '未检测到'}
+                          {hermesVersion === null || hermesVersionRefreshing ? t('settings.detecting') : parsedVersion ? `v${parsedVersion.version}` : t('settings.notDetected')}
                         </div>
                       </div>
                       <div>
-                        <span className="text-xs text-[var(--text-dim)]">发布日期</span>
+                        <span className="text-xs text-[var(--text-dim)]">{t('settings.releaseDate')}</span>
                         <div className="text-sm text-[var(--text-primary)] mt-0.5">
                           {parsedVersion?.date || '—'}
                         </div>
@@ -1547,7 +1584,7 @@ export default function SettingsScreen(): React.ReactElement {
                         </div>
                       </div>
                       <div>
-                        <span className="text-xs text-[var(--text-dim)]">引擎提交</span>
+                        <span className="text-xs text-[var(--text-dim)]">{t('settings.engineCommit')}</span>
                         <div className="text-sm text-[var(--text-primary)] mt-0.5 font-mono">
                           {parsedVersion?.commit || '—'}
                         </div>
@@ -1555,7 +1592,7 @@ export default function SettingsScreen(): React.ReactElement {
                     </div>
                     {parsedVersion?.updateInfo && (
                       <div className="mt-3 rounded-lg bg-[rgba(124,106,239,0.1)] border border-[rgba(124,106,239,0.2)] px-3 py-2 text-sm text-[var(--accent)]">
-                        有新版本可用：{parsedVersion.updateInfo}
+                        {t('settings.newVersionAvailable', { info: parsedVersion.updateInfo })}
                       </div>
                     )}
 
@@ -1568,11 +1605,11 @@ export default function SettingsScreen(): React.ReactElement {
                             className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
                           >
                             {updating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                            {updating ? '更新中...' : '更新引擎'}
+                            {updating ? t('settings.updating') : t('settings.updateEngine')}
                           </button>
                         ) : parsedVersion?.isUpToDate ? (
                           <button className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-dim)] cursor-not-allowed" disabled>
-                            <Check size={14} /> 已是最新版本
+                            <Check size={14} /> {t('settings.upToDate')}
                           </button>
                         ) : (
                           <button
@@ -1581,7 +1618,7 @@ export default function SettingsScreen(): React.ReactElement {
                             className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
                           >
                             {updating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                            {updating ? '更新中...' : '更新引擎'}
+                            {updating ? t('settings.updating') : t('settings.updateEngine')}
                           </button>
                         )}
                         <button
@@ -1590,24 +1627,24 @@ export default function SettingsScreen(): React.ReactElement {
                           className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
                         >
                           {doctorRunning ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
-                          {doctorRunning ? '诊断中...' : '运行诊断'}
+                          {doctorRunning ? t('settings.runningDoctor') : t('settings.runDoctor')}
                         </button>
-                        <Popconfirm title="重启引擎将中断所有正在运行的对话和任务，确定继续？" confirmText="重启引擎" onConfirm={handleRestartEngines}>
+                        <Popconfirm title={t('settings.restartEngineConfirm')} confirmText={t('settings.restartEngineConfirmBtn')} onConfirm={handleRestartEngines}>
                           <button
                             disabled={restartingEngines}
                             className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
                           >
                             {restartingEngines ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                            {restartingEngines ? '重启中...' : '重启引擎'}
+                            {restartingEngines ? t('settings.restarting') : t('settings.restartEngine')}
                           </button>
                         </Popconfirm>
-                        <Popconfirm title="重新安装将重新拉取并校验当前引擎，优先复用已有虚拟环境和依赖缓存；过程中所有正在运行的任务将被中断。确定继续？" confirmText="重新安装" onConfirm={handleReinstall}>
+                        <Popconfirm title={t('settings.reinstallConfirm')} confirmText={t('settings.reinstallConfirmBtn')} onConfirm={handleReinstall}>
                           <button
                             disabled={reinstalling}
                             className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[rgba(239,68,68,0.1)] border-[rgba(239,68,68,0.3)] px-4 py-2 text-sm text-[var(--danger)] transition-colors hover:bg-[rgba(239,68,68,0.2)] disabled:opacity-50"
                           >
                             {reinstalling ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
-                            {reinstalling ? '安装中...' : '重新安装'}
+                            {reinstalling ? t('settings.reinstalling') : t('settings.reinstallEngine')}
                           </button>
                         </Popconfirm>
                       </div>
@@ -1641,34 +1678,34 @@ export default function SettingsScreen(): React.ReactElement {
 
             {section === 'data' && (
               <section className="animate-fade-in">
-                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">数据管理</h3>
+                <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{t('settings.sections.data')}</h3>
 
                 <div className="space-y-5">
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">导出备份</h4>
-                    <p className="text-xs text-[var(--text-dim)] mb-4">将桌面端数据库和 Hermes 数据一起备份。备份文件保存在 ~/.hermes/backups/ 目录。</p>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">{t('settings.exportBackup')}</h4>
+                    <p className="text-xs text-[var(--text-dim)] mb-4">{t('settings.exportBackupDesc')}</p>
                     <button
                       onClick={handleBackup}
                       disabled={backingUp}
                       className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
                     >
                       {backingUp ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                      {backingUp ? '备份中...' : '导出备份'}
+                      {backingUp ? t('settings.backingUp') : t('settings.exportBackup')}
                     </button>
                   </div>
 
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">导入备份</h4>
-                    <p className="text-xs text-[var(--text-dim)] mb-4">从桌面端 JSON、ZIP 或 TAR.GZ 备份文件恢复数据。导入将覆盖现有配置，请谨慎操作。</p>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">{t('settings.importBackup')}</h4>
+                    <p className="text-xs text-[var(--text-dim)] mb-4">{t('settings.importBackupDesc')}</p>
                     {importConfirm ? (
                       <div className="flex items-center gap-3 p-3 rounded-lg bg-[rgba(245,158,11,0.1)] border border-[rgba(245,158,11,0.3)]">
                         <AlertTriangle size={16} className="text-[var(--warning)] shrink-0" />
-                        <span className="text-sm text-[var(--warning)]">导入将覆盖现有数据，确定继续？</span>
+                        <span className="text-sm text-[var(--warning)]">{t('settings.importOverwriteWarning')}</span>
                         <button onClick={confirmImport} disabled={importing} className="rounded-lg bg-[var(--warning)] px-3 py-1.5 text-sm text-white cursor-pointer hover:opacity-90 disabled:opacity-50">
-                          {importing ? '导入中...' : '确认导入'}
+                          {importing ? t('settings.importing') : t('settings.confirmImportBtn')}
                         </button>
                         <button onClick={() => setImportConfirm(false)} className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg-hover)]">
-                          取消
+                          {t('common.cancel')}
                         </button>
                       </div>
                     ) : (
@@ -1678,7 +1715,7 @@ export default function SettingsScreen(): React.ReactElement {
                         className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
                       >
                         {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                        {importing ? '导入中...' : '选择备份文件导入'}
+                        {importing ? t('settings.importing') : t('settings.selectBackupFile')}
                       </button>
                     )}
                   </div>
@@ -1703,12 +1740,13 @@ export default function SettingsScreen(): React.ReactElement {
 }
 
 const LOG_FILES = [
-  { key: 'agent.log', label: 'Agent', icon: Terminal, color: 'var(--accent)' },
-  { key: 'gateway.log', label: 'Gateway', icon: FileText, color: 'var(--info, #3b82f6)' },
-  { key: 'errors.log', label: '错误', icon: AlertCircle, color: 'var(--danger, #ef4444)' },
+  { key: 'agent.log', labelKey: 'settings.logsAgent' as const, icon: Terminal, color: 'var(--accent)' },
+  { key: 'gateway.log', labelKey: 'settings.logsGateway' as const, icon: FileText, color: 'var(--info, #3b82f6)' },
+  { key: 'errors.log', labelKey: 'settings.logsErrors' as const, icon: AlertCircle, color: 'var(--danger, #ef4444)' },
 ]
 
 function LogsSection(): React.ReactElement {
+  const { t } = useTranslation()
   const [activeLog, setActiveLog] = useState('agent.log')
   const [logContent, setLogContent] = useState('')
   const [logPath, setLogPath] = useState('')
@@ -1759,12 +1797,12 @@ function LogsSection(): React.ReactElement {
       const result = await window.hermesAPI?.clearLogs(activeLog)
       if (result?.success) {
         setLogContent('')
-        showToast('日志已清空')
+        showToast(t('settings.logCleared'))
         loadLogs(activeLog)
       } else {
-        showToast('清空日志失败', 'error')
+        showToast(t('settings.logClearFailed'), 'error')
       }
-    } catch { showToast('清空日志失败', 'error') }
+    } catch { showToast(t('settings.logClearFailed'), 'error') }
   }
 
   const parseLogLine = (line: string) => {
@@ -1793,8 +1831,8 @@ function LogsSection(): React.ReactElement {
     <section className="animate-fade-in">
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-[var(--text-primary)]">系统日志</h3>
-          <p className="text-xs text-[var(--text-dim)] mt-1 font-mono truncate max-w-md">{logPath || '加载中...'}</p>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">{t('settings.sections.logs')}</h3>
+          <p className="text-xs text-[var(--text-dim)] mt-1 font-mono truncate max-w-md">{logPath || t('common.loading')}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1805,17 +1843,17 @@ function LogsSection(): React.ReactElement {
                 : 'bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)]'
             }`}
           >
-            自动刷新
+            {t('settings.logsAutoRefresh')}
           </button>
-          <button onClick={handleCopy} disabled={!logContent} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-30" title="复制">
+          <button onClick={handleCopy} disabled={!logContent} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-30" title={t('common.copy')}>
             {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
           </button>
-          <Popconfirm title="确认清空当前日志？" confirmText="清空" onConfirm={handleClear}>
-            <button disabled={!logContent} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] transition-all disabled:opacity-30" title="清空">
+          <Popconfirm title={t('settings.clearLogConfirm')} confirmText={t('settings.clearLogConfirmBtn')} onConfirm={handleClear}>
+            <button disabled={!logContent} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[rgba(239,68,68,0.1)] hover:text-[var(--danger)] transition-all disabled:opacity-30" title={t('settings.clearLogConfirmBtn')}>
               <Trash2 size={14} />
             </button>
           </Popconfirm>
-          <button onClick={() => loadLogs()} disabled={loading} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-50" title="刷新">
+          <button onClick={() => loadLogs()} disabled={loading} className="p-1.5 rounded-lg bg-[var(--bg-surface)] text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-all disabled:opacity-50" title={t('common.refresh')}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -1836,21 +1874,21 @@ function LogsSection(): React.ReactElement {
               }`}
             >
               <Icon size={12} />
-              <span>{log.label}</span>
+              <span>{t(log.labelKey)}</span>
             </button>
           )
         })}
-        <span className="ml-auto text-[11px] text-[var(--text-dim)]">{lineCount} 行</span>
+        <span className="ml-auto text-[11px] text-[var(--text-dim)]">{t('settings.lineCount', { count: lineCount })}</span>
       </div>
 
       <div className="rounded-xl border border-[var(--border)] bg-[rgba(0,0,0,0.2)] overflow-hidden">
         <div className="h-[500px] overflow-auto px-4 py-3 font-mono text-xs leading-5">
           {loading && !logContent ? (
             <div className="flex items-center justify-center h-full text-[var(--text-dim)]">
-              <RefreshCw size={18} className="animate-spin mr-2" /> 加载中...
+              <RefreshCw size={18} className="animate-spin mr-2" /> {t('common.loading')}
             </div>
           ) : lineCount === 0 ? (
-            <div className="flex items-center justify-center h-full text-[var(--text-dim)]">暂无日志</div>
+            <div className="flex items-center justify-center h-full text-[var(--text-dim)]">{t('settings.noLogs')}</div>
           ) : (
             lines.map((line, i) => {
               const parsed = parseLogLine(line)

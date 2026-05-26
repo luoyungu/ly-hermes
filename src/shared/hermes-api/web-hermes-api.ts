@@ -180,6 +180,8 @@ export function createWebHermesAPI(baseUrl = ""): Record<string, unknown> {
       apiJson(root, "PUT", `/api/v1/employees/${encodeURIComponent(name)}/soul`, { content }),
     resetEmployeeSoul: async (name: string) =>
       apiJson(root, "POST", `/api/v1/employees/${encodeURIComponent(name)}/soul/reset`),
+    generateEmployeeSoulDraft: async (input: Record<string, unknown>) =>
+      apiJson(root, "POST", "/api/v1/employees/soul-draft", input),
     getEmployeeConfig: async (name: string) => {
       const data = await apiJson<{ config: Record<string, unknown> }>(root, "GET", `/api/v1/employees/${encodeURIComponent(name)}/config`);
       return data.config;
@@ -415,8 +417,14 @@ export function createWebHermesAPI(baseUrl = ""): Record<string, unknown> {
     addSavedModel: async (name: string, provider: string, model: string, baseUrl: string, apiKey: string) =>
       invokeLocal(root, "add-saved-model", [name, provider, model, baseUrl, apiKey]),
     removeSavedModel: async (id: string) => invokeLocal(root, "remove-saved-model", [id]),
-    updateSavedModel: async (id: string, updates: Record<string, unknown>) =>
-      invokeLocal(root, "update-saved-model", [id, updates]),
+    updateSavedModel: async (
+      id: string,
+      name: string,
+      provider: string,
+      model: string,
+      baseUrl: string,
+      apiKey: string,
+    ) => invokeLocal(root, "update-saved-model", [id, name, provider, model, baseUrl, apiKey]),
     applySavedModel: async (id: string, profile?: string) =>
       invokeLocal(root, "apply-saved-model", profile ? [id, profile] : [id]),
     getConfig: async () => invokeLocal(root, "get-config"),
@@ -437,13 +445,15 @@ export function createWebHermesAPI(baseUrl = ""): Record<string, unknown> {
     setAccentColor: async (accent: string) => invokeLocal(root, "set-accent-color", [accent]),
     getUiTheme: async () => invokeLocal(root, "get-ui-theme"),
     setUiTheme: async (theme: string) => invokeLocal(root, "set-ui-theme", [theme]),
+    getLanguage: async () => invokeLocal(root, "get-language"),
+    setLanguage: async (language: string) => invokeLocal(root, "set-language", [language]),
     readLogs: async (logFile?: string, lines?: number) => invokeLocal(root, "read-logs", [logFile, lines]),
     clearLogs: async (logFile?: string) => invokeLocal(root, "clear-logs", [logFile ? logFile : undefined]),
     getAppConfig: async () => invokeLocal(root, "get-app-config"),
     setAppConfig: async (config: unknown) => invokeLocal(root, "set-app-config", [config]),
     getRuntimeConfig: async () => invokeLocal(root, "get-runtime-config"),
     setRuntimeConfig: async (config: unknown) => invokeLocal(root, "set-runtime-config", [config]),
-    saveWallpaperFile: async () => ({ success: false }),
+    saveWallpaperFile: async (dataUrl: string) => invokeLocal(root, "save-wallpaper-file", [dataUrl]),
     getHermesVersion: async () => invokeLocal(root, "get-hermes-version"),
     refreshHermesVersion: async () => invokeLocal(root, "refresh-hermes-version"),
     runHermesDoctor: async () => invokeLocal(root, "run-hermes-doctor"),

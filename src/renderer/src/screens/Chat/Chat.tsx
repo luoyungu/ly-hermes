@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { usePlatform } from '../../hooks/usePlatform'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -11,7 +13,9 @@ import type { EmployeeInfo, SkillInfo, ChatUsage, ApprovalRequest, MemoryData, S
 import type { Attachment } from '../../../../shared/attachments'
 import { showToast } from '../../App'
 import logoImg from '../../assets/logo.png'
-import { mapStatus, TOOL_META, ALL_TOOLS } from '../../shared/employee-shared'
+import { mapStatus, statusColor, statusDotClass, ALL_TOOLS, useEmployeeShared } from '../../shared/employee-shared'
+import { translateError } from '../../../../shared/i18n'
+import i18n from '../../../../shared/i18n'
 import InteractivePet from '../../components/InteractivePet'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
@@ -107,7 +111,7 @@ function getMessageKey(m: Record<string, unknown>): string {
 }
 
 function extractToolResultSnippet(raw: string): string {
-  if (!raw) return '已完成'
+  if (!raw) return i18n.t('common.done')
   try {
     const p = JSON.parse(raw)
     if (p.success === true) {
@@ -142,7 +146,7 @@ function extractToolResultSnippet(raw: string): string {
 function isLowValueToolResult(result?: string): boolean {
   const text = (result || '').trim()
   if (!text) return true
-  return ['已完成', '等待中...', '(no output)', 'null', 'undefined'].includes(text)
+  return [i18n.t('common.done'), i18n.t('common.waiting'), '(no output)', 'null', 'undefined'].includes(text)
 }
 
 function summarizeToolCalls(toolCalls: ToolCallInfo[]): string {
@@ -299,7 +303,7 @@ function parseSessionMessages(messages: Array<Record<string, unknown>>, sessionI
                 name: String(fn.name || tc.name || 'unknown'),
                 args: fn.arguments ? String(fn.arguments) : undefined,
                 status: 'done' as const,
-                result: rawResult ? extractToolResultSnippet(rawResult) : '已完成',
+                result: rawResult ? extractToolResultSnippet(rawResult) : i18n.t('common.done'),
               }
             })
           }
@@ -374,52 +378,60 @@ const DEFAULT_STREAM: EmployeeStreamState = {
   messageQueue: []
 }
 
-const SLASH_COMMANDS = [
-  { cmd: '/new', desc: '开始新对话' },
-  { cmd: '/clear', desc: '清空当前对话' },
-  { cmd: '/help', desc: '显示帮助信息' },
-  { cmd: '/web', desc: '搜索互联网' },
-  { cmd: '/image', desc: '生成图片' },
-  { cmd: '/code', desc: '执行代码' },
-  { cmd: '/shell', desc: '执行终端命令' },
-  { cmd: '/model', desc: '查看/切换模型' },
-  { cmd: '/memory', desc: '查看记忆' },
-  { cmd: '/tools', desc: '查看工具列表' },
-  { cmd: '/skills', desc: '查看技能列表' },
-  { cmd: '/usage', desc: '查看用量统计' },
-  { cmd: '/compact', desc: '压缩对话上下文' },
-  { cmd: '/undo', desc: '撤销上一轮对话' },
-  { cmd: '/retry', desc: '重试上一条消息' },
-  { cmd: '/status', desc: '查看员工状态' },
-]
+const SLASH_COMMAND_KEYS = [
+  { cmd: '/new', key: 'new' },
+  { cmd: '/clear', key: 'clear' },
+  { cmd: '/help', key: 'help' },
+  { cmd: '/web', key: 'web' },
+  { cmd: '/image', key: 'image' },
+  { cmd: '/code', key: 'code' },
+  { cmd: '/shell', key: 'shell' },
+  { cmd: '/model', key: 'model' },
+  { cmd: '/memory', key: 'memory' },
+  { cmd: '/tools', key: 'tools' },
+  { cmd: '/skills', key: 'skills' },
+  { cmd: '/usage', key: 'usage' },
+  { cmd: '/compact', key: 'compact' },
+  { cmd: '/undo', key: 'undo' },
+  { cmd: '/retry', key: 'retry' },
+  { cmd: '/status', key: 'status' },
+] as const
 
-function mapSession(r: Record<string, unknown>): SessionDisplay {
+function getSlashCommands(t: TFunction): { cmd: string; desc: string }[] {
+  return SLASH_COMMAND_KEYS.map(item => ({
+    cmd: item.cmd,
+    desc: t(`chat.commands.${item.key}`),
+  }))
+}
+
+function mapSession(r: Record<string, unknown>, t: TFunction): SessionDisplay {
   const source = String(r.source || '')
   const rawStartedAt = Number(r.started_at || r.startedAt || 0)
   const startedAt = rawStartedAt > 0 && rawStartedAt < 100000000000 ? rawStartedAt * 1000 : rawStartedAt
   return {
     id: String(r.id || ''),
-    title: String(r.title || (source === 'cron' ? '日程执行结果' : '未命名会话')),
+    title: String(r.title || (source === 'cron' ? t('chat.cronResult') : t('chat.unnamedSession'))),
     startedAt,
     messageCount: Number(r.message_count || r.messageCount || 0),
     source
   }
 }
 
-function sessionSourceLabel(source?: string): string {
+function sessionSourceLabel(source: string | undefined, t: TFunction): string {
   const value = (source || '').toLowerCase()
   if (!value) return ''
-  if (value === 'cron' || value.includes('cron')) return '日程'
-  if (value.includes('feishu') || value.includes('lark')) return '飞书'
-  if (value.includes('weixin') || value.includes('wechat')) return '微信'
-  if (value.includes('dingtalk')) return '钉钉'
-  if (value.includes('platform') || value.includes('external')) return '外部'
+  if (value === 'cron' || value.includes('cron')) return t('chat.sourceCron')
+  if (value.includes('feishu') || value.includes('lark')) return t('chat.sourceFeishu')
+  if (value.includes('weixin') || value.includes('wechat')) return t('chat.sourceWechat')
+  if (value.includes('dingtalk')) return t('chat.sourceDingtalk')
+  if (value.includes('platform') || value.includes('external')) return t('chat.sourceExternal')
   return ''
 }
 
 function isExternalSessionSource(source?: string): boolean {
-  const label = sessionSourceLabel(source)
-  return !!label && label !== '日程'
+  const value = (source || '').toLowerCase()
+  if (!value || value === 'cron' || value.includes('cron')) return false
+  return !!(value.includes('feishu') || value.includes('lark') || value.includes('weixin') || value.includes('wechat') || value.includes('dingtalk') || value.includes('platform') || value.includes('external'))
 }
 
 function formatMessageTime(date: number | Date): string {
@@ -441,56 +453,34 @@ function formatNumber(n: number | null | undefined): string {
   return n.toString()
 }
 
-function formatDate(ts: number): string {
+function formatDate(ts: number, locale?: string): string {
   if (!ts) return '--'
   const d = new Date(ts)
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-function statusText(s: string): string {
-  if (s === 'awake') return '在线'
-  if (s === 'busy') return '忙碌...'
-  if (s === 'sleeping') return '离线'
-  if (s === 'error') return '异常'
-  return s || '未知'
-}
-
-function statusColor(s: string): string {
-  if (s === 'awake') return 'var(--success)'
-  if (s === 'busy') return 'var(--accent)'
-  if (s === 'sleeping') return 'var(--text-dim)'
-  if (s === 'error') return 'var(--danger)'
-  return 'var(--text-dim)'
-}
-
-function statusDotClass(s: string): string {
-  if (s === 'awake') return 'bg-[var(--success)] shadow-[0_0_8px_rgba(34,197,94,0.4)]'
-  if (s === 'busy') return 'bg-[var(--accent)] animate-pulse-custom'
-  if (s === 'sleeping') return 'bg-[var(--text-dim)]'
-  if (s === 'error') return 'bg-[var(--danger)] shadow-[0_0_8px_rgba(239,68,68,0.4)]'
-  return 'bg-[var(--text-dim)]'
+  return d.toLocaleString(locale || i18n.language, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function CopyButton({ text }: { text: string }): React.ReactElement {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const handleCopy = (): void => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
-      showToast('已复制到剪贴板', 'success')
+      showToast(t('chat.copiedToClipboard'), 'success')
       setTimeout(() => setCopied(false), 2000)
-    }).catch(() => showToast('复制失败', 'error'))
+    }).catch(() => showToast(t('common.copyFailed'), 'error'))
   }
   return (
-    <button onClick={handleCopy} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors p-0.5" title="复制">
+    <button onClick={handleCopy} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors p-0.5" title={t('common.copy')}>
       {copied ? <Check size={14} /> : <Copy size={14} />}
     </button>
   )
 }
 
 function DeleteMessageButton({ onDelete }: { onDelete: () => void }): React.ReactElement {
+  const { t } = useTranslation()
   return (
-    <Popconfirm title="确认删除这条消息？" confirmText="删除" onConfirm={onDelete}>
-      <button className="text-[var(--text-dim)] hover:text-[var(--danger)] transition-colors p-0.5" title="删除">
+    <Popconfirm title={t('chat.deleteMessageConfirm')} confirmText={t('common.delete')} onConfirm={onDelete}>
+      <button className="text-[var(--text-dim)] hover:text-[var(--danger)] transition-colors p-0.5" title={t('common.delete')}>
         <Trash2 size={14} />
       </button>
     </Popconfirm>
@@ -498,6 +488,7 @@ function DeleteMessageButton({ onDelete }: { onDelete: () => void }): React.Reac
 }
 
 function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const hasUsefulResult = !isLowValueToolResult(toolCall.result) || !!toolCall.error || toolCall.status !== 'done'
   return (
@@ -516,7 +507,7 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
             toolCall.status === 'done' ? 'bg-[rgba(34,197,94,0.12)] text-[var(--success)]' :
             'bg-[rgba(239,68,68,0.12)] text-[var(--danger)]'
           }`}>
-            {toolCall.status === 'running' ? '执行中' : toolCall.status === 'done' ? '完成' : '失败'}
+            {toolCall.status === 'running' ? t('common.running') : toolCall.status === 'done' ? t('common.complete') : t('common.failed')}
           </span>
           {(toolCall.args || hasUsefulResult) && (
             <ChevronDown size={10} className={`text-[var(--text-dim)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
@@ -527,16 +518,16 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
         <div className="px-3.5 py-3 border-t border-[var(--border)]">
           {toolCall.args && (
             <div className="mb-2.5">
-              <div className="text-[11px] font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1.5">参数</div>
+              <div className="text-[11px] font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1.5">{t('chat.params')}</div>
               <pre className="bg-[rgba(0,0,0,0.25)] backdrop-blur-sm p-2.5 rounded-lg font-mono text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto text-[var(--text-secondary)] border border-[var(--border)]">
                 {toolCall.args}
               </pre>
             </div>
           )}
           <div>
-            <div className="text-[11px] font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1.5">结果</div>
+            <div className="text-[11px] font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1.5">{t('chat.result')}</div>
             <pre className="bg-[rgba(0,0,0,0.25)] backdrop-blur-sm p-2.5 rounded-lg font-mono text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto text-[var(--text-secondary)] border border-[var(--border)]">
-              {toolCall.error ? <span style={{ color: 'var(--danger)' }}>{toolCall.error}</span> : toolCall.result || (toolCall.status === 'done' ? '已完成' : '等待中...')}
+              {toolCall.error ? <span style={{ color: 'var(--danger)' }}>{toolCall.error}</span> : toolCall.result || (toolCall.status === 'done' ? t('common.done') : t('common.waiting'))}
             </pre>
           </div>
         </div>
@@ -546,6 +537,7 @@ function ToolCard({ toolCall }: { toolCall: ToolCallInfo }): React.ReactElement 
 }
 
 function ToolActivity({ toolCalls }: { toolCalls: ToolCallInfo[] }): React.ReactElement {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const compact = shouldCompactToolCalls(toolCalls)
   const hasErrors = toolCalls.some(tc => tc.status === 'error' || tc.error)
@@ -571,7 +563,7 @@ function ToolActivity({ toolCalls }: { toolCalls: ToolCallInfo[] }): React.React
         <span className="flex items-center gap-2 text-[12px] text-[var(--text-secondary)] min-w-0">
           <Wrench size={13} className="text-[var(--accent)] shrink-0" />
           <span className="truncate">
-            已执行 {toolCalls.length} 个工具：{summarizeToolCalls(toolCalls)}
+            {t('chat.toolsExecuted', { count: toolCalls.length, summary: summarizeToolCalls(toolCalls) })}
           </span>
         </span>
         <div className="flex items-center gap-2 shrink-0">
@@ -580,7 +572,7 @@ function ToolActivity({ toolCalls }: { toolCalls: ToolCallInfo[] }): React.React
             runningCount > 0 ? 'bg-[var(--accent-glow)] text-[var(--accent)] animate-pulse-custom' :
             'bg-[rgba(34,197,94,0.12)] text-[var(--success)]'
           }`}>
-            {hasErrors ? '有异常' : runningCount > 0 ? '执行中' : '完成'}
+            {hasErrors ? t('common.hasErrors') : runningCount > 0 ? t('common.running') : t('common.complete')}
           </span>
           <ChevronDown size={10} className={`text-[var(--text-dim)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </div>
@@ -597,6 +589,7 @@ function ToolActivity({ toolCalls }: { toolCalls: ToolCallInfo[] }): React.React
 }
 
 function AttachmentChip({ attachment, onRemove }: { attachment: Attachment; onRemove?: () => void }): React.ReactElement {
+  const { t } = useTranslation()
   const isImage = attachment.kind === 'image' && attachment.dataUrl
   return (
     <div className="flex items-center gap-2 max-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
@@ -613,7 +606,7 @@ function AttachmentChip({ attachment, onRemove }: { attachment: Attachment; onRe
           type="button"
           onClick={onRemove}
           className="shrink-0 rounded p-0.5 text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-          aria-label={`移除 ${attachment.name}`}
+          aria-label={t('chat.removeAttachment', { name: attachment.name })}
         >
           <X size={12} />
         </button>
@@ -631,6 +624,7 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
   showActivityDetails?: boolean
   onDelete?: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
   const isUser = msg.role === 'user'
   const hasToolCalls = showActivityDetails && msg.toolCalls && msg.toolCalls.length > 0
   const hasThinking = showActivityDetails && !!thinking
@@ -656,7 +650,7 @@ function MessageBubble({ msg, empName, empAvatar, isStreaming, thinking, showAct
                 onClick={() => setExpandedThinking(!expandedThinking)}
                 className="flex items-center justify-between w-full px-3.5 py-2.5 text-left hover:bg-[rgba(234,179,8,0.04)] transition-colors"
               >
-                <span className="flex items-center gap-2 text-[13px] font-medium text-[var(--warning)]">💭 思考过程</span>
+                <span className="flex items-center gap-2 text-[13px] font-medium text-[var(--warning)]">💭 {t('chat.thinkingProcess')}</span>
                 <ChevronDown size={12} className={`text-[var(--text-dim)] transition-transform ${expandedThinking ? 'rotate-180' : ''}`} />
               </button>
               {expandedThinking && (
@@ -707,15 +701,16 @@ function ApprovalModal({ request, onApprove, onDeny }: {
   onApprove: () => void
   onDeny: () => void
 }): React.ReactElement {
+  const { t } = useTranslation()
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center">
       <div className="absolute inset-0 bg-[rgba(0,0,0,0.5)] backdrop-blur-sm" onClick={onDeny} />
       <div className="relative glass-heavy border border-[var(--border)] rounded-[var(--radius-xl)] w-[90%] max-w-[520px] max-h-[85vh] overflow-y-auto animate-scale-in shadow-[0_24px_80px_rgba(0,0,0,0.4)]">
         <div className="flex justify-between items-center px-6 border-b border-[var(--border)] h-14 sticky top-0 glass-heavy z-[1]">
-          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">审批请求</h3>
+          <h3 className="text-[17px] font-semibold tracking-[-0.2px]">{t('chat.approvalTitle')}</h3>
         </div>
         <div className="p-6">
-          <div className="text-[15px] font-semibold text-[var(--accent)] mb-2.5">工具: {request.tool}</div>
+          <div className="text-[15px] font-semibold text-[var(--accent)] mb-2.5">{t('chat.toolLabel', { tool: request.tool })}</div>
           <pre className="bg-[rgba(0,0,0,0.25)] backdrop-blur-sm p-3.5 rounded-[var(--radius)] font-mono text-[13px] whitespace-pre-wrap break-all text-[var(--text-primary)] mb-2.5 max-h-[200px] overflow-y-auto border border-[var(--border)]">
             {JSON.stringify(request.args, null, 2)}
           </pre>
@@ -724,12 +719,12 @@ function ApprovalModal({ request, onApprove, onDeny }: {
             request.riskLevel === 'medium' ? 'bg-[rgba(234,179,8,0.12)] text-[var(--warning)]' :
             'bg-[rgba(34,197,94,0.12)] text-[var(--success)]'
           }`}>
-            风险: {request.riskLevel === 'high' ? '高' : request.riskLevel === 'medium' ? '中' : '低'}
+            {t('chat.riskLabel')}: {request.riskLevel === 'high' ? t('chat.riskHigh') : request.riskLevel === 'medium' ? t('chat.riskMedium') : t('chat.riskLow')}
           </span>
         </div>
         <div className="flex justify-end gap-2.5 px-6 py-4 border-t border-[var(--border)] glass-heavy">
-          <button onClick={onDeny} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-4 py-2 rounded-[var(--radius)] text-sm cursor-pointer transition-all hover:bg-[var(--bg-hover)] font-medium">拒绝</button>
-          <button onClick={onApprove} className="bg-accent-gradient text-white border-none px-4 py-2 rounded-[var(--radius)] text-sm cursor-pointer transition-all hover:opacity-90 font-medium">批准</button>
+          <button onClick={onDeny} className="glass-medium border border-[var(--border)] text-[var(--text-primary)] px-4 py-2 rounded-[var(--radius)] text-sm cursor-pointer transition-all hover:bg-[var(--bg-hover)] font-medium">{t('chat.deny')}</button>
+          <button onClick={onApprove} className="bg-accent-gradient text-white border-none px-4 py-2 rounded-[var(--radius)] text-sm cursor-pointer transition-all hover:opacity-90 font-medium">{t('chat.approve')}</button>
         </div>
       </div>
     </div>
@@ -741,6 +736,8 @@ type DetailTab = 'soul' | 'tools' | 'skills' | 'memory'
 function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: () => void }): React.ReactElement {
   const { isMac } = usePlatform()
   const { lexicon } = useTheme()
+  const { t } = useTranslation()
+  const { statusText, toolMeta } = useEmployeeShared()
   const [tab, setTab] = useState<DetailTab>('soul')
   const [soulContent, setSoulContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
@@ -791,7 +788,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
         {tab === 'tools' && (
           <div className="grid grid-cols-2 gap-3">
             {ALL_TOOLS.filter(t => tools.includes(t)).map(t => {
-              const meta = TOOL_META[t]
+              const meta = toolMeta[t]
               return (
                 <div
                   key={t}
@@ -835,7 +832,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                     </div>
                     <span className="text-sm font-medium text-[var(--text-primary)]">{s.name}</span>
                   </div>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium">已安装</span>
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-xl bg-[rgba(34,197,94,0.1)] text-[var(--success)] font-medium">{t('chat.installed')}</span>
                 </div>
               </div>
             )) : <span className="text-[13px] text-[var(--text-dim)] col-span-2">{lexicon.concepts.noSkills}</span>}
@@ -849,12 +846,12 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                   <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
                     <span className="text-[var(--accent)]">📝</span>
                     <span className="text-[var(--text-primary)] font-medium">{memoryData.memory.length}</span>
-                    <span className="text-[var(--text-dim)]">条内置记忆</span>
+                    <span className="text-[var(--text-dim)]">{t('chat.builtinMemoryCount')}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-3 py-1.5 glass-medium rounded-[var(--radius)] border border-[var(--border)]">
                     <span className="text-[var(--accent)]">👤</span>
                     <span className="text-[var(--text-primary)] font-medium">{memoryData.userCharCount ?? 0}</span>
-                    <span className="text-[var(--text-dim)]">字符用户档案</span>
+                    <span className="text-[var(--text-dim)]">{t('chat.userProfileChars')}</span>
                   </div>
                 </div>
 
@@ -879,7 +876,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
                 {(memoryData.userCharCount != null && memoryData.userCharLimit != null) && (
                   <div className="glass-medium border border-[var(--border)] rounded-[var(--radius)] p-3.5">
                     <div className="flex items-center justify-between text-[12px] mb-2">
-                      <span className="text-[var(--text-secondary)]">用户档案容量</span>
+                      <span className="text-[var(--text-secondary)]">{t('chat.userProfileCapacity')}</span>
                       <span className="text-[var(--text-dim)]">{memoryData.userCharCount} / {memoryData.userCharLimit}</span>
                     </div>
                     <div className="w-full h-1 bg-[var(--bg-surface)] rounded-full overflow-hidden">
@@ -927,7 +924,7 @@ function EmployeeDetail({ employee, onBack }: { employee: EmployeeInfo; onBack: 
             ) : (
               <div className="text-center py-12 text-[var(--text-dim)]">
                 <div className="text-4xl mb-3 opacity-30">⏳</div>
-                <p className="text-sm">加载中...</p>
+                <p className="text-sm">{t('common.loading')}</p>
               </div>
             )}
           </div>
@@ -944,6 +941,7 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
   onClose: () => void
   onViewSession: (sessionId: string, messages: ChatMessage[]) => void
 }): React.ReactElement {
+  const { t } = useTranslation()
   const [sessions, setSessions] = useState<SessionDisplay[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -957,11 +955,11 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
     try {
       if (query) {
         const results = await window.hermesAPI.searchSessions(query, employeeName)
-        const mapped = (results || []).map(mapSession)
+        const mapped = (results || []).map(r => mapSession(r as Record<string, unknown>, t))
         setSessions(mapped)
       } else {
         const results = await window.hermesAPI.getEmployeeSessions(employeeName)
-        const mapped = (results || []).map(mapSession)
+        const mapped = (results || []).map(r => mapSession(r as Record<string, unknown>, t))
         setSessions(mapped)
       }
     } catch { setSessions([]) }
@@ -981,17 +979,17 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
     try {
       await window.hermesAPI.deleteSession(sessionId, employeeName)
       setSessions(prev => prev.filter(s => s.id !== sessionId))
-      showToast('会话已删除', 'success')
-    } catch { showToast('删除失败', 'error') }
+      showToast(t('chat.sessionDeleted'), 'success')
+    } catch { showToast(t('common.deleteFailed'), 'error') }
   }
 
   const handleViewSession = async (sessionId: string): Promise<void> => {
     try {
       const session = sessions.find(item => item.id === sessionId)
-      const isScheduleSession = sessionSourceLabel(session?.source) === '日程' || sessionId.startsWith('cron_')
+      const isScheduleSession = (session?.source === 'cron' || (session?.source || '').includes('cron')) || sessionId.startsWith('cron_')
       let messages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
       if (isScheduleSession && (!messages || messages.length === 0)) {
-        showToast('日程结果还在写入，正在重试...', 'info')
+        showToast(t('chat.scheduleRetry'), 'info')
         for (let attempt = 0; attempt < 5; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 1200))
           messages = await window.hermesAPI.getSessionMessages(sessionId, employeeName)
@@ -999,42 +997,42 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
         }
       }
       if (!messages || messages.length === 0) {
-        showToast(isScheduleSession ? '日程结果仍在生成中，请稍后再看' : '此会话暂无消息', 'info')
+        showToast(isScheduleSession ? t('chat.scheduleGenerating') : t('chat.noMessages'), 'info')
         return
       }
 
       const finalMessages = parseSessionMessages(messages as Record<string, unknown>[], sessionId)
 
       if (finalMessages.length === 0) {
-        showToast('此会话暂无消息', 'info')
+        showToast(t('chat.noMessages'), 'info')
         return
       }
 
       onViewSession(sessionId, finalMessages)
     } catch {
-      showToast('加载会话失败', 'error')
+      showToast(t('chat.loadSessionFailed'), 'error')
     }
   }
 
   return (
     <div className="no-drag absolute right-0 top-0 bottom-0 w-[340px] glass-heavy border-l border-[var(--border)] z-50 flex flex-col animate-slide-in-right shadow-[-8px_0_40px_rgba(0,0,0,0.2)]">
       <div className="flex items-center justify-between px-4 h-[52px] border-b border-[var(--border)] text-[15px] font-semibold">
-        <span>历史会话</span>
+        <span>{t('chat.historySessions')}</span>
         <button onClick={onClose} className="text-[var(--text-dim)] hover:text-[var(--text-primary)] transition-colors"><X size={18} /></button>
       </div>
       <div className="px-3 py-2.5 border-b border-[var(--border)]">
         <input
           value={searchQuery}
           onChange={(e) => handleSearch(e.target.value)}
-          placeholder="搜索会话..."
+          placeholder={t('chat.searchSessions')}
           className="w-full glass-medium border border-[var(--border)] rounded-lg py-2 px-3 text-[13px] text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)]"
         />
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {loading ? (
-          <div className="text-center py-12 text-[var(--text-dim)] text-sm">加载中...</div>
+          <div className="text-center py-12 text-[var(--text-dim)] text-sm">{t('common.loading')}</div>
         ) : sessions.length === 0 ? (
-          <div className="text-center py-12 text-[var(--text-dim)] text-sm">暂无历史会话</div>
+          <div className="text-center py-12 text-[var(--text-dim)] text-sm">{t('chat.noHistorySessions')}</div>
         ) : (
           sessions.map(s => (
             <div
@@ -1045,30 +1043,30 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
               }`}
             >
               <div className="flex items-center gap-1.5 min-w-0">
-                {sessionSourceLabel(s.source) && (
+                {sessionSourceLabel(s.source, t) && (
                   <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
                     isExternalSessionSource(s.source)
                       ? 'bg-[rgba(34,197,94,0.12)] text-[var(--success)]'
                       : 'bg-[var(--accent-glow)] text-[var(--accent)]'
                   }`}>
-                    {sessionSourceLabel(s.source)}
+                    {sessionSourceLabel(s.source, t)}
                   </span>
                 )}
                 {highlightedSessionIds.includes(s.id) && (
-                  <span className="shrink-0 rounded bg-[rgba(234,179,8,0.14)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warning)]">新</span>
+                  <span className="shrink-0 rounded bg-[rgba(234,179,8,0.14)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warning)]">{t('chat.newBadge')}</span>
                 )}
-                <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || '未命名会话'}</div>
+                <div className="text-sm font-medium text-[var(--text-primary)] truncate">{s.title || t('chat.unnamedSession')}</div>
               </div>
-              <div className="text-xs text-[var(--text-dim)] mt-0.5">{formatDate(s.startedAt)} · {s.source === 'cron' ? '执行结果' : `${s.messageCount} 条消息`}</div>
+              <div className="text-xs text-[var(--text-dim)] mt-0.5">{formatDate(s.startedAt)} · {s.source === 'cron' ? t('chat.cronResultLabel') : t('chat.messageCount', { count: s.messageCount })}</div>
               <div className="flex gap-1.5 mt-2">
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleViewSession(s.id) }}
                   className="bg-[var(--accent)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
-                >查看</button>
-                <Popconfirm title="确认删除此会话？" onConfirm={() => handleDelete(s.id)}>
+                >{t('chat.view')}</button>
+                <Popconfirm title={t('chat.confirmDeleteSession')} onConfirm={() => handleDelete(s.id)}>
                   <button
                     className="bg-[var(--danger)] text-white border-none px-2.5 py-1 rounded-[var(--radius)] text-xs cursor-pointer hover:opacity-85"
-                  >删除</button>
+                  >{t('common.delete')}</button>
                 </Popconfirm>
               </div>
             </div>
@@ -1080,6 +1078,9 @@ function HistoryPanel({ employeeName, refreshKey = 0, highlightedSessionIds = []
 }
 
 export default function Chat(): React.ReactElement {
+  const { t } = useTranslation()
+  const { statusText } = useEmployeeShared()
+  const slashCommands = useMemo(() => getSlashCommands(t), [t])
   const { isMac } = usePlatform()
   const { lexicon } = useTheme()
   const [employees, setEmployees] = useState<EmployeeInfo[]>([])
@@ -1095,7 +1096,7 @@ export default function Chat(): React.ReactElement {
   const [showHistory, setShowHistory] = useState(false)
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
   const [slashPopupVisible, setSlashPopupVisible] = useState(false)
-  const [slashItems, setSlashItems] = useState(SLASH_COMMANDS)
+  const [slashItems, setSlashItems] = useState(slashCommands)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const [isComposing, setIsComposing] = useState(false)
@@ -1238,7 +1239,7 @@ export default function Chat(): React.ReactElement {
     const next: Attachment[] = []
     for (const file of list) {
       if (attachments.length + next.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
-        showToast(`每条消息最多 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件`, 'error')
+        showToast(t('chat.maxAttachments', { count: MAX_ATTACHMENTS_PER_MESSAGE }), 'error')
         break
       }
 
@@ -1247,7 +1248,7 @@ export default function Chat(): React.ReactElement {
       try {
         if (isImageMime(mime)) {
           if (file.size > MAX_IMAGE_BYTES) {
-            showToast(`${name} 图片超过 20MB`, 'error')
+            showToast(t('chat.imageTooLarge', { name }), 'error')
             continue
           }
           next.push({
@@ -1263,7 +1264,7 @@ export default function Chat(): React.ReactElement {
 
         if (isTextFile(mime, name)) {
           if (file.size > MAX_TEXT_BYTES) {
-            showToast(`${name} 文本文件超过 256KB`, 'error')
+            showToast(t('chat.textTooLarge', { name }), 'error')
             continue
           }
           next.push({
@@ -1296,7 +1297,7 @@ export default function Chat(): React.ReactElement {
           path: filePath
         })
       } catch {
-        showToast(`${name} 读取失败`, 'error')
+        showToast(t('chat.readFailed', { name }), 'error')
       }
     }
     if (next.length > 0) {
@@ -1351,7 +1352,7 @@ export default function Chat(): React.ReactElement {
         const last = history[history.length - 1]
         if (last && last.role === 'assistant') {
           const updatedToolCalls = last.toolCalls?.map(tc =>
-            tc.status === 'running' ? { ...tc, status: 'done' as const, result: tc.result || '已完成' } : tc
+            tc.status === 'running' ? { ...tc, status: 'done' as const, result: tc.result || i18n.t('common.done') } : tc
           )
           return { ...prev, [empName]: [...history.slice(0, -1), { ...last, toolCalls: updatedToolCalls, thinking: thinkingContent }] }
         }
@@ -1400,11 +1401,11 @@ export default function Chat(): React.ReactElement {
           )
           return { ...prev, [data.profileName]: [...history.slice(0, -1), { ...last, toolCalls: updatedToolCalls, thinking: thinkingContent }] }
         }
-        return { ...prev, [data.profileName]: [...history, { id: `error-${Date.now()}`, role: 'assistant' as const, content: `❌ ${data.error || '发生错误'}`, timestamp: Date.now() }] }
+        return { ...prev, [data.profileName]: [...history, { id: `error-${Date.now()}`, role: 'assistant' as const, content: `❌ ${translateError(data.error, t) || t('chat.errorOccurred')}`, timestamp: Date.now() }] }
       })
       streamingThinkingMapRef.current = { ...streamingThinkingMapRef.current, [data.profileName]: '' }
       void refreshEmployeeStatus(data.profileName)
-      showToast(data.error || '发生错误', 'error')
+      showToast(translateError(data.error, t) || t('chat.errorOccurred'), 'error')
     })
 
     const unsubToolProgress = window.hermesAPI.onChatToolProgress((data) => {
@@ -1427,7 +1428,7 @@ export default function Chat(): React.ReactElement {
               const newToolCalls = [...last.toolCalls]
               newToolCalls[toolIdx] = {
                 ...newToolCalls[toolIdx],
-                result: data.result ? (typeof data.result === 'string' ? data.result : JSON.stringify(data.result)) : '已完成',
+                result: data.result ? (typeof data.result === 'string' ? data.result : JSON.stringify(data.result)) : i18n.t('common.done'),
                 error: data.error ? String(data.error) : undefined,
                 status: (data.error ? 'error' : 'done') as 'done' | 'error'
               }
@@ -1496,7 +1497,7 @@ export default function Chat(): React.ReactElement {
             const newToolCalls = [...last.toolCalls]
             newToolCalls[toolIdx] = {
               ...newToolCalls[toolIdx],
-              result: data.result ? (typeof data.result === 'string' ? data.result : JSON.stringify(data.result)) : '已完成',
+              result: data.result ? (typeof data.result === 'string' ? data.result : JSON.stringify(data.result)) : i18n.t('common.done'),
               error: data.error ? String(data.error) : undefined,
               status: (data.error ? 'error' : 'done') as 'done' | 'error'
             }
@@ -1598,7 +1599,7 @@ export default function Chat(): React.ReactElement {
       })
       return true
     } catch {
-      showToast('加载会话失败', 'error')
+      showToast(t('chat.loadSessionFailed'), 'error')
       return false
     }
   }, [])
@@ -1610,7 +1611,7 @@ export default function Chat(): React.ReactElement {
     loadingLatestSessionRef.current = { ...loadingLatestSessionRef.current, [employeeName]: true }
     try {
       const sessions = await window.hermesAPI.getEmployeeSessions(employeeName)
-      const latest = (sessions || []).map(mapSession)[0]
+      const latest = (sessions || []).map(r => mapSession(r as Record<string, unknown>, t))[0]
       if (!latest?.id) {
         setChatHistories(prev => ({ ...prev, [employeeName]: [] }))
         setSessionIds(prev => ({ ...prev, [employeeName]: null }))
@@ -1644,11 +1645,11 @@ export default function Chat(): React.ReactElement {
       }
 
       const isCurrentEmployee = currentEmployeeNameRef.current === employeeName
-      const isScheduleSession = sessionSourceLabel(source) === '日程'
+      const isScheduleSession = source === 'cron' || (source || '').includes('cron')
 
       if (isScheduleSession) {
         if (isCurrentEmployee) {
-          showToast(`日程有新消息${title ? `：${title}` : ''}`, 'info')
+          showToast(t('chat.scheduleNewMessage', { title: title ? `: ${title}` : '' }), 'info')
         }
         markExternalUpdate()
         if (showHistoryRef.current) {
@@ -1667,8 +1668,8 @@ export default function Chat(): React.ReactElement {
         await loadSessionIntoChat(employeeName, sessionId)
         if (isCurrentEmployee) {
           setTimeout(() => scrollToBottomRef.current(), 20)
-          if (sessionSourceLabel(source)) {
-            showToast(`${sessionSourceLabel(source)}有新消息${title ? `：${title}` : ''}`, 'info')
+          if (sessionSourceLabel(source, t)) {
+            showToast(t('chat.externalNewMessage', { source: sessionSourceLabel(source, t), title: title ? `: ${title}` : '' }), 'info')
           }
         }
         return
@@ -1723,7 +1724,7 @@ export default function Chat(): React.ReactElement {
     const sid = sessionIds[currentEmployeeName]
     if (!sid) {
       setChatHistories(prev => ({ ...prev, [currentEmployeeName]: [] }))
-      showToast('当前没有可删除的历史会话', 'info')
+      showToast(t('chat.noDeletableSessions'), 'info')
       return
     }
     try {
@@ -1732,12 +1733,12 @@ export default function Chat(): React.ReactElement {
         setChatHistories(prev => ({ ...prev, [currentEmployeeName]: [] }))
         setSessionIds(prev => ({ ...prev, [currentEmployeeName]: null }))
         setShowHistory(false)
-        showToast('会话已彻底删除', 'success')
+        showToast(t('chat.sessionDeletedPermanently'), 'success')
       } else {
-        showToast(result.error || '删除失败', 'error')
+        showToast(translateError(result.error, t) || t('common.deleteFailed'), 'error')
       }
     } catch {
-      showToast('删除失败', 'error')
+      showToast(t('common.deleteFailed'), 'error')
     }
   }, [currentEmployeeName, sessionIds])
 
@@ -1778,7 +1779,7 @@ export default function Chat(): React.ReactElement {
     try {
       await window.hermesAPI.sleepEmployee(employeeName)
       setEmployees(prev => prev.map(e => e.name === employeeName ? { ...e, status: 'sleeping' as const } : e))
-    } catch { showToast('休眠失败', 'error') }
+    } catch { showToast(t('chat.sleepFailed'), 'error') }
   }
 
   const deleteEmployee = async (employeeName: string): Promise<void> => {
@@ -1799,11 +1800,11 @@ export default function Chat(): React.ReactElement {
           return next
         })
         await loadEmployees()
-        showToast('员工已删除', 'success')
+        showToast(t('chat.employeeDeleted'), 'success')
       } else {
-        showToast(result.error || '删除失败', 'error')
+        showToast(translateError(result.error, t) || t('common.deleteFailed'), 'error')
       }
-    } catch { showToast('删除失败', 'error') }
+    } catch { showToast(t('common.deleteFailed'), 'error') }
   }
 
   const deleteMessage = useCallback(async (message: ChatMessage): Promise<void> => {
@@ -1814,11 +1815,11 @@ export default function Chat(): React.ReactElement {
       try {
         const result = await window.hermesAPI.deleteSessionMessage(sessionId, message.dbId, empName)
         if (!result.success) {
-          showToast(result.error || '删除失败', 'error')
+          showToast(translateError(result.error, t) || t('common.deleteFailed'), 'error')
           return
         }
       } catch {
-        showToast('删除失败', 'error')
+        showToast(t('common.deleteFailed'), 'error')
         return
       }
     }
@@ -1827,8 +1828,8 @@ export default function Chat(): React.ReactElement {
       [empName]: (prev[empName] || []).filter(item => item.id !== message.id),
     }))
     setHistoryRefreshKey(value => value + 1)
-    showToast('消息已删除', 'success')
-  }, [currentEmployeeName])
+    showToast(t('chat.messageDeleted'), 'success')
+  }, [currentEmployeeName, t])
 
   const doSend = useCallback((employeeNameOrText: string, textOrSkip?: string | boolean, skipUserAppend = false, sendAttachments?: Attachment[]) => {
     let empName: string
@@ -1873,7 +1874,7 @@ export default function Chat(): React.ReactElement {
     window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIdsRef.current[empName] || undefined, sendAttachments).catch(() => {
       setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
       void refreshEmployeeStatus(empName)
-      showToast('发送失败', 'error')
+      showToast(t('chat.sendFailed'), 'error')
     })
   }, [currentEmployeeName, refreshEmployeeStatus])
 
@@ -1884,7 +1885,7 @@ export default function Chat(): React.ReactElement {
 
     if (isStreaming) {
       if (sendAttachments.length > 0) {
-        showToast('附件消息请等待当前回复完成后再发送', 'info')
+        showToast(t('chat.waitForReply'), 'info')
         return
       }
       if (text) {
@@ -1894,7 +1895,7 @@ export default function Chat(): React.ReactElement {
           const emp = prev[empName] || DEFAULT_STREAM
           return { ...prev, [empName]: { ...emp, messageQueue: [...emp.messageQueue, text] } }
         })
-        showToast('消息已加入队列', 'info')
+        showToast(t('chat.messageQueued'), 'info')
         if (empName) {
           const userMsg: ChatMessage = { id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: 'user', content: text, timestamp: Date.now() }
           setChatHistories(prev => ({
@@ -1933,11 +1934,11 @@ export default function Chat(): React.ReactElement {
         }
         break
       case '/help': {
-        const helpText = SLASH_COMMANDS.map(c => c.cmd + '  —  ' + c.desc).join('\n')
+        const helpText = slashCommands.map(c => c.cmd + '  —  ' + c.desc).join('\n')
         if (currentEmployeeName) {
           setChatHistories(prev => ({
             ...prev,
-            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: '可用命令：\n\n' + helpText, timestamp: Date.now() }]
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: t('chat.availableCommands') + helpText, timestamp: Date.now() }]
           }))
         }
         break
@@ -1965,7 +1966,12 @@ export default function Chat(): React.ReactElement {
         break
       case '/status':
         if (currentEmployee) {
-          const statusMsg = `${lexicon.chat.statusLabel}: ${currentEmployee.name}\n状态: ${statusText(currentEmployee.status || '')}\n模型: ${currentEmployee.model || '--'}`
+          const statusMsg = t('chat.statusInfo', {
+            label: lexicon.chat.statusLabel,
+            name: currentEmployee.name,
+            status: statusText(currentEmployee.status || ''),
+            model: currentEmployee.model || '--',
+          })
           setChatHistories(prev => ({
             ...prev,
             [currentEmployeeName!]: [...(prev[currentEmployeeName!] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: statusMsg, timestamp: Date.now() }]
@@ -1974,7 +1980,7 @@ export default function Chat(): React.ReactElement {
         break
       case '/usage':
         if (currentStream.streamingUsage && currentEmployeeName) {
-          const usageMsg = `${lexicon.chat.usageTitle}:\n输入: ${formatNumber(currentStream.streamingUsage.promptTokens)}\n输出: ${formatNumber(currentStream.streamingUsage.completionTokens)}\n总计: ${formatNumber(currentStream.streamingUsage.totalTokens)}`
+          const usageMsg = `${lexicon.chat.usageTitle}:\n${t('chat.usageHelpInput', { count: formatNumber(currentStream.streamingUsage.promptTokens) })}\n${t('chat.usageHelpOutput', { count: formatNumber(currentStream.streamingUsage.completionTokens) })}\n${t('chat.usageHelpTotal', { count: formatNumber(currentStream.streamingUsage.totalTokens) })}`
           setChatHistories(prev => ({
             ...prev,
             [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: usageMsg, timestamp: Date.now() }]
@@ -1990,21 +1996,21 @@ export default function Chat(): React.ReactElement {
         if (currentEmployeeName) {
           setChatHistories(prev => ({
             ...prev,
-            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: `未知命令: ${cmd}\n输入 /help 查看可用命令`, timestamp: Date.now() }]
+            [currentEmployeeName]: [...(prev[currentEmployeeName] || []), { id: crypto.randomUUID(), role: 'assistant' as const, content: t('chat.unknownCommand', { cmd }), timestamp: Date.now() }]
           }))
         }
     }
-  }, [currentEmployeeName, currentEmployee, chatHistories, doSend, currentStream, lexicon])
+  }, [currentEmployeeName, currentEmployee, chatHistories, doSend, currentStream, lexicon, slashCommands, t, statusText])
 
   const handleInputChange = (value: string): void => {
     setInput(value)
     if (value === '/') {
-      setSlashItems(SLASH_COMMANDS)
+      setSlashItems(slashCommands)
       setSlashActiveIndex(0)
       setSlashPopupVisible(true)
     } else if (value.startsWith('/') && value.indexOf(' ') < 0) {
       const q = value.toLowerCase()
-      const filtered = SLASH_COMMANDS.filter(c => c.cmd.includes(q))
+      const filtered = slashCommands.filter(c => c.cmd.includes(q))
       setSlashItems(filtered)
       setSlashActiveIndex(filtered.length > 0 ? 0 : -1)
       setSlashPopupVisible(filtered.length > 0)
@@ -2088,7 +2094,7 @@ export default function Chat(): React.ReactElement {
           {filteredEmployees.length === 0 ? (
             <div className="text-center py-12 text-[var(--text-dim)]">
               <div className="text-5xl mb-4 opacity-30">👥</div>
-              <p className="text-sm">{searchQuery ? lexicon.entities.noEmployeeMatches : `${lexicon.entities.noEmployees}，点击上方添加`}</p>
+              <p className="text-sm">{searchQuery ? lexicon.entities.noEmployeeMatches : `${lexicon.entities.noEmployees}${t('chat.clickToAdd')}`}</p>
             </div>
           ) : (
             filteredEmployees.map(emp => {
@@ -2127,7 +2133,7 @@ export default function Chat(): React.ReactElement {
                     <div className="text-sm font-medium text-[var(--text-primary)] truncate flex items-center gap-1.5">
                       <span className="truncate">{emp.displayName || emp.name}</span>
                       {empStreaming && <span className="text-[10px] text-[var(--accent)] animate-pulse-custom shrink-0">typing...</span>}
-                      {empExternalCount > 0 && !empStreaming && <span className="text-[10px] text-[var(--danger)] shrink-0">新消息</span>}
+                      {empExternalCount > 0 && !empStreaming && <span className="text-[10px] text-[var(--danger)] shrink-0">{t('chat.newMessage')}</span>}
                     </div>
                     <div className="text-xs text-[var(--text-dim)] truncate">{emp.model || lexicon.entities.defaultRole}</div>
                     {lastMsg && !empStreaming && (
@@ -2169,9 +2175,9 @@ export default function Chat(): React.ReactElement {
                       ? 'border-[var(--accent)] bg-[var(--accent-glow)] text-[var(--accent)]'
                       : 'border-[var(--border)] glass-medium text-[var(--text-dim)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                   }`}
-                  title="显示或隐藏思考过程和工具调用"
+                  title={t('chat.thinkToolsTitle')}
                 >
-                  <span className="text-[11px]">思考/工具</span>
+                  <span className="text-[11px]">{t('chat.thinkToolsToggle')}</span>
                   <span className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${showActivityDetails ? 'bg-[var(--accent)]' : 'bg-[var(--bg-surface)] border border-[var(--border)]'}`}>
                     <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white transition-transform ${showActivityDetails ? 'translate-x-3' : 'translate-x-0.5'}`} />
                   </span>
@@ -2182,7 +2188,7 @@ export default function Chat(): React.ReactElement {
                     setHistoryRefreshKey(value => value + 1)
                   }}
                   className="relative w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]"
-                  title="历史会话"
+                  title={t('chat.historyTitle')}
                 >
                   <History size={14} />
                   {currentExternalSessionUpdates.length > 0 && (
@@ -2191,8 +2197,8 @@ export default function Chat(): React.ReactElement {
                     </span>
                   )}
                 </button>
-                <Popconfirm title="确认彻底删除当前会话？" confirmText="删除" onConfirm={deleteCurrentSession}>
-                  <button className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--danger)]" title="删除当前会话">
+                <Popconfirm title={t('chat.confirmDeleteCurrentSession')} confirmText={t('common.delete')} onConfirm={deleteCurrentSession}>
+                  <button className="w-8 h-8 rounded-[var(--radius)] border border-[var(--border)] glass-medium text-[var(--text-dim)] cursor-pointer flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:border-[var(--danger)]" title={t('chat.deleteCurrentSessionTitle')}>
                     <Trash2 size={14} />
                   </button>
                 </Popconfirm>
@@ -2212,7 +2218,7 @@ export default function Chat(): React.ReactElement {
                     {lexicon.chat.startHint(empName)}
                   </div>
                   <div className="flex flex-wrap gap-2 justify-center max-w-[480px] mt-2">
-                    {['帮我分析一下这个问题', '/help', '/status'].map(hint => (
+                    {[t('chat.hintAnalyze'), '/help', '/status'].map(hint => (
                       <button
                         key={hint}
                         onClick={() => { setInput(hint); inputRef.current?.focus() }}
@@ -2265,14 +2271,14 @@ export default function Chat(): React.ReactElement {
                     <span className="text-[var(--accent)] animate-pulse-custom">🔧 {currentStream.streamingCurrentTool}</span>
                   )}
                   {currentStream.messageQueue.length > 0 && (
-                    <span className="text-[var(--warning)]">📋 队列: {currentStream.messageQueue.length}</span>
+                    <span className="text-[var(--warning)]">📋 {t('chat.queue', { count: currentStream.messageQueue.length })}</span>
                   )}
                 </div>
                 {currentStream.streamingUsage && (
                   <span className="text-[var(--text-dim)]">
-                    {currentStream.streamingUsage.promptTokens ? `输入 ${formatNumber(currentStream.streamingUsage.promptTokens)}` : ''}
-                    {currentStream.streamingUsage.completionTokens ? ` · 输出 ${formatNumber(currentStream.streamingUsage.completionTokens)}` : ''}
-                    {currentStream.streamingUsage.totalTokens ? ` · 总计 ${formatNumber(currentStream.streamingUsage.totalTokens)}` : ''}
+                    {currentStream.streamingUsage.promptTokens ? t('chat.inputTokens', { count: formatNumber(currentStream.streamingUsage.promptTokens) }) : ''}
+                    {currentStream.streamingUsage.completionTokens ? ` · ${t('chat.outputTokens', { count: formatNumber(currentStream.streamingUsage.completionTokens) })}` : ''}
+                    {currentStream.streamingUsage.totalTokens ? ` · ${t('chat.totalTokens', { count: formatNumber(currentStream.streamingUsage.totalTokens) })}` : ''}
                     {currentStream.streamingUsage.cost ? ` · $${Number(currentStream.streamingUsage.cost).toFixed(4)}` : ''}
                   </span>
                 )}
@@ -2295,7 +2301,7 @@ export default function Chat(): React.ReactElement {
               <button
                 onClick={() => setPetHidden(false)}
                 className="absolute right-4 bottom-[140px] z-[5] w-8 h-8 rounded-full glass-medium border border-[var(--border)] flex items-center justify-center text-sm cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
-                title="显示宠物"
+                title={t('chat.showPet')}
               >
                 🐾
               </button>
@@ -2330,7 +2336,7 @@ export default function Chat(): React.ReactElement {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isStreaming}
                   className="self-end w-9 h-9 rounded-xl shrink-0 border border-[var(--border)] text-[var(--text-dim)] flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="添加附件"
+                  title={t('chat.addAttachment')}
                 >
                   <Paperclip size={15} />
                 </button>
@@ -2348,7 +2354,7 @@ export default function Chat(): React.ReactElement {
                   onKeyDown={handleKeyDown}
                   onCompositionStart={() => setIsComposing(true)}
                   onCompositionEnd={() => setIsComposing(false)}
-                  placeholder="输入消息... (/ 命令)"
+                  placeholder={t('chat.inputPlaceholder')}
                   rows={1}
                   className="flex-1 bg-transparent border-none py-2 text-[var(--text-primary)] text-[15px] resize-none outline-none ring-0 ring-transparent max-h-[160px] leading-relaxed placeholder-[var(--text-dim)]"
                 />
@@ -2357,7 +2363,7 @@ export default function Chat(): React.ReactElement {
                     onClick={() => window.hermesAPI.abortChat(currentEmployeeName || '')}
                     className="self-end min-w-[72px] py-2.5 px-5 rounded-xl shrink-0 bg-[var(--danger)] text-white border-none text-sm font-semibold cursor-pointer transition-all hover:shadow-[0_2px_12px_rgba(239,68,68,0.3)]"
                   >
-                    <Square size={14} className="inline mr-1" />停止
+                    <Square size={14} className="inline mr-1" />{t('chat.stop')}
                   </button>
 	                ) : (
                   <button
@@ -2365,14 +2371,14 @@ export default function Chat(): React.ReactElement {
                     disabled={(!input.trim() && attachments.length === 0) || !currentEmployeeName}
                     className="self-end min-w-[72px] py-2.5 px-5 rounded-xl shrink-0 bg-accent-gradient text-white border-none text-sm font-semibold cursor-pointer transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    <Send size={14} className="inline mr-1" />发送
+                    <Send size={14} className="inline mr-1" />{t('chat.send')}
                   </button>
                 )}
               </div>
               {/* Slash Command Popup */}
               {slashPopupVisible && (
                 <div className="absolute bottom-full left-6 right-6 max-h-[300px] glass-heavy border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden animate-slide-up z-[60] shadow-[0_12px_40px_rgba(0,0,0,0.3)] mb-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-dim)] px-4 pt-3 pb-1.5">命令</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-dim)] px-4 pt-3 pb-1.5">{t('chat.commandsLabel')}</div>
                   <div className="overflow-y-auto max-h-[250px] px-1.5 pb-2">
                     {slashItems.map((item, i) => (
                       <div
@@ -2401,13 +2407,13 @@ export default function Chat(): React.ReactElement {
                   }}
                   className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs text-[var(--text-dim)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] border border-transparent hover:border-[var(--border)]"
                 >
-                  <span className="font-medium">{currentEmployee.model || '默认模型'}</span>
+                  <span className="font-medium">{currentEmployee.model || t('chat.defaultModel')}</span>
                   <ChevronDown size={12} />
                 </button>
                 {modelDropdownOpen && (
                   <div className="absolute bottom-full left-0 mb-1 z-50 min-w-[220px] max-h-[240px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] shadow-lg py-1">
                     {savedModels.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-[var(--text-dim)]">暂无模型，请在设置中添加</div>
+                      <div className="px-3 py-2 text-xs text-[var(--text-dim)]">{t('chat.noModelsAddInSettings')}</div>
                     ) : (
                       savedModels.map(m => (
                         <button
@@ -2417,7 +2423,7 @@ export default function Chat(): React.ReactElement {
                             const result = await window.hermesAPI.applySavedModel(m.id, currentEmployeeName || undefined)
                             if (result.success) {
                               setEmployees(prev => prev.map(e => e.name === currentEmployeeName ? { ...e, model: m.model, provider: m.provider } : e))
-                              showToast(`已切换到 ${m.name || m.model}，正在重启...`)
+                              showToast(t('chat.modelSwitched', { name: m.name || m.model }))
                               if (currentEmployeeName) {
                                 try {
                                   await window.hermesAPI.sleepEmployee(currentEmployeeName)
@@ -2427,7 +2433,7 @@ export default function Chat(): React.ReactElement {
                                 } catch { /* ignore */ }
                               }
                             } else {
-                              showToast(result.error || '切换失败', 'error')
+                              showToast(translateError(result.error, t) || t('chat.switchFailed'), 'error')
                             }
                           }}
                           className={`flex items-center justify-between w-full px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--bg-hover)] ${
@@ -2448,7 +2454,7 @@ export default function Chat(): React.ReactElement {
           /* No employee selected */
           <div className="flex flex-col items-center justify-center h-full gap-4 p-10 text-center">
             <img src={logoImg} alt="" className="w-24 h-24 opacity-60" />
-            <div className="text-[22px] font-bold text-[var(--text-primary)]">欢迎使用 落云.Hermes</div>
+            <div className="text-[22px] font-bold text-[var(--text-primary)]">{t('chat.welcomeTitle')}</div>
             <div className="text-sm text-[var(--text-dim)] max-w-[400px] leading-relaxed">
               {lexicon.chat.chooseEmployee}
             </div>
@@ -2488,23 +2494,23 @@ export default function Chat(): React.ReactElement {
                 onClick={() => { deleteEmployee(contextMenu.employeeName); setContextMenu(null) }}
                 className="block w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[rgba(239,68,68,0.08)] transition-colors"
               >
-                确认删除
+                {t('chat.confirmDeleteAction')}
               </button>
               <button
                 onClick={() => setContextMenu({ ...contextMenu, confirmDelete: false })}
                 className="block w-full text-left px-4 py-2 text-sm text-[var(--text-dim)] hover:bg-[var(--bg-hover)] transition-colors"
               >
-                取消
+                {t('common.cancel')}
               </button>
             </>
           ) : (
             [
-              { label: '☀️ 唤醒', action: () => wakeUpEmployee(contextMenu.employeeName) },
-              { label: '😴 休眠', action: () => sleepEmployee(contextMenu.employeeName) },
-              { label: '🔄 重启', action: () => { wakeUpEmployee(contextMenu.employeeName) } },
-              { label: `✏️ 编辑${lexicon.concepts.soul}`, action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
-              { label: '⚙️ 编辑配置', action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
-              { label: '🗑️ 删除', action: () => setContextMenu({ ...contextMenu, confirmDelete: true }), danger: true },
+              { label: t('chat.wakeMenu'), action: () => wakeUpEmployee(contextMenu.employeeName) },
+              { label: t('chat.sleepMenu'), action: () => sleepEmployee(contextMenu.employeeName) },
+              { label: t('chat.restartMenu'), action: () => { wakeUpEmployee(contextMenu.employeeName) } },
+              { label: t('chat.editSoulMenu', { concept: lexicon.concepts.soul }), action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+              { label: t('chat.editConfigMenu'), action: () => { setCurrentEmployeeName(contextMenu.employeeName); setShowDetail(true) } },
+              { label: t('chat.deleteMenu'), action: () => setContextMenu({ ...contextMenu, confirmDelete: true }), danger: true },
             ].map((item, i) => (
               <button
                 key={i}

@@ -1,12 +1,12 @@
 {
   "name": "hermes-desktop",
-  "version": "1.0.2",
+  "version": "1.13.0",
   "description": "落云.Hermes — AI 员工管理平台",
   "license": "MIT",
   "main": "./out/main/index.js",
   "author": "luoyun",
   "scripts": {
-    "dev": "npm run web:embed:build && electron-vite dev",
+    "dev": "npm run web:embed:build && npm run web:app:build && electron-vite dev",
     "dev:debug": "HERMES_DEVTOOLS=1 electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && npm run web:embed:build && npm run web:app:build && electron-vite build",
@@ -35,7 +35,9 @@
     "@electron-toolkit/utils": "^4.0.0",
     "better-sqlite3": "^12.10.0",
     "electron-updater": "^6.8.3",
-    "js-yaml": "^4.1.1"
+    "i18next": "^26.2.0",
+    "js-yaml": "^4.1.1",
+    "react-i18next": "^17.0.8"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",

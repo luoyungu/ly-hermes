@@ -1,30 +1,40 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Moon, Sun, Monitor, Sparkles } from 'lucide-react'
 import { useTheme } from '../../components/ThemeProvider'
 import { usePlatform } from '../../hooks/usePlatform'
 import type { ThemeMode, AccentColor, UiTheme } from '../../../../preload/index'
 import { THEME_PRESETS } from '../../theme/presets'
 
-const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ReactNode; desc: string }> = [
-  { value: 'dark', label: '暗夜', icon: <Moon size={20} />, desc: '始终使用深色外观' },
-  { value: 'light', label: '明亮', icon: <Sun size={20} />, desc: '始终使用浅色外观' },
-  { value: 'auto', label: '跟随系统', icon: <Monitor size={20} />, desc: '自动匹配系统外观设置' },
-]
+const ACCENT_VALUES: AccentColor[] = ['violet', 'indigo', 'blue', 'green', 'orange', 'lavender', 'rose', 'slate']
 
-const ACCENT_OPTIONS: Array<{ value: AccentColor; label: string; color: string }> = [
-  { value: 'violet', label: '紫罗兰', color: '#7c6aef' },
-  { value: 'indigo', label: '靛蓝', color: '#7878c0' },
-  { value: 'blue', label: '海蓝', color: '#4a9ed6' },
-  { value: 'green', label: '翠绿', color: '#4a9e5c' },
-  { value: 'orange', label: '暖橙', color: '#d08040' },
-  { value: 'lavender', label: '薰衣草', color: '#9080c8' },
-  { value: 'rose', label: '玫瑰', color: '#c87090' },
-  { value: 'slate', label: '石板灰', color: '#7a8a9e' },
-]
+const ACCENT_COLORS: Record<AccentColor, string> = {
+  violet: '#7c6aef',
+  indigo: '#7878c0',
+  blue: '#4a9ed6',
+  green: '#4a9e5c',
+  orange: '#d08040',
+  lavender: '#9080c8',
+  rose: '#c87090',
+  slate: '#7a8a9e',
+}
 
 export default function Appearance(): React.ReactElement {
+  const { t } = useTranslation()
   const { mode, accent, uiTheme, lexicon, setMode, setAccent, setUiTheme } = useTheme()
   const { isMac } = usePlatform()
+
+  const modeOptions = useMemo(() => ([
+    { value: 'dark' as ThemeMode, label: t('themeMode.dark.label'), icon: <Moon size={20} />, desc: t('themeMode.dark.desc') },
+    { value: 'light' as ThemeMode, label: t('themeMode.light.label'), icon: <Sun size={20} />, desc: t('themeMode.light.desc') },
+    { value: 'auto' as ThemeMode, label: t('themeMode.auto.label'), icon: <Monitor size={20} />, desc: t('themeMode.auto.desc') },
+  ]), [t])
+
+  const accentOptions = useMemo(() => ACCENT_VALUES.map((value) => ({
+    value,
+    label: t(`accent.${value}`),
+    color: ACCENT_COLORS[value],
+  })), [t])
 
   const handleModeChange = useCallback((newMode: ThemeMode) => {
     document.documentElement.classList.add('theme-transitioning')
@@ -50,6 +60,12 @@ export default function Appearance(): React.ReactElement {
       document.documentElement.classList.remove('theme-transitioning')
     }, 500)
   }, [setAccent, setUiTheme])
+
+  const getPresetLabel = (presetId: UiTheme, fallback: string): string =>
+    presetId === 'classic' ? t('themePreset.classic.label') : fallback
+
+  const getPresetDesc = (presetId: UiTheme, fallback: string): string =>
+    presetId === 'classic' ? t('themePreset.classic.desc') : fallback
 
   return (
     <div className="flex h-full flex-col">
@@ -88,10 +104,10 @@ export default function Appearance(): React.ReactElement {
                     </div>
                     <div>
                       <div className={`text-sm font-semibold ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
-                        {preset.label}
+                        {getPresetLabel(preset.id, preset.label)}
                       </div>
                       <div className="mt-1 text-xs text-[var(--text-dim)] leading-relaxed">
-                        {preset.desc}
+                        {getPresetDesc(preset.id, preset.desc)}
                       </div>
                     </div>
                   </button>
@@ -102,9 +118,9 @@ export default function Appearance(): React.ReactElement {
           </section>
 
           <section>
-            <h3 className="mb-4 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">模式</h3>
+            <h3 className="mb-4 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t('appearance.mode')}</h3>
             <div className="grid grid-cols-3 gap-3">
-              {MODE_OPTIONS.map((opt) => {
+              {modeOptions.map((opt) => {
                 const isActive = mode === opt.value
                 return (
                   <button
@@ -136,10 +152,10 @@ export default function Appearance(): React.ReactElement {
           </section>
 
           <section>
-            <h3 className="mb-4 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">主题色</h3>
+            <h3 className="mb-4 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{t('appearance.accentColor')}</h3>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-5">
               <div className="flex items-center gap-4 flex-wrap">
-                {ACCENT_OPTIONS.map((opt) => {
+                {accentOptions.map((opt) => {
                   const isActive = accent === opt.value
                   return (
                     <button

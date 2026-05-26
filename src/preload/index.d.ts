@@ -402,6 +402,8 @@ interface HermesAPI {
   setAccentColor: (accent: AccentColor) => Promise<{ success: boolean }>
   getUiTheme: () => Promise<UiTheme>
   setUiTheme: (theme: UiTheme) => Promise<{ success: boolean }>
+  getLanguage: () => Promise<string>
+  setLanguage: (language: string) => Promise<{ success: boolean }>
   readLogs: (logFile?: string, lines?: number) => Promise<{ content: string; path: string }>
   clearLogs: (logFile?: string) => Promise<{ success: boolean; path?: string }>
   getAppConfig: () => Promise<Record<string, unknown>>
