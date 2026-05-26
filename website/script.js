@@ -68,27 +68,53 @@ const carouselRoot = document.querySelector("[data-carousel]");
 if (carouselRoot) {
   const track = carouselRoot.querySelector("[data-carousel-track]");
   const slides = carouselRoot.querySelectorAll("[data-carousel-slide]");
-  const dots = carouselRoot.querySelectorAll("[data-carousel-dot]");
+  const dotsHost = carouselRoot.querySelector("[data-carousel-dots]");
   let index = 0;
   let timer = 0;
 
+  const buildDots = () => {
+    if (!(dotsHost instanceof HTMLElement)) return [];
+    dotsHost.innerHTML = "";
+    return Array.from(slides, (_, i) => {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "carousel-dot";
+      dot.setAttribute("data-carousel-dot", "");
+      dot.setAttribute("aria-label", `Slide ${i + 1}`);
+      dotsHost.appendChild(dot);
+      return dot;
+    });
+  };
+
+  const dots = buildDots();
+
   const goTo = (next) => {
+    if (slides.length === 0) return;
     index = (next + slides.length) % slides.length;
     track?.style.setProperty("--carousel-index", String(index));
     dots.forEach((dot, i) => dot.classList.toggle("is-active", i === index));
     slides.forEach((slide, i) => slide.classList.toggle("is-active", i === index));
   };
 
+  const restartTimer = () => {
+    window.clearInterval(timer);
+    if (slides.length > 1) {
+      timer = window.setInterval(() => goTo(index + 1), 6000);
+    }
+  };
+
   dots.forEach((dot, i) => {
     dot.addEventListener("click", () => {
       goTo(i);
-      window.clearInterval(timer);
-      timer = window.setInterval(() => goTo(index + 1), 6000);
+      restartTimer();
     });
   });
 
-  if (slides.length > 1) {
+  carouselRoot.addEventListener("mouseenter", () => window.clearInterval(timer));
+  carouselRoot.addEventListener("mouseleave", restartTimer);
+
+  if (slides.length > 0) {
     goTo(0);
-    timer = window.setInterval(() => goTo(index + 1), 6000);
+    restartTimer();
   }
 }

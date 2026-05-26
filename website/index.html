@@ -188,7 +188,7 @@
           <div class="section-heading center reveal">
             <p class="section-kicker">产品界面</p>
             <h2>从安装引导到日常运营，每一屏都为长期运行而设计。</h2>
-            <p class="section-lead">以下截图为当前版本真实界面，涵盖登录、对话、员工管理、日程、工具集成与 Token 统计等核心模块。</p>
+            <p class="section-lead">以下截图为当前版本真实界面，涵盖登录、引擎安装、对话、员工管理、日程、工具集成与 Token 统计等核心模块。</p>
           </div>
 
           <div class="showcase-layout reveal" data-showcase>
@@ -207,6 +207,9 @@
               </button>
               <button type="button" class="showcase-tab" data-showcase-tab="stats" data-image="./img/token用量界面.png" data-alt="Token 用量">
                 <strong>Token 统计</strong><span>按模型与员工观测成本</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="install" data-image="./img/我的安装.png" data-alt="引擎安装">
+                <strong>引擎安装</strong><span>Python、Git 与 Hermes Agent 引导</span>
               </button>
               <button type="button" class="showcase-tab" data-showcase-tab="login" data-image="./img/登录界面.png" data-alt="登录界面">
                 <strong>登录与引导</strong><span>本地密码与首次安装向导</span>
@@ -236,6 +239,10 @@
                 <div class="showcase-panel" data-showcase-panel="stats">
                   <h3>成本可观测</h3>
                   <p>Token 按模型、员工与时间维度聚合，帮助团队评估长期运行成本与模型选型。</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="install">
+                  <h3>图形化引擎安装</h3>
+                  <p>检测本机 Python、Git 与 Hermes Agent 环境，引导完成虚拟环境、依赖与引擎版本安装，降低上手门槛。</p>
                 </div>
                 <div class="showcase-panel" data-showcase-panel="login">
                   <h3>低门槛上手</h3>
@@ -268,18 +275,15 @@
                 <figcaption class="carousel-caption"><strong>Token 统计</strong><span>成本与用量可追踪</span></figcaption>
               </figure>
               <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/我的安装.png" alt="引擎安装" />
+                <figcaption class="carousel-caption"><strong>引擎安装</strong><span>Python、Git 与 Hermes Agent 引导</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
                 <img src="./img/登录界面.png" alt="登录界面" />
                 <figcaption class="carousel-caption"><strong>登录与引导</strong><span>本地安全与安装向导</span></figcaption>
               </figure>
             </div>
-            <div class="carousel-dots">
-              <button type="button" class="carousel-dot is-active" data-carousel-dot aria-label="第 1 张"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="第 2 张"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="第 3 张"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="第 4 张"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="第 5 张"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="第 6 张"></button>
-            </div>
+            <div class="carousel-dots" data-carousel-dots></div>
           </div>
         </div>
       </section>

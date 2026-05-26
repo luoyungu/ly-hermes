@@ -189,7 +189,7 @@
           <div class="section-heading center reveal">
             <p class="section-kicker">Product UI</p>
             <h2>Every screen designed for long-running agent operations.</h2>
-            <p class="section-lead">Real screenshots from the current release — login, chat, employees, schedule, tools, and token stats.</p>
+            <p class="section-lead">Real screenshots from the current release — login, engine install, chat, employees, schedule, tools, and token stats.</p>
           </div>
 
           <div class="showcase-layout reveal" data-showcase>
@@ -208,6 +208,9 @@
               </button>
               <button type="button" class="showcase-tab" data-showcase-tab="stats" data-image="./img/token用量界面.png" data-alt="Token stats">
                 <strong>Token stats</strong><span>Cost by model and employee</span>
+              </button>
+              <button type="button" class="showcase-tab" data-showcase-tab="install" data-image="./img/我的安装.png" data-alt="Engine install">
+                <strong>Engine install</strong><span>Python, Git &amp; Hermes Agent wizard</span>
               </button>
               <button type="button" class="showcase-tab" data-showcase-tab="login" data-image="./img/登录界面.png" data-alt="Login">
                 <strong>Login &amp; onboarding</strong><span>Local auth and install wizard</span>
@@ -237,6 +240,10 @@
                 <div class="showcase-panel" data-showcase-panel="stats">
                   <h3>Observable cost</h3>
                   <p>Token usage by model, employee, and time — for long-running cost control.</p>
+                </div>
+                <div class="showcase-panel" data-showcase-panel="install">
+                  <h3>Guided engine install</h3>
+                  <p>Detect Python, Git, and Hermes Agent on your machine, then walk through venv, dependencies, and engine setup.</p>
                 </div>
                 <div class="showcase-panel" data-showcase-panel="login">
                   <h3>Lower barrier to entry</h3>
@@ -269,18 +276,15 @@
                 <figcaption class="carousel-caption"><strong>Token stats</strong><span>Usage analytics</span></figcaption>
               </figure>
               <figure class="carousel-slide" data-carousel-slide>
+                <img src="./img/我的安装.png" alt="Engine install" />
+                <figcaption class="carousel-caption"><strong>Engine install</strong><span>Python, Git &amp; Hermes Agent</span></figcaption>
+              </figure>
+              <figure class="carousel-slide" data-carousel-slide>
                 <img src="./img/登录界面.png" alt="Login" />
                 <figcaption class="carousel-caption"><strong>Login</strong><span>Secure local access</span></figcaption>
               </figure>
             </div>
-            <div class="carousel-dots">
-              <button type="button" class="carousel-dot is-active" data-carousel-dot aria-label="Slide 1"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 2"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 3"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 4"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 5"></button>
-              <button type="button" class="carousel-dot" data-carousel-dot aria-label="Slide 6"></button>
-            </div>
+            <div class="carousel-dots" data-carousel-dots></div>
           </div>
         </div>
       </section>
