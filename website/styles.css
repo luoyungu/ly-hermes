@@ -172,13 +172,25 @@ img { display: block; max-width: 100%; }
   font-weight: 500;
 }
 
-.desktop-nav a:not(.nav-github):hover { opacity: 0.75; }
+.desktop-nav a:not(.nav-github):not(.nav-gitee):hover { opacity: 0.75; }
 
 .nav-github {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   opacity: 0.85;
+}
+
+.nav-gitee {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.84rem;
+  font-weight: 600;
+  opacity: 0.92;
 }
 
 .header-actions {
@@ -1025,12 +1037,40 @@ details p {
   font-size: 0.88rem;
 }
 
+.download-mirror-note {
+  margin: 18px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .download-actions {
   display: flex;
   flex-direction: column;
   gap: 14px;
   align-items: flex-start;
 }
+
+.download-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.download-repo-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 0.88rem;
+}
+
+.download-repo-links a {
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.download-repo-links a:hover { color: #fff; }
 
 /* Footer */
 .site-footer {
