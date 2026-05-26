@@ -47,6 +47,16 @@ export default tseslint.config(
     },
   },
   {
+    files: ['website/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: {
+        ...globals.browser,
+      },
+    },
+  },
+  {
     files: ['src/preload/index.d.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',

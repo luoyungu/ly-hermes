@@ -22,6 +22,9 @@ export function registerAuthIpcHandlers(): void {
   );
 
   webIpc("auth-setup-password", async (_, password: string) => {
+    if (desktopAuthService.checkInitialized()) {
+      return { error: "已初始化，请使用修改密码功能" };
+    }
     return desktopAuthService.setupPassword(password);
   });
 

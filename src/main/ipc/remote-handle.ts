@@ -15,7 +15,6 @@ export function registerRemoteHandler(
 
 export function ipcHandle(
   channel: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   localHandler: (event: IpcMainInvokeEvent, ...args: any[]) => unknown,
 ): void {
   ipcMain.handle(channel, async (event, ...args) => {

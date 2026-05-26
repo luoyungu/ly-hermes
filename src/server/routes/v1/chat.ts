@@ -4,6 +4,7 @@ import { sendMessageViaApi, _currentChatReqs } from "../../../main/chat";
 import { stageAttachment } from "../../../main/attachment-staging";
 import { readJsonBody, requireRemoteAuth, sendJson } from "./shared";
 import { writeChatEvent, writeSseHeaders } from "../../sse";
+import type { Attachment } from "../../../shared/attachments";
 
 export async function handleV1ChatRoutes(
   req: http.IncomingMessage,
@@ -33,6 +34,7 @@ export async function handleV1ChatRoutes(
         : undefined,
       getMainWindow(),
       typeof body.resumeSessionId === "string" ? body.resumeSessionId : undefined,
+      Array.isArray(body.attachments) ? (body.attachments as Attachment[]) : undefined,
     );
     return true;
   }

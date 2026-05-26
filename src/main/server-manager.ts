@@ -16,6 +16,7 @@ import {
   getRemoteConnection,
   saveRemoteConnection,
   clearRemoteConnection,
+  isClientOnlyMode,
   type DeploymentMode,
 } from "./deployment";
 import { testRemoteConnection } from "../core/remote/remote-client";
@@ -70,6 +71,17 @@ function writeWebServerConfig(next: { autoStart: boolean; port: number }): void 
   saveRemoteServerConfig(remote);
 }
 
+function disableServerCapabilities(): void {
+  const webConfig = readWebServerConfig();
+  if (webConfig.autoStart) {
+    writeWebServerConfig({ autoStart: false, port: webConfig.port });
+  }
+  const remote = getRemoteServerConfig();
+  if (remote.enabled) {
+    saveRemoteServerConfig({ ...remote, enabled: false });
+  }
+}
+
 export function getDesktopWebServerStatus(): DesktopWebServerStatus {
   const config = readWebServerConfig();
   const remote = getRemoteServerConfig();
@@ -90,6 +102,12 @@ export function getDesktopWebServerStatus(): DesktopWebServerStatus {
 }
 
 export async function startDesktopWebServer(port?: number): Promise<DesktopWebServerStatus> {
+  if (isClientOnlyMode()) {
+    disableServerCapabilities();
+    await stopDesktopWebServer();
+    lastError = "远程客户端模式不提供 Web 服务";
+    return getDesktopWebServerStatus();
+  }
   if (server) return getDesktopWebServerStatus();
   const listen = getRemoteServerListenConfig();
   currentPort = Number(port || listen.port) || DEFAULT_WEB_SERVER_PORT;
@@ -169,6 +187,10 @@ export async function stopDesktopWebServer(): Promise<DesktopWebServerStatus> {
 }
 
 export async function applyDesktopWebServerConfig(): Promise<DesktopWebServerStatus> {
+  if (isClientOnlyMode()) {
+    disableServerCapabilities();
+    return stopDesktopWebServer();
+  }
   const config = readWebServerConfig();
   if (!config.autoStart) return stopDesktopWebServer();
   const listen = getRemoteServerListenConfig();
@@ -198,11 +220,18 @@ export function registerDeploymentIpc(
   webIpc("deployment:get-mode", () => getDeploymentMode());
   webIpc("deployment:set-mode", (_, mode: DeploymentMode) => {
     setDeploymentMode(mode);
+    if (mode === "client_only") {
+      disableServerCapabilities();
+      void stopDesktopWebServer();
+    }
     return { success: true, mode };
   });
 
   webIpc("remote-connection:get", () => getRemoteConnection());
   webIpc("remote-connection:save", async (_, connection: RemoteConnection) => {
+    setDeploymentMode("client_only");
+    disableServerCapabilities();
+    await stopDesktopWebServer();
     saveRemoteConnection(connection);
     const test = await testRemoteConnection(connection);
     if (test.success) {

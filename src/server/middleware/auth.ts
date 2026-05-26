@@ -6,13 +6,6 @@ export function getBearerToken(req: http.IncomingMessage): string | null {
   const header = req.headers.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (match) return match[1].trim();
-  try {
-    const url = new URL(req.url || "/", "http://localhost");
-    const queryToken = url.searchParams.get("token");
-    if (queryToken) return queryToken.trim();
-  } catch {
-    /* ignore */
-  }
   return null;
 }
 

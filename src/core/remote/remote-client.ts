@@ -68,18 +68,17 @@ export function remoteJsonRequest<T>(
 export async function testRemoteConnection(
   conn: RemoteConnectionLike,
 ): Promise<{ success: boolean; error?: string; remote_enabled?: boolean }> {
-  const health = await remoteJsonRequest<{
-    ok?: boolean;
+  const info = await remoteJsonRequest<{
     remote_enabled?: boolean;
     error?: string;
-  }>(conn, "GET", "/api/v1/health");
-  if (health.status === 200 && health.data?.ok) {
-    return { success: true, remote_enabled: health.data.remote_enabled };
+  }>(conn, "GET", "/api/v1/node/info");
+  if (info.status === 200 && info.data?.remote_enabled === true) {
+    return { success: true, remote_enabled: true };
   }
-  if (health.status === 401 || health.status === 403) {
+  if (info.status === 401 || info.status === 403) {
     return { success: false, error: "Token 无效或远程访问未开启" };
   }
-  return { success: false, error: health.error || health.data?.error || "无法连接远程服务器" };
+  return { success: false, error: info.error || info.data?.error || "无法连接远程服务器" };
 }
 
 function processRemoteSsePart(

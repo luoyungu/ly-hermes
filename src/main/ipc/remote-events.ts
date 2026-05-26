@@ -155,7 +155,7 @@ export function startRemoteEventBridge(
     {
       hostname: conn.host,
       port: conn.port,
-      path: `/api/v1/events?token=${encodeURIComponent(conn.api_token)}`,
+      path: "/api/v1/events",
       method: "GET",
       headers: { Authorization: `Bearer ${conn.api_token}` },
       timeout: 0,

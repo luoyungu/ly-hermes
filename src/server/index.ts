@@ -20,6 +20,27 @@ import { invokeWebApiChannel, hasWebApiChannel } from "./web-api-registry";
 const EMBED_DIST_DIR = path.resolve(__dirname, "../../dist-web/embed");
 const APP_DIST_DIR = path.resolve(__dirname, "../../dist-web/app");
 
+const WEB_LOCAL_INVOKE_DENYLIST = new Set([
+  "check-install",
+  "verify-install",
+  "start-install",
+  "get-hermes-version",
+  "refresh-hermes-version",
+  "run-hermes-doctor",
+  "run-hermes-update",
+  "run-hermes-backup",
+  "run-hermes-import",
+  "get-app-logs",
+  "clear-app-logs",
+  "get-log-file-path",
+  "read-logs",
+  "clear-logs",
+]);
+
+function isWebLocalInvokeAllowed(channel: string): boolean {
+  return !WEB_LOCAL_INVOKE_DENYLIST.has(channel);
+}
+
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -161,6 +182,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/setup-password") {
+    if (desktopAuthService.checkInitialized()) {
+      sendJson(res, 409, { error: "已初始化，请使用修改密码功能", requestId: ctx.requestId });
+      return;
+    }
     const body = await readJsonBody(req);
     const result = desktopAuthService.setupPassword(String(body.password || ""));
     if (result.success && result.user) {
@@ -221,6 +246,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const args = Array.isArray(body.args) ? body.args : [];
     if (!channel || !hasWebApiChannel(channel)) {
       sendJson(res, 404, { error: `未支持的接口: ${channel}`, requestId: ctx.requestId });
+      return;
+    }
+    if (!isWebLocalInvokeAllowed(channel)) {
+      sendJson(res, 403, { error: `Web 端不允许调用: ${channel}`, requestId: ctx.requestId });
       return;
     }
     try {

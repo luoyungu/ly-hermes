@@ -10,6 +10,7 @@ screenshots/
 build/runtime/python/
 .DS_Store
 ._*
+.eslintcache
 *.log
 .env
 .env.local

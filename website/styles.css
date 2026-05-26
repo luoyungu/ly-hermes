@@ -978,6 +978,79 @@ summary {
   }
 }
 
+/* GitHub badge in hero */
+.github-badge {
+  margin-bottom: 18px;
+}
+
+.github-badge a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 100px;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.github-badge a:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.github-badge svg {
+  opacity: 0.82;
+}
+
+/* Nav GitHub link */
+.nav-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Download platform tags */
+.download-platforms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.platform-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.platform-tag svg {
+  opacity: 0.72;
+}
+
+/* Hero actions with icons */
+.hero-actions .primary-action,
+.hero-actions .secondary-action,
+.download-actions .primary-action,
+.download-actions .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 700px) {
   .site-header {
     top: 10px;

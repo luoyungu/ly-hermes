@@ -61,7 +61,7 @@ const ACCENT_OPTIONS: Array<{ value: AccentColor; label: string; color: string }
 ]
 
 export default function SettingsScreen(): React.ReactElement {
-  const { isMac } = usePlatform()
+  const { isMac, isElectron } = usePlatform()
   const { lexicon, mode, accent, uiTheme, setMode, setAccent, setUiTheme } = useTheme()
   const [section, setSection] = useState<Section>('basic')
   const [saving, setSaving] = useState(false)
@@ -240,6 +240,12 @@ export default function SettingsScreen(): React.ReactElement {
       refreshVersion()
     }
   }, [section, refreshVersion])
+
+  useEffect(() => {
+    if (!isElectron && (section === 'engine' || section === 'data' || section === 'logs')) {
+      setSection('basic')
+    }
+  }, [isElectron, section])
 
   const handleDoctor = async (): Promise<void> => {
     setDoctorRunning(true)
@@ -655,9 +661,13 @@ export default function SettingsScreen(): React.ReactElement {
       ? [
           { key: 'runtime' as Section, label: '运行参数', icon: <Wrench size={16} /> },
           { key: 'models' as Section, label: '模型管理', icon: <Box size={16} /> },
-          { key: 'engine' as Section, label: '引擎管理', icon: <Terminal size={16} /> },
-          { key: 'data' as Section, label: '数据管理', icon: <Download size={16} /> },
-          { key: 'logs' as Section, label: '系统日志', icon: <FileText size={16} /> },
+          ...(isElectron ? [{ key: 'engine' as Section, label: '引擎管理', icon: <Terminal size={16} /> }] : []),
+          ...(isElectron
+            ? [
+                { key: 'data' as Section, label: '数据管理', icon: <Download size={16} /> },
+                { key: 'logs' as Section, label: '系统日志', icon: <FileText size={16} /> },
+              ]
+            : []),
         ]
       : []),
   ]

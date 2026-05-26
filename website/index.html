@@ -6,8 +6,27 @@
     <title>落云.Hermes - AI 员工管理平台</title>
     <meta
       name="description"
-      content="落云.Hermes 是面向中文团队的 Hermes Agent 桌面工作台，提供 AI 员工管理、定时任务、远程节点、Web 嵌入和飞书/微信/钉钉协作入口。"
+      content="落云.Hermes 是面向中文团队的 AI 员工管理平台。基于 Hermes Agent 生态，提供桌面安装、员工编排、远程节点、自动交付和办公协作入口。支持飞书、微信、钉钉。"
     />
+    <meta name="keywords" content="AI员工, Agent管理, Hermes Agent, Electron, 桌面应用, 飞书机器人, 钉钉机器人" />
+    <meta name="author" content="luoyun" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://lyhermes.github.io" />
+    <meta property="og:title" content="落云.Hermes - AI 员工管理平台" />
+    <meta property="og:description" content="把 AI Agent 变成可管理的团队。桌面安装、员工编排、定时任务、远程节点、办公协作。" />
+    <meta property="og:image" content="https://lyhermes.github.io/og-image.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="落云.Hermes - AI 员工管理平台" />
+    <meta name="twitter:description" content="把 AI Agent 变成可管理的团队。桌面安装、员工编排、定时任务、远程节点、办公协作。" />
+    <meta name="twitter:image" content="https://lyhermes.github.io/og-image.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="../src/renderer/src/assets/logo.png" />
+
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -22,6 +41,10 @@
         <a href="#compare">对照</a>
         <a href="#usecases">场景</a>
         <a href="#faq">FAQ</a>
+        <a href="https://github.com/luoyun/lyhermes" target="_blank" rel="noreferrer" class="nav-github">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
       </nav>
       <a class="header-action" href="#download">获取桌面端</a>
       <button class="menu-button" type="button" aria-label="打开导航" aria-expanded="false">
@@ -36,6 +59,7 @@
       <a href="#compare">对照</a>
       <a href="#usecases">场景</a>
       <a href="#faq">FAQ</a>
+      <a href="https://github.com/luoyun/lyhermes" target="_blank" rel="noreferrer">GitHub</a>
       <a href="#download">获取桌面端</a>
     </div>
 
@@ -44,6 +68,12 @@
         <img class="hero-bg" src="../src/renderer/src/assets/login-bg.jpg" alt="" />
         <div class="hero-wash"></div>
         <div class="hero-content reveal">
+          <div class="github-badge">
+            <a href="https://github.com/luoyun/lyhermes" target="_blank" rel="noreferrer">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              <span>Star on GitHub</span>
+            </a>
+          </div>
           <p class="eyebrow">Hermes Agent 的中文桌面工作台</p>
           <h1>让自我成长的 Agent，成为一支可管理的 AI 员工团队。</h1>
           <p class="hero-copy">
@@ -51,8 +81,14 @@
             为中文用户提供桌面安装、员工编排、远程节点、自动交付和办公协作入口。
           </p>
           <div class="hero-actions">
-            <a class="primary-action" href="#download">下载体验</a>
-            <a class="secondary-action" href="#platform">浏览产品</a>
+            <a class="primary-action" href="#download">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              下载体验
+            </a>
+            <a class="secondary-action" href="https://github.com/luoyun/lyhermes" target="_blank" rel="noreferrer">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              查看源码
+            </a>
           </div>
         </div>
         <div class="hero-product reveal" aria-label="落云.Hermes 产品预览">
@@ -63,7 +99,7 @@
               <span></span>
               <strong>AI 员工控制台</strong>
             </div>
-            <img src="../screenshots/01-after-login.png" alt="落云.Hermes 桌面端界面截图" />
+            <img src="../screenshots/02-login-try-default.png" alt="落云.Hermes 桌面端界面截图" />
           </div>
           <div class="status-tile tile-a">
             <span>员工在线</span>
@@ -148,7 +184,7 @@
             <p class="section-kicker">为什么是落云.Hermes</p>
             <h2>不是替代官方 Hermes，而是把它变成更容易交付的中文工作台。</h2>
             <p>
-              你的项目优势不在“又做了一个聊天 UI”，而在于把 Agent 的长期运行能力变成桌面用户可理解、可配置、可观察、可备份的产品体验。
+              你的项目优势不在"又做了一个聊天 UI"，而在于把 Agent 的长期运行能力变成桌面用户可理解、可配置、可观察、可备份的产品体验。
             </p>
           </div>
           <div class="advantage-list">
@@ -196,7 +232,7 @@
           <div class="experience-layout">
             <div class="experience-copy reveal">
               <p class="section-kicker">产品体验</p>
-              <h2>从“会用 Hermes”到“能管理一个 Agent 团队”。</h2>
+              <h2>从"会用 Hermes"到"能管理一个 Agent 团队"。</h2>
               <p>
                 官网需要让用户马上理解：落云.Hermes 的对象不是一段对话，而是持续工作的 AI 员工，以及围绕员工产生的模型、技能、任务、渠道和数据。
               </p>
@@ -243,7 +279,7 @@
             <article class="compare-card reveal">
               <span>Community</span>
               <h3>常见 Web 客户端</h3>
-              <p>解决“在浏览器里聊天”和部分仪表盘问题，适合远程访问、会话延续和轻量控制。</p>
+              <p>解决"在浏览器里聊天"和部分仪表盘问题，适合远程访问、会话延续和轻量控制。</p>
               <ul>
                 <li>Web/PWA 入口</li>
                 <li>会话和聊天体验</li>
@@ -321,6 +357,10 @@
               <summary>适合个人还是团队？</summary>
               <p>个人可以把它作为长期助理工作台；团队则可以用多员工、日程和办公渠道集成来承载日报、巡检、客服、研究等持续工作。</p>
             </details>
+            <details class="reveal">
+              <summary>数据存在哪里？安全吗？</summary>
+              <p>所有数据存储在本地 SQLite 数据库（~/.lyhermes/ 和 ~/.hermes/），不上传云端。支持备份导出和恢复导入。</p>
+            </details>
           </div>
         </div>
       </section>
@@ -332,13 +372,32 @@
             <p class="section-kicker">开始使用</p>
             <h2>给 Hermes Agent 一个真正面向日常工作的桌面控制台。</h2>
             <p>
-              正式发布时，可以把这里接到 GitHub Release、内测表单或你的自有下载页。
-              当前版本保留本地构建产物入口，方便你在项目内验证官网链路。
+              开源免费，MIT 协议。支持 macOS、Windows、Linux。
             </p>
+            <div class="download-platforms">
+              <span class="platform-tag">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                macOS
+              </span>
+              <span class="platform-tag">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5A2.5 2.5 0 015.5 3h13A2.5 2.5 0 0121 5.5v13a2.5 2.5 0 01-2.5 2.5h-13A2.5 2.5 0 013 18.5v-13zM5.5 5a.5.5 0 00-.5.5v13a.5.5 0 00.5.5h13a.5.5 0 00.5-.5v-13a.5.5 0 00-.5-.5h-13z"/></svg>
+                Windows
+              </span>
+              <span class="platform-tag">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489.117.777.427 1.489.9 2.085.95 1.18 2.654 1.774 4.6 1.648 2.226-.142 3.95-1.068 5.13-2.754.73-1.058 1.15-2.335 1.23-3.785.08-1.45-.22-2.82-.89-4.01-.67-1.19-1.64-2.09-2.84-2.67-1.2-.58-2.49-.75-3.79-.49-.13.027-.256.064-.38.11l-.02.01c-.1.04-.2.087-.3.14-.2.1-.39.22-.57.35-.36.26-.69.58-.98.95-.58.74-.99 1.64-1.2 2.64-.21 1-.17 2.04.12 3.03.29.99.82 1.86 1.55 2.54.73.68 1.63 1.14 2.64 1.33 1.01.19 2.04.08 2.99-.32.95-.4 1.76-1.06 2.36-1.91.6-.85.96-1.85 1.04-2.91.08-1.06-.16-2.11-.69-3.04-.53-.93-1.32-1.67-2.28-2.14-.96-.47-2.04-.64-3.1-.49-.26.04-.52.1-.77.18-.25.08-.5.18-.73.31-.46.25-.88.58-1.24.97-.72.79-1.16 1.81-1.24 2.9-.08 1.09.22 2.17.84 3.08.62.91 1.52 1.58 2.56 1.91 1.04.33 2.16.29 3.18-.12 1.02-.41 1.89-1.13 2.48-2.06.59-.93.87-2.03.8-3.14-.07-1.11-.48-2.16-1.17-3.01-.69-.85-1.63-1.46-2.69-1.74-1.06-.28-2.19-.22-3.22.18-1.02.41-1.89 1.13-2.48 2.06-.59.93-.87 2.03-.8 3.14.07 1.11.48 2.16 1.17 3.01.69.85 1.63 1.46 2.69 1.74 1.06.28 2.19.22 3.22-.18z"/></svg>
+                Linux
+              </span>
+            </div>
           </div>
           <div class="download-actions">
-            <a class="primary-action" href="../dist/">查看构建产物</a>
-            <a class="secondary-action" href="./README.md">网站说明</a>
+            <a class="primary-action" href="https://github.com/luoyun/lyhermes/releases" target="_blank" rel="noreferrer">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              前往下载
+            </a>
+            <a class="secondary-action" href="https://github.com/luoyun/lyhermes" target="_blank" rel="noreferrer">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              GitHub
+            </a>
           </div>
         </div>
       </section>
@@ -351,6 +410,7 @@
           <p>AI 员工管理平台，基于 Hermes Agent 生态构建。</p>
         </div>
         <div class="footer-links">
+          <a href="https://github.com/luoyun/lyhermes" target="_blank" rel="noreferrer">GitHub</a>
           <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noreferrer">Hermes Agent</a>
           <a href="https://hermes-agent.nousresearch.com/docs" target="_blank" rel="noreferrer">官方文档</a>
         </div>
