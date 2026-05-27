@@ -466,7 +466,7 @@ const zhCN = {
     remoteNodeDesc: '连接远程 Hermes 节点以管理员工和聊天。',
     nodeName: '节点名称',
     switchDeploymentMode: '切换部署模式',
-    switchDeploymentModeDesc: '切换为本机模式后，需在本机安装 Hermes Agent 才能运行员工。',
+    switchDeploymentModeDesc: '远程客户端模式下无法配置模型。切换为本机模式后，可在「模型管理」中配置阿里云等 API，并安装 Hermes Agent。',
     runtimeIntro: '这些参数对所有员工全局生效，包括记忆、压缩、终端、代码执行、浏览器和会话重置策略。',
     engineAndUpdate: '更新与引擎',
     serverNetwork: '服务端网络',

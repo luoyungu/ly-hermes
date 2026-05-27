@@ -274,7 +274,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     id: 'qwen',
-    label: '通义千问',
+    label: '通义千问 (阿里云)',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKeyEnv: 'DASHSCOPE_API_KEY',
     apiKeyLabel: '通义千问 API 密钥',

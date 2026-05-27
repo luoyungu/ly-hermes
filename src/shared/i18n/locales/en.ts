@@ -466,7 +466,7 @@ const en = {
     remoteNodeDesc: 'Connect to a remote Hermes node to manage agents and chat.',
     nodeName: 'Node name',
     switchDeploymentMode: 'Switch deployment mode',
-    switchDeploymentModeDesc: 'After switching to local mode, install Hermes Agent on this machine to run agents.',
+    switchDeploymentModeDesc: 'Model config is unavailable in remote client mode. Switch to local mode to configure Alibaba Cloud and other providers in Models, then install Hermes Agent.',
     runtimeIntro: 'These settings apply globally to all agents, including memory, compression, terminal, code execution, browser, and session reset.',
     engineAndUpdate: 'Updates & engine',
     serverNetwork: 'Server network',

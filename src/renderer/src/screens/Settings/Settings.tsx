@@ -618,6 +618,7 @@ export default function SettingsScreen(): React.ReactElement {
     setModelFormSaving(true)
     setModelFormError(null)
     try {
+      let savedId = editingModelId
       if (editingModelId) {
         const result = await window.hermesAPI.updateSavedModel(
           editingModelId,
@@ -632,13 +633,17 @@ export default function SettingsScreen(): React.ReactElement {
           return
         }
       } else {
-        await window.hermesAPI.addSavedModel(
+        const entry = await window.hermesAPI.addSavedModel(
           modelFormName.trim() || modelFormModel.trim(),
           provider.trim(),
           modelFormModel.trim(),
           modelFormBaseUrl.trim(),
           modelFormApiKey.trim()
         )
+        savedId = entry?.id || null
+      }
+      if (savedId && modelFormApiKey.trim()) {
+        await window.hermesAPI.applySavedModel(savedId, 'default')
       }
       closeModelForm()
       loadSavedModels()
