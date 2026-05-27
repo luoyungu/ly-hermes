@@ -403,36 +403,53 @@ export async function wakeUpEmployee(
       const resolvedProviderInfo = PROVIDER_KEY_MAP[provider];
 
       if (resolvedProviderInfo) {
-        if (!env.OPENAI_BASE_URL && !env.CUSTOM_API_BASE_URL) {
-          const baseUrl = (m?.base_url as string) || resolvedProviderInfo.baseUrl || "";
-          if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
+        const baseUrl = (m?.base_url as string) || resolvedProviderInfo.baseUrl || "";
+        if (baseUrl) {
+          env.OPENAI_BASE_URL = baseUrl;
+          env.CUSTOM_API_BASE_URL = baseUrl;
         }
-        if (env[resolvedProviderInfo.envKey]) {
-          env.OPENAI_API_KEY = env[resolvedProviderInfo.envKey] as string;
+        const apiKey = (env[resolvedProviderInfo.envKey] as string | undefined) || "";
+        if (apiKey) {
+          env.OPENAI_API_KEY = apiKey;
+          env.CUSTOM_API_KEY = apiKey;
         }
-        delete env.HERMES_INFERENCE_PROVIDER;
+        env.HERMES_INFERENCE_PROVIDER = "custom";
         const envPath = path.join(getProfilePath(profileName), ".env");
         if (fs.existsSync(envPath)) {
           let envContent = fs.readFileSync(envPath, "utf-8");
           const lines = envContent.split("\n");
           let changed = false;
+          const keysToSync = new Set([
+            "HERMES_INFERENCE_PROVIDER",
+            "OPENAI_API_KEY",
+            "CUSTOM_API_KEY",
+            "OPENAI_BASE_URL",
+            "CUSTOM_API_BASE_URL",
+          ]);
           const filtered = lines.filter((l: string) => {
             const eqIdx = l.indexOf("=");
             if (eqIdx === -1) return true;
             const key = l.slice(0, eqIdx).trim();
-            if (key === "HERMES_INFERENCE_PROVIDER") { changed = true; return false; }
+            if (keysToSync.has(key)) {
+              changed = true;
+              return false;
+            }
             return true;
           });
-          const hasOpenaiKey = filtered.some((l: string) => {
-            const eqIdx = l.indexOf("=");
-            return eqIdx !== -1 && l.slice(0, eqIdx).trim() === "OPENAI_API_KEY";
-          });
-          if (!hasOpenaiKey && env[resolvedProviderInfo.envKey]) {
-            filtered.push("OPENAI_API_KEY=" + (env[resolvedProviderInfo.envKey] as string));
+          if (apiKey) {
+            filtered.push("OPENAI_API_KEY=" + apiKey);
+            filtered.push("CUSTOM_API_KEY=" + apiKey);
             changed = true;
           }
+          if (baseUrl) {
+            filtered.push("OPENAI_BASE_URL=" + baseUrl);
+            filtered.push("CUSTOM_API_BASE_URL=" + baseUrl);
+            changed = true;
+          }
+          filtered.push("HERMES_INFERENCE_PROVIDER=custom");
+          changed = true;
           if (changed) {
-            safeWriteFile(envPath, filtered.join("\n"));
+            safeWriteFile(envPath, filtered.join("\n").trimEnd() + "\n");
           }
         }
       } else if (provider === "custom" || isCustomProvider) {

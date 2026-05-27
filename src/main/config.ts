@@ -1397,11 +1397,16 @@ export function registerConfigIpcHandlers(): void {
           }
           const providerInfo = PROVIDER_KEY_MAP[entry.provider as string];
           const envKey = providerInfo?.envKey || "OPENAI_API_KEY";
-          const keysToRemove = new Set([envKey]);
-          if (providerInfo) {
-            keysToRemove.add("OPENAI_API_KEY");
-            keysToRemove.add("HERMES_INFERENCE_PROVIDER");
-          }
+          const baseUrl =
+            (entry.baseUrl as string) || providerInfo?.baseUrl || "";
+          const keysToRemove = new Set([
+            envKey,
+            "OPENAI_API_KEY",
+            "CUSTOM_API_KEY",
+            "HERMES_INFERENCE_PROVIDER",
+            "OPENAI_BASE_URL",
+            "CUSTOM_API_BASE_URL",
+          ]);
           const lines = envContent
             .split("\n")
             .filter((l: string) => {
@@ -1411,6 +1416,13 @@ export function registerConfigIpcHandlers(): void {
               return !keysToRemove.has(key);
             });
           lines.push(`${envKey}=${apiKey}`);
+          lines.push(`OPENAI_API_KEY=${apiKey}`);
+          lines.push("CUSTOM_API_KEY=" + apiKey);
+          lines.push("HERMES_INFERENCE_PROVIDER=custom");
+          if (baseUrl) {
+            lines.push(`OPENAI_BASE_URL=${baseUrl}`);
+            lines.push(`CUSTOM_API_BASE_URL=${baseUrl}`);
+          }
           safeWriteFile(envPath, lines.join("\n") + "\n");
         }
 

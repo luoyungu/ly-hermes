@@ -499,11 +499,20 @@ export function sendMessageViaCli(
       const isCustomProvider = !providerInfo && provider !== "";
 
       if (providerInfo) {
-        if (!env.OPENAI_BASE_URL && !env.CUSTOM_API_BASE_URL) {
-          const baseUrl = (m?.base_url as string) || providerInfo.baseUrl || "";
-          if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
+        const baseUrl = (m?.base_url as string) || providerInfo.baseUrl || "";
+        if (baseUrl) {
+          env.OPENAI_BASE_URL = baseUrl;
+          env.CUSTOM_API_BASE_URL = baseUrl;
         }
-        delete env.HERMES_INFERENCE_PROVIDER;
+        const apiKey =
+          hermesEnv[providerInfo.envKey] ||
+          (env[providerInfo.envKey] as string | undefined) ||
+          "";
+        if (apiKey) {
+          env.OPENAI_API_KEY = apiKey;
+          env.CUSTOM_API_KEY = apiKey;
+        }
+        env.HERMES_INFERENCE_PROVIDER = "custom";
       } else if (provider === "custom" || isCustomProvider) {
         if (!env.OPENAI_BASE_URL && !env.CUSTOM_API_BASE_URL) {
           const baseUrl = (m?.base_url as string) || "";
