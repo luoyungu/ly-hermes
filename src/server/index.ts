@@ -6,6 +6,7 @@ import { desktopAuthService } from "../main/core/auth-store";
 import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
 import { getApiPortForProfile, getEmployeeWebAccess, listEmployees } from "../main/employees";
+import { getApiServerKeyForProfile } from "../main/config";
 import { getDeploymentMode } from "../main/deployment";
 import { handleV1Request } from "./routes/v1/index";
 import { writeChatEvent, writeSseHeaders } from "./sse";
@@ -321,6 +322,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         model: typeof body.model === "string" ? body.model : undefined,
         host: process.env.HERMES_API_HOST || "127.0.0.1",
         port: gatewayPort,
+        apiServerKey: getApiServerKeyForProfile(profileName),
       },
       (event) => {
         writeChatEvent(res, event);

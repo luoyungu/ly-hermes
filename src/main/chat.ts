@@ -14,6 +14,9 @@ import {
   validateProfileName,
   DEFAULT_HERMES_BIN,
   createHermesProcessEnv,
+  syncPresetProviderEnvFile,
+  PROVIDER_KEY_MAP,
+  getApiServerKeyForProfile,
 } from "./config";
 import {
   getApiPortForProfile,
@@ -21,6 +24,7 @@ import {
   wakeUpEmployee,
   listEmployees,
   resetIdleTimer,
+  putEmployeeToSleep,
 } from "./employees";
 import { showChatNotification } from "./utils";
 import type { BrowserWindow } from "electron";
@@ -32,18 +36,6 @@ import { sendChatEventToWebContents } from "./ipc/chat-events";
 import { isClientOnlyMode, getRemoteConnection } from "./deployment";
 import { remoteStreamChat, remoteJsonRequest, testRemoteConnection } from "../core/remote/remote-client";
 import { ipcHandle } from "./ipc/remote-handle";
-
-const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
-  deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
-  qwen:        { envKey: "DASHSCOPE_API_KEY",    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  zhipu:       { envKey: "GLM_API_KEY",          baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-  moonshot:    { envKey: "MOONSHOT_API_KEY",     baseUrl: "https://api.moonshot.cn/v1" },
-  yi:          { envKey: "YI_API_KEY",           baseUrl: "https://api.lingyiwanwu.com/v1" },
-  minimax:     { envKey: "MINIMAX_API_KEY",      baseUrl: "https://api.minimax.chat/v1" },
-  spark:       { envKey: "SPARK_API_KEY",        baseUrl: "https://spark-api-open.xf-yun.com/v1" },
-  siliconflow: { envKey: "SILICONFLOW_API_KEY",  baseUrl: "https://api.siliconflow.cn/v1" },
-  ernie:       { envKey: "QIANFAN_API_KEY",      baseUrl: "https://qianfan.baidubce.com/v2" },
-};
 
 export const _currentChatReqs: Record<string, AbortController> = {};
 
@@ -108,6 +100,7 @@ export function sendMessageViaApi(
   mainWindow: BrowserWindow | null,
   resumeSessionId?: string,
   attachments?: Attachment[],
+  retrySessionAuth = true,
 ): void {
   const port = getApiPortForProfile(profileName);
   if (!port) {
@@ -146,7 +139,6 @@ export function sendMessageViaApi(
     model: model || "hermes-agent",
     messages,
     stream: true,
-    ...(resumeSessionId ? { session_id: resumeSessionId } : {}),
   });
 
   let sessionId = "";
@@ -213,6 +205,14 @@ export function sendMessageViaApi(
   }
 
   function probeRealError(): void {
+    const probeHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getApiServerKeyForProfile(profileName)}`,
+    };
+    if (resumeSessionId) {
+      probeHeaders["X-Hermes-Session-Id"] = resumeSessionId;
+      probeHeaders["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
+    }
     const probeBody = JSON.stringify({
       model: model || "hermes-agent",
       messages: [{ role: "user", content: message }],
@@ -224,7 +224,7 @@ export function sendMessageViaApi(
         port,
         path: "/v1/chat/completions",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: probeHeaders,
         timeout: 30000,
       },
       (res) => {
@@ -257,6 +257,38 @@ export function sendMessageViaApi(
     });
     probeReq.write(probeBody);
     probeReq.end();
+  }
+
+  function isSessionAuthError(statusCode: number | undefined, raw: string): boolean {
+    if (statusCode !== 401 && statusCode !== 403) return false;
+    return /Session continuation requires API key|Invalid API key|invalid_api_key/i.test(raw);
+  }
+
+  function restartGatewayAndRetry(): void {
+    if (!retrySessionAuth) {
+      finish("会话认证失败，请让员工休息后重新唤醒");
+      return;
+    }
+    putEmployeeToSleep(profileName, mainWindow);
+    wakeUpEmployee(profileName, mainWindow)
+      .then((result) => {
+        if (!result.success) {
+          finish(result.error || "员工重新唤醒失败");
+          return;
+        }
+        delete _currentChatReqs[profileName];
+        sendMessageViaApi(
+          profileName,
+          message,
+          emit,
+          history,
+          mainWindow,
+          resumeSessionId,
+          attachments,
+          false,
+        );
+      })
+      .catch((err: Error) => finish(err.message || "员工重新唤醒失败"));
   }
 
   function processSseBlock(block: string): boolean {
@@ -359,6 +391,12 @@ export function sendMessageViaApi(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  const apiServerKey = getApiServerKeyForProfile(profileName);
+  headers.Authorization = `Bearer ${apiServerKey}`;
+  if (resumeSessionId) {
+    headers["X-Hermes-Session-Id"] = resumeSessionId;
+    headers["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
+  }
   const req = http.request(
     {
       hostname: DEFAULT_API_HOST,
@@ -381,6 +419,10 @@ export function sendMessageViaApi(
           errBody += d.toString();
         });
         res.on("end", () => {
+          if (resumeSessionId && isSessionAuthError(res.statusCode, errBody)) {
+            restartGatewayAndRetry();
+            return;
+          }
           try {
             const err = JSON.parse(errBody);
             finish(
@@ -495,36 +537,14 @@ export function sendMessageViaCli(
       const cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
       const m = cfg.model as Record<string, unknown> | undefined;
       const provider = (m?.provider as string) || "";
-      const providerInfo = PROVIDER_KEY_MAP[provider];
-      const isCustomProvider = !providerInfo && provider !== "";
-
-      if (providerInfo) {
-        const baseUrl = (m?.base_url as string) || providerInfo.baseUrl || "";
-        if (baseUrl) {
-          env.OPENAI_BASE_URL = baseUrl;
-          env.CUSTOM_API_BASE_URL = baseUrl;
-        }
-        const apiKey =
-          hermesEnv[providerInfo.envKey] ||
-          (env[providerInfo.envKey] as string | undefined) ||
-          "";
-        if (apiKey) {
-          env.OPENAI_API_KEY = apiKey;
-          env.CUSTOM_API_KEY = apiKey;
-        }
-        env.HERMES_INFERENCE_PROVIDER = "custom";
-      } else if (provider === "custom" || isCustomProvider) {
-        if (!env.OPENAI_BASE_URL && !env.CUSTOM_API_BASE_URL) {
-          const baseUrl = (m?.base_url as string) || "";
-          if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
-        }
-        const keyFromEnv = hermesEnv.OPENAI_API_KEY || "";
-        if (keyFromEnv) {
-          env.OPENAI_API_KEY = keyFromEnv;
-          env.CUSTOM_API_KEY = keyFromEnv;
-        }
-        env.CUSTOM_API_BASE_URL = env.OPENAI_BASE_URL || "";
-        env.HERMES_INFERENCE_PROVIDER = "custom";
+      const baseUrl =
+        (m?.base_url as string) ||
+        PROVIDER_KEY_MAP[provider]?.baseUrl ||
+        "";
+      const envPath = path.join(getProfilePath(profileName), ".env");
+      const synced = syncPresetProviderEnvFile(envPath, provider, { baseUrl });
+      for (const [key, value] of Object.entries(synced)) {
+        if (value) env[key] = value;
       }
     }
   } catch {
@@ -756,7 +776,10 @@ export function registerChatIpcHandlers(
             port,
             path: "/v1/approval/" + safeApprovalId,
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getApiServerKeyForProfile(profileName)}`,
+            },
             timeout: 10000,
           },
           (res) => {

@@ -1871,7 +1871,12 @@ export default function Chat(): React.ReactElement {
         ? currentHistory.slice(0, -1)
         : currentHistory
     const historyForApi = historyForApiSource.map(m => ({ role: m.role, content: m.content }))
-    window.hermesAPI.sendMessage(empName, text, historyForApi, sessionIdsRef.current[empName] || undefined, sendAttachments).catch(() => {
+    const activeSessionId = sessionIdsRef.current[empName] || `lyh-${empName}-${crypto.randomUUID()}`
+    if (!sessionIdsRef.current[empName]) {
+      sessionIdsRef.current = { ...sessionIdsRef.current, [empName]: activeSessionId }
+      setSessionIds(prev => ({ ...prev, [empName]: activeSessionId }))
+    }
+    window.hermesAPI.sendMessage(empName, text, historyForApi, activeSessionId, sendAttachments).catch(() => {
       setStreamStates(ps => ({ ...ps, [empName]: DEFAULT_STREAM }))
       void refreshEmployeeStatus(empName)
       showToast(t('chat.sendFailed'), 'error')

@@ -11,6 +11,7 @@ export interface HermesGatewayChatInput {
   model?: string;
   host?: string;
   port: number;
+  apiServerKey?: string;
 }
 
 function buildMessages(input: HermesGatewayChatInput): Array<{ role: string; content: ChatContent }> {
@@ -47,8 +48,17 @@ export function streamHermesGatewayChat(
     model: input.model || "hermes-agent",
     messages: buildMessages(input),
     stream: true,
-    ...(input.resumeSessionId ? { session_id: input.resumeSessionId } : {}),
   });
+  const headers: Record<string, string | number> = {
+    "Content-Type": "application/json",
+  };
+  if (input.apiServerKey) {
+    headers.Authorization = `Bearer ${input.apiServerKey}`;
+  }
+  if (input.resumeSessionId) {
+    headers["X-Hermes-Session-Id"] = input.resumeSessionId;
+    headers["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
+  }
 
   let sessionId = "";
   let hasContent = false;
@@ -141,7 +151,7 @@ export function streamHermesGatewayChat(
       port: input.port,
       path: "/v1/chat/completions",
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       timeout: 120000,
     },
     (res) => {

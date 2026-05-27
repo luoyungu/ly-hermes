@@ -11,7 +11,7 @@ import {
   readHermesEnv,
   runHermesCli,
   validateProfileName,
-  getProviderEnvKey,
+  syncPresetProviderEnvFile,
 } from "../config";
 import { ensureDir, safeWriteFile, yamlStringify } from "../utils";
 import { notifyRenderer } from "../ipc/desktop-events";
@@ -178,15 +178,18 @@ export function createEmployeeProfile(
     "utf-8",
   );
 
-  if (config.api_key || defaults.api_key) {
+  const defaultProvider = (defaults.provider as string) || "";
+  const defaultApiKey =
+    !defaultProvider || defaultProvider === provider
+      ? (defaults.api_key as string) || ""
+      : "";
+  if (config.api_key || defaultApiKey) {
     const apiKey =
-      (config.api_key as string) || (defaults.api_key as string);
-    const envKey = getProviderEnvKey(provider);
-    fs.writeFileSync(
-      path.join(profilePath, ".env"),
-      `${envKey}=${apiKey}\n`,
-      "utf-8",
-    );
+      (config.api_key as string) || defaultApiKey;
+    syncPresetProviderEnvFile(path.join(profilePath, ".env"), provider, {
+      baseUrl,
+      apiKey,
+    });
   }
 
   if (config.soul) {

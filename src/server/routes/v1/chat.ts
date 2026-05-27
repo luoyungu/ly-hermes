@@ -2,6 +2,7 @@ import type http from "http";
 import { getApiPortForProfile } from "../../../main/employees";
 import { sendMessageViaApi, _currentChatReqs } from "../../../main/chat";
 import { stageAttachment } from "../../../main/attachment-staging";
+import { getApiServerKeyForProfile } from "../../../main/config";
 import { readJsonBody, requireRemoteAuth, sendJson } from "./shared";
 import { writeChatEvent, writeSseHeaders } from "../../sse";
 import type { Attachment } from "../../../shared/attachments";
@@ -59,7 +60,10 @@ export async function handleV1ChatRoutes(
           port,
           path: `/v1/approval/${approvalId.replace(/[^a-zA-Z0-9_-]/g, "")}`,
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getApiServerKeyForProfile(profileName)}`,
+          },
           timeout: 10000,
         },
         (gatewayRes) => {

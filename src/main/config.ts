@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
 import { execFileSync, spawn, execFile, type ChildProcess } from "child_process";
 import http from "http";
 import https from "https";
@@ -23,17 +24,158 @@ export function getProviderEnvKey(provider: string): string {
   return PROVIDER_KEY_MAP[provider]?.envKey || "OPENAI_API_KEY";
 }
 
-const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
-  deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
-  qwen:        { envKey: "DASHSCOPE_API_KEY",    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  zhipu:       { envKey: "GLM_API_KEY",          baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+export function getApiServerKeyForProfile(profileName: string): string {
+  return "lyhermes-local-" + crypto
+    .createHash("sha256")
+    .update(`${HERMES_HOME}:${profileName || "default"}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+export const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string; baseEnvKey?: string }> = {
+  deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1", baseEnvKey: "DEEPSEEK_BASE_URL" },
+  qwen:        { envKey: "DASHSCOPE_API_KEY",    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", baseEnvKey: "DASHSCOPE_BASE_URL" },
+  zhipu:       { envKey: "GLM_API_KEY",          baseUrl: "https://open.bigmodel.cn/api/paas/v4", baseEnvKey: "GLM_BASE_URL" },
   moonshot:    { envKey: "MOONSHOT_API_KEY",     baseUrl: "https://api.moonshot.cn/v1" },
   yi:          { envKey: "YI_API_KEY",           baseUrl: "https://api.lingyiwanwu.com/v1" },
-  minimax:     { envKey: "MINIMAX_API_KEY",      baseUrl: "https://api.minimax.chat/v1" },
+  minimax:     { envKey: "MINIMAX_API_KEY",      baseUrl: "https://api.minimax.chat/v1", baseEnvKey: "MINIMAX_BASE_URL" },
   spark:       { envKey: "SPARK_API_KEY",        baseUrl: "https://spark-api-open.xf-yun.com/v1" },
   siliconflow: { envKey: "SILICONFLOW_API_KEY",  baseUrl: "https://api.siliconflow.cn/v1" },
   ernie:       { envKey: "QIANFAN_API_KEY",      baseUrl: "https://qianfan.baidubce.com/v2" },
 };
+
+/** LyHermes UI provider id → Hermes Agent 原生推理 provider（避免 custom 误路由到 OpenRouter） */
+const HERMES_INFERENCE_PROVIDER_MAP: Record<string, string> = {
+  deepseek: "deepseek",
+  qwen: "alibaba",
+  zhipu: "zai",
+  minimax: "minimax",
+};
+
+export function getHermesInferenceProvider(presetProvider: string): string {
+  return HERMES_INFERENCE_PROVIDER_MAP[presetProvider] || "custom";
+}
+
+const PRESET_ENV_SYNC_KEYS = new Set([
+  "HERMES_INFERENCE_PROVIDER",
+  "OPENAI_API_KEY",
+  "CUSTOM_API_KEY",
+  "OPENAI_BASE_URL",
+  "CUSTOM_API_BASE_URL",
+  "CUSTOM_BASE_URL",
+  "DASHSCOPE_BASE_URL",
+  ...Object.values(PROVIDER_KEY_MAP).map((info) => info.envKey),
+  ...Object.values(PROVIDER_KEY_MAP).map((info) => info.baseEnvKey || ""),
+]);
+
+function parseEnvLines(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of content.split("\n")) {
+    const eqIdx = line.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = line.slice(0, eqIdx).trim();
+    if (!key) continue;
+    result[key] = line.slice(eqIdx + 1);
+  }
+  return result;
+}
+
+/** 将预设 provider（如 qwen）的 API Key 同步为 OpenAI 兼容推理环境变量 */
+export function syncPresetProviderEnvFile(
+  envPath: string,
+  provider: string,
+  options?: { baseUrl?: string; apiKey?: string; allowExistingApiKey?: boolean },
+): Record<string, string> {
+  const providerInfo = PROVIDER_KEY_MAP[provider];
+  const isCustom = provider === "custom" || (!providerInfo && provider !== "");
+  if (!providerInfo && !isCustom) return {};
+
+  let envContent = "";
+  if (fs.existsSync(envPath)) {
+    envContent = fs.readFileSync(envPath, "utf-8");
+  }
+  const parsed = parseEnvLines(envContent);
+  const allowExistingApiKey = options?.allowExistingApiKey !== false;
+
+  let apiKey = (options?.apiKey || "").trim();
+  if (!apiKey && allowExistingApiKey && providerInfo) {
+    apiKey = (parsed[providerInfo.envKey] || "").trim();
+  } else if (!apiKey && allowExistingApiKey && isCustom) {
+    apiKey = (parsed.OPENAI_API_KEY || parsed.CUSTOM_API_KEY || "").trim();
+  }
+  if (!apiKey && allowExistingApiKey && isCustom) {
+    for (const info of Object.values(PROVIDER_KEY_MAP)) {
+      const value = (parsed[info.envKey] || "").trim();
+      if (value) {
+        apiKey = value;
+        break;
+      }
+    }
+  }
+
+  const baseUrl =
+    (options?.baseUrl || "").trim() ||
+    (providerInfo?.baseUrl || "").trim() ||
+    (parsed.OPENAI_BASE_URL || parsed.CUSTOM_API_BASE_URL || "").trim();
+
+  const envKey = providerInfo?.envKey || "OPENAI_API_KEY";
+  const keysToRemove = new Set(PRESET_ENV_SYNC_KEYS);
+  keysToRemove.add(envKey);
+
+  const lines = envContent
+    .split("\n")
+    .filter((line) => {
+      const eqIdx = line.indexOf("=");
+      if (eqIdx === -1) return true;
+      const key = line.slice(0, eqIdx).trim();
+      return !keysToRemove.has(key);
+    });
+
+  const inferenceProvider = getHermesInferenceProvider(provider);
+  const isNativeProvider = inferenceProvider !== "custom";
+
+  if (apiKey) {
+    if (providerInfo) lines.push(`${envKey}=${apiKey}`);
+    if (!isNativeProvider) {
+      lines.push(`OPENAI_API_KEY=${apiKey}`);
+      lines.push(`CUSTOM_API_KEY=${apiKey}`);
+    }
+  }
+  lines.push(`HERMES_INFERENCE_PROVIDER=${inferenceProvider}`);
+  if (baseUrl) {
+    if (providerInfo?.baseEnvKey) {
+      lines.push(`${providerInfo.baseEnvKey}=${baseUrl}`);
+    }
+    if (!isNativeProvider) {
+      lines.push(`OPENAI_BASE_URL=${baseUrl}`);
+      lines.push(`CUSTOM_API_BASE_URL=${baseUrl}`);
+      lines.push(`CUSTOM_BASE_URL=${baseUrl}`);
+    }
+  }
+
+  ensureDir(path.dirname(envPath));
+  safeWriteFile(envPath, lines.filter(Boolean).join("\n").trimEnd() + "\n");
+
+  const synced: Record<string, string> = {
+    HERMES_INFERENCE_PROVIDER: inferenceProvider,
+  };
+  if (apiKey) {
+    if (providerInfo) synced[envKey] = apiKey;
+    if (!isNativeProvider) {
+      synced.OPENAI_API_KEY = apiKey;
+      synced.CUSTOM_API_KEY = apiKey;
+    }
+  }
+  if (baseUrl) {
+    if (providerInfo?.baseEnvKey) synced[providerInfo.baseEnvKey] = baseUrl;
+    if (!isNativeProvider) {
+      synced.OPENAI_BASE_URL = baseUrl;
+      synced.CUSTOM_API_BASE_URL = baseUrl;
+      synced.CUSTOM_BASE_URL = baseUrl;
+    }
+  }
+  return synced;
+}
 
 export const HERMES_HOME: string =
   process.env.HERMES_HOME || path.join(os.homedir(), ".hermes");
@@ -1378,53 +1520,37 @@ export function registerConfigIpcHandlers(): void {
         }
         if (!cfg.model) cfg.model = {};
         const m = cfg.model as Record<string, unknown>;
+        const previousProvider = (m.provider as string) || "";
+        const provider = (entry.provider as string) || "";
+        const baseUrl =
+          (entry.baseUrl as string) ||
+          PROVIDER_KEY_MAP[provider]?.baseUrl ||
+          "";
         m.default = entry.model;
-        m.provider = entry.provider;
-        if (entry.baseUrl) m.base_url = entry.baseUrl;
+        m.provider = provider;
+        if (baseUrl) {
+          m.base_url = baseUrl;
+        } else {
+          delete m.base_url;
+        }
         safeWriteFile(configPath, yamlStringify(cfg));
 
         let apiKey = (entry as Record<string, unknown>).apiKey as string;
         if (!apiKey) {
           const appConfig = loadAppConfig();
           const defaults = (appConfig.defaults as Record<string, unknown>) || {};
-          apiKey = (defaults.api_key as string) || "";
+          const defaultProvider = (defaults.provider as string) || "";
+          apiKey =
+            !defaultProvider || defaultProvider === provider
+              ? (defaults.api_key as string) || ""
+              : "";
         }
-        if (apiKey) {
-          const envPath = path.join(profilePath, ".env");
-          let envContent = "";
-          if (fs.existsSync(envPath)) {
-            envContent = fs.readFileSync(envPath, "utf-8");
-          }
-          const providerInfo = PROVIDER_KEY_MAP[entry.provider as string];
-          const envKey = providerInfo?.envKey || "OPENAI_API_KEY";
-          const baseUrl =
-            (entry.baseUrl as string) || providerInfo?.baseUrl || "";
-          const keysToRemove = new Set([
-            envKey,
-            "OPENAI_API_KEY",
-            "CUSTOM_API_KEY",
-            "HERMES_INFERENCE_PROVIDER",
-            "OPENAI_BASE_URL",
-            "CUSTOM_API_BASE_URL",
-          ]);
-          const lines = envContent
-            .split("\n")
-            .filter((l: string) => {
-              const eqIdx = l.indexOf("=");
-              if (eqIdx === -1) return true;
-              const key = l.slice(0, eqIdx).trim();
-              return !keysToRemove.has(key);
-            });
-          lines.push(`${envKey}=${apiKey}`);
-          lines.push(`OPENAI_API_KEY=${apiKey}`);
-          lines.push("CUSTOM_API_KEY=" + apiKey);
-          lines.push("HERMES_INFERENCE_PROVIDER=custom");
-          if (baseUrl) {
-            lines.push(`OPENAI_BASE_URL=${baseUrl}`);
-            lines.push(`CUSTOM_API_BASE_URL=${baseUrl}`);
-          }
-          safeWriteFile(envPath, lines.join("\n") + "\n");
-        }
+        const envPath = path.join(profilePath, ".env");
+        syncPresetProviderEnvFile(envPath, provider, {
+          baseUrl,
+          apiKey,
+          allowExistingApiKey: previousProvider === provider,
+        });
 
         return { success: true };
       } catch (e: unknown) {

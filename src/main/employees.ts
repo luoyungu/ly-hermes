@@ -16,7 +16,9 @@ import {
   validateProfileName,
   DEFAULT_HERMES_BIN,
   createHermesProcessEnv,
-  getProviderEnvKey,
+  syncPresetProviderEnvFile,
+  PROVIDER_KEY_MAP,
+  getApiServerKeyForProfile,
 } from "./config";
 import { ensureDir, safeWriteFile, yamlStringify } from "./utils";
 import { getSessionCount, getEmployeeSessions } from "./sessions";
@@ -32,18 +34,6 @@ import { ensureDesktopRuntimeDependencies } from "./installer";
 import { notifyRenderer } from "./ipc/desktop-events";
 import { ipcHandle } from "./ipc/remote-handle";
 import { updateEmployeeProfile, renameEmployeeProfile } from "./services/employee-api";
-
-const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string }> = {
-  deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1" },
-  qwen:        { envKey: "DASHSCOPE_API_KEY",    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  zhipu:       { envKey: "GLM_API_KEY",          baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-  moonshot:    { envKey: "MOONSHOT_API_KEY",     baseUrl: "https://api.moonshot.cn/v1" },
-  yi:          { envKey: "YI_API_KEY",           baseUrl: "https://api.lingyiwanwu.com/v1" },
-  minimax:     { envKey: "MINIMAX_API_KEY",      baseUrl: "https://api.minimax.chat/v1" },
-  spark:       { envKey: "SPARK_API_KEY",        baseUrl: "https://spark-api-open.xf-yun.com/v1" },
-  siliconflow: { envKey: "SILICONFLOW_API_KEY",  baseUrl: "https://api.siliconflow.cn/v1" },
-  ernie:       { envKey: "QIANFAN_API_KEY",      baseUrl: "https://qianfan.baidubce.com/v2" },
-};
 
 const DEFAULT_DESKTOP_TOOLS = [
   "web",
@@ -296,6 +286,65 @@ export function allocatePort(): number | null {
   return null;
 }
 
+export function ensureProfileGatewayPort(profileName: string): number | null {
+  if (profileName === "default") {
+    return getApiPortForProfile("default") || DEFAULT_API_PORT;
+  }
+
+  let port = getApiPortForProfile(profileName);
+  if (port) return port;
+
+  port = allocatePort();
+  if (!port) return null;
+
+  const profilePath = getProfilePath(profileName);
+  const configPath = path.join(profilePath, "config.yaml");
+  let cfg: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(configPath)) {
+      cfg = (yaml.parse(fs.readFileSync(configPath, "utf-8")) as Record<string, unknown>) || {};
+    }
+  } catch {
+    cfg = {};
+  }
+
+  if (!cfg.platforms) cfg.platforms = {};
+  const platforms = cfg.platforms as Record<string, unknown>;
+  if (!platforms.api_server) platforms.api_server = {};
+  const apiServer = platforms.api_server as Record<string, unknown>;
+  if (!apiServer.extra) apiServer.extra = {};
+  const extra = apiServer.extra as Record<string, unknown>;
+  extra.port = port;
+  extra.host = "127.0.0.1";
+
+  if (!cfg.platform_toolsets) {
+    cfg.platform_toolsets = {
+      cli: DEFAULT_DESKTOP_TOOLS,
+      api_server: DEFAULT_DESKTOP_TOOLS,
+    };
+  }
+
+  ensureDir(profilePath);
+  safeWriteFile(configPath, yamlStringify(cfg));
+
+  const meta = readEmployeeMeta(profileName) || {};
+  writeEmployeeMeta(profileName, {
+    name: (meta.name as string) || profileName,
+    role: (meta.role as string) || "员工",
+    avatar: (meta.avatar as string) || "🧑‍💼",
+    color: (meta.color as string) || "#6C5CE7",
+    tags: (meta.tags as string[]) || [],
+    petSlug: (meta.petSlug as string) || "",
+    gateway_port: port,
+    idle_timeout: (meta.idle_timeout as number) || 30,
+    created_at:
+      (meta.created_at as string) ||
+      new Date().toISOString().split("T")[0],
+  });
+
+  return port;
+}
+
 export async function getEmployeeStatus(
   profileName: string,
 ): Promise<string> {
@@ -337,7 +386,7 @@ export async function wakeUpEmployee(
   if (currentStatus === "starting")
     return { success: true, status: "starting", message: "正在启动中..." };
 
-  const port = getApiPortForProfile(profileName);
+  const port = ensureProfileGatewayPort(profileName);
   if (!port) return { success: false, error: "未配置端口" };
 
   const appConfig = loadAppConfig();
@@ -361,6 +410,7 @@ export async function wakeUpEmployee(
   const env = createHermesProcessEnv({
     HERMES_HOME,
     API_SERVER_ENABLED: "true",
+    API_SERVER_KEY: getApiServerKeyForProfile(profileName),
   });
 
   const runtimeDeps = await ensureDesktopRuntimeDependencies();
@@ -385,10 +435,8 @@ export async function wakeUpEmployee(
       const cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
       const m = cfg.model as Record<string, unknown> | undefined;
       let provider = (m?.provider as string) || "";
-      const providerInfo = PROVIDER_KEY_MAP[provider];
-      const isCustomProvider = !providerInfo && provider !== "";
 
-      if (!providerInfo && provider !== "custom" && provider !== "") {
+      if (!PROVIDER_KEY_MAP[provider] && provider !== "custom" && provider !== "") {
         const baseUrl = (m?.base_url as string) || "";
         for (const [pid, info] of Object.entries(PROVIDER_KEY_MAP)) {
           if (baseUrl && info.baseUrl === baseUrl) {
@@ -400,96 +448,22 @@ export async function wakeUpEmployee(
         }
       }
 
-      const resolvedProviderInfo = PROVIDER_KEY_MAP[provider];
-
-      if (resolvedProviderInfo) {
-        const baseUrl = (m?.base_url as string) || resolvedProviderInfo.baseUrl || "";
-        if (baseUrl) {
-          env.OPENAI_BASE_URL = baseUrl;
-          env.CUSTOM_API_BASE_URL = baseUrl;
-        }
-        const apiKey = (env[resolvedProviderInfo.envKey] as string | undefined) || "";
-        if (apiKey) {
-          env.OPENAI_API_KEY = apiKey;
-          env.CUSTOM_API_KEY = apiKey;
-        }
-        env.HERMES_INFERENCE_PROVIDER = "custom";
-        const envPath = path.join(getProfilePath(profileName), ".env");
-        if (fs.existsSync(envPath)) {
-          let envContent = fs.readFileSync(envPath, "utf-8");
-          const lines = envContent.split("\n");
-          let changed = false;
-          const keysToSync = new Set([
-            "HERMES_INFERENCE_PROVIDER",
-            "OPENAI_API_KEY",
-            "CUSTOM_API_KEY",
-            "OPENAI_BASE_URL",
-            "CUSTOM_API_BASE_URL",
-          ]);
-          const filtered = lines.filter((l: string) => {
-            const eqIdx = l.indexOf("=");
-            if (eqIdx === -1) return true;
-            const key = l.slice(0, eqIdx).trim();
-            if (keysToSync.has(key)) {
-              changed = true;
-              return false;
-            }
-            return true;
-          });
-          if (apiKey) {
-            filtered.push("OPENAI_API_KEY=" + apiKey);
-            filtered.push("CUSTOM_API_KEY=" + apiKey);
-            changed = true;
-          }
-          if (baseUrl) {
-            filtered.push("OPENAI_BASE_URL=" + baseUrl);
-            filtered.push("CUSTOM_API_BASE_URL=" + baseUrl);
-            changed = true;
-          }
-          filtered.push("HERMES_INFERENCE_PROVIDER=custom");
-          changed = true;
-          if (changed) {
-            safeWriteFile(envPath, filtered.join("\n").trimEnd() + "\n");
-          }
-        }
-      } else if (provider === "custom" || isCustomProvider) {
-        if (!env.OPENAI_BASE_URL && !env.CUSTOM_API_BASE_URL) {
-          const baseUrl = (m?.base_url as string) || "";
-          if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
-        }
-        const keyFromEnv = hermesEnv.OPENAI_API_KEY || "";
-        if (keyFromEnv) {
-          env.OPENAI_API_KEY = keyFromEnv;
-          env.CUSTOM_API_KEY = keyFromEnv;
-        } else {
-          for (const info of Object.values(PROVIDER_KEY_MAP)) {
-            const v = env[info.envKey] as string | undefined;
-            if (v) {
-              env.OPENAI_API_KEY = v;
-              env.CUSTOM_API_KEY = v;
-              break;
-            }
-          }
-        }
-        env.CUSTOM_API_BASE_URL = env.OPENAI_BASE_URL || "";
-        env.HERMES_INFERENCE_PROVIDER = "custom";
-        const envPath = path.join(getProfilePath(profileName), ".env");
-        if (fs.existsSync(envPath) && env.OPENAI_API_KEY) {
-          let envContent = fs.readFileSync(envPath, "utf-8");
-          const lines = envContent.split("\n");
-          const hasOpenaiKey = lines.some((l: string) => {
-            const eqIdx = l.indexOf("=");
-            return eqIdx !== -1 && l.slice(0, eqIdx).trim() === "OPENAI_API_KEY";
-          });
-          if (!hasOpenaiKey) {
-            safeWriteFile(envPath, envContent.trimEnd() + "\nOPENAI_API_KEY=" + env.OPENAI_API_KEY + "\n");
-          }
-        }
+      const baseUrl =
+        (m?.base_url as string) ||
+        PROVIDER_KEY_MAP[provider]?.baseUrl ||
+        "";
+      const envPath = path.join(getProfilePath(profileName), ".env");
+      const synced = syncPresetProviderEnvFile(envPath, provider, { baseUrl });
+      for (const [key, value] of Object.entries(synced)) {
+        if (value) env[key] = value;
       }
     }
   } catch {
     /* fall through */
   }
+  // Keep the desktop API session key deterministic and app-owned. Profile .env
+  // files may contain stale API_SERVER_KEY values from older runs.
+  env.API_SERVER_KEY = getApiServerKeyForProfile(profileName);
 
   const args =
     profileName === "default"
@@ -793,15 +767,18 @@ export function registerEmployeeIpcHandlers(
         "utf-8",
       );
 
-      if (config.api_key || defaults.api_key) {
+      const defaultProvider = (defaults.provider as string) || "";
+      const defaultApiKey =
+        !defaultProvider || defaultProvider === provider
+          ? (defaults.api_key as string) || ""
+          : "";
+      if (config.api_key || defaultApiKey) {
         const apiKey =
-          (config.api_key as string) || (defaults.api_key as string);
-        const envKey = getProviderEnvKey(provider);
-        fs.writeFileSync(
-          path.join(profilePath, ".env"),
-          `${envKey}=${apiKey}\n`,
-          "utf-8",
-        );
+          (config.api_key as string) || defaultApiKey;
+        syncPresetProviderEnvFile(path.join(profilePath, ".env"), provider, {
+          baseUrl,
+          apiKey,
+        });
       }
 
       if (config.soul) {
