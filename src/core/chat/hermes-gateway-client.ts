@@ -1,5 +1,6 @@
 import http from "http";
 import type { ChatEventSink } from "./events";
+import { createLyHermesSessionId } from "../../shared/session-id";
 
 type ChatContent = string | Array<{ type: "text"; text: string }>;
 
@@ -55,10 +56,9 @@ export function streamHermesGatewayChat(
   if (input.apiServerKey) {
     headers.Authorization = `Bearer ${input.apiServerKey}`;
   }
-  if (input.resumeSessionId) {
-    headers["X-Hermes-Session-Id"] = input.resumeSessionId;
-    headers["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
-  }
+  const sessionKey = input.resumeSessionId?.trim() || createLyHermesSessionId(profileName);
+  headers["X-Hermes-Session-Id"] = sessionKey;
+  headers["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
 
   let sessionId = "";
   let hasContent = false;

@@ -20,7 +20,12 @@ import { registerEmployeeIpcHandlers } from "./employees";
 import { registerChatIpcHandlers } from "./chat";
 import { registerSessionIpcHandlers, readLogs as readHermesLogs, clearHermesLog } from "./sessions";
 import { registerPetsIpc } from "./pets";
-import { applyDesktopWebServerConfig, registerDeploymentIpc, registerDesktopWebServerIpc } from "./server-manager";
+import {
+  applyDesktopWebServerConfig,
+  configureDesktopWebServer,
+  registerDeploymentIpc,
+  registerDesktopWebServerIpc,
+} from "./server-manager";
 import { registerRemoteIpcHandlers } from "./ipc/remote-handle";
 import { initUpdater } from "./updater";
 import { autoUpdater } from "electron-updater";
@@ -251,6 +256,7 @@ app.whenReady().then(() => {
   registerSessionIpcHandlers(getMainWindow);
   registerPetsIpc();
   registerRemoteIpcHandlers();
+  configureDesktopWebServer({ getMainWindow });
   registerDesktopWebServerIpc();
   registerDeploymentIpc(getMainWindow);
 

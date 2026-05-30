@@ -30,6 +30,7 @@ import { showChatNotification } from "./utils";
 import type { BrowserWindow } from "electron";
 import type { Attachment } from "../shared/attachments";
 import { escapeXmlAttr } from "../shared/attachments";
+import { createLyHermesSessionId } from "../shared/session-id";
 import { stageAttachment } from "./attachment-staging";
 import { ChatService, type ChatEventSink } from "../core/chat";
 import { sendChatEventToWebContents } from "./ipc/chat-events";
@@ -107,6 +108,8 @@ export function sendMessageViaApi(
     emit({ type: "error", data: { profileName, error: "员工未配置端口" } });
     return;
   }
+
+  const sessionKey = resumeSessionId?.trim() || createLyHermesSessionId(profileName);
 
   const model = getModelFromProfile(profileName);
   const controller = new AbortController();
@@ -209,8 +212,8 @@ export function sendMessageViaApi(
       "Content-Type": "application/json",
       Authorization: `Bearer ${getApiServerKeyForProfile(profileName)}`,
     };
-    if (resumeSessionId) {
-      probeHeaders["X-Hermes-Session-Id"] = resumeSessionId;
+    if (sessionKey) {
+      probeHeaders["X-Hermes-Session-Id"] = sessionKey;
       probeHeaders["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
     }
     const probeBody = JSON.stringify({
@@ -283,7 +286,7 @@ export function sendMessageViaApi(
           emit,
           history,
           mainWindow,
-          resumeSessionId,
+          sessionKey,
           attachments,
           false,
         );
@@ -393,10 +396,8 @@ export function sendMessageViaApi(
   };
   const apiServerKey = getApiServerKeyForProfile(profileName);
   headers.Authorization = `Bearer ${apiServerKey}`;
-  if (resumeSessionId) {
-    headers["X-Hermes-Session-Id"] = resumeSessionId;
-    headers["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
-  }
+  headers["X-Hermes-Session-Id"] = sessionKey;
+  headers["X-Hermes-Session-Key"] = `lyhermes:${profileName}`;
   const req = http.request(
     {
       hostname: DEFAULT_API_HOST,
@@ -419,7 +420,7 @@ export function sendMessageViaApi(
           errBody += d.toString();
         });
         res.on("end", () => {
-          if (resumeSessionId && isSessionAuthError(res.statusCode, errBody)) {
+          if (isSessionAuthError(res.statusCode, errBody)) {
             restartGatewayAndRetry();
             return;
           }

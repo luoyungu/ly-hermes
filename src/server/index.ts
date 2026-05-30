@@ -5,8 +5,15 @@ import { app } from "electron";
 import { desktopAuthService } from "../main/core/auth-store";
 import { streamHermesGatewayChat } from "../core/chat";
 import { createRequestContext } from "../core/context/request-context";
-import { getApiPortForProfile, getEmployeeWebAccess, listEmployees } from "../main/employees";
+import {
+  ensureEmployeeGatewayOnline,
+  getApiPortForProfile,
+  getEmployeeWebAccess,
+  listEmployees,
+} from "../main/employees";
 import { getApiServerKeyForProfile } from "../main/config";
+import { createLyHermesSessionId, isLyHermesSessionForProfile } from "../shared/session-id";
+import { validateSessionId } from "../main/sessions";
 import { getDeploymentMode } from "../main/deployment";
 import { handleV1Request } from "./routes/v1/index";
 import { writeChatEvent, writeSseHeaders } from "./sse";
@@ -124,7 +131,13 @@ function isAuthorizedEmbedRequest(profileName: string, token: unknown): boolean 
   return !!access?.enabled && !!access.token && typeof token === "string" && token === access.token;
 }
 
-async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+type MainWindowGetter = () => import("electron").BrowserWindow | null;
+
+async function handleRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  getMainWindow: MainWindowGetter,
+): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const origin = req.headers.origin;
   if (origin) {
@@ -142,7 +155,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
   const ctx = createRequestContext("server", { source: "http" });
 
-  if (await handleV1Request(req, res, url)) {
+  if (await handleV1Request(req, res, url, getMainWindow)) {
     return;
   }
 
@@ -298,11 +311,41 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/embed/messages") {
+    const agent = String(url.searchParams.get("agent") || "default").trim() || "default";
+    const token = String(url.searchParams.get("token") || "");
+    const sessionId = String(url.searchParams.get("sessionId") || "").trim();
+    if (!isAuthorizedEmbedRequest(agent, token)) {
+      sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
+      return;
+    }
+    if (!sessionId || !validateSessionId(sessionId) || !isLyHermesSessionForProfile(sessionId, agent)) {
+      sendJson(res, 400, { error: "Invalid session", requestId: ctx.requestId });
+      return;
+    }
+    const { getSessionMessages } = await import("../main/sessions");
+    sendJson(res, 200, {
+      messages: getSessionMessages(sessionId, agent),
+      requestId: ctx.requestId,
+    });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/chat/stream") {
     const body = await readJsonBody(req);
     const profileName = String(body.agent || body.profileName || "default").trim() || "default";
     if (!isAuthorizedEmbedRequest(profileName, body.token)) {
       sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
+      return;
+    }
+    const ready = await ensureEmployeeGatewayOnline(profileName, getMainWindow());
+    if (!ready.success) {
+      writeSseHeaders(res);
+      writeChatEvent(res, {
+        type: "error",
+        data: { profileName, error: ready.error || "员工 Gateway 未就绪" },
+      });
+      res.end();
       return;
     }
     const gatewayPort = Number(process.env.HERMES_API_PORT || getApiPortForProfile(profileName) || 0);
@@ -311,6 +354,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       return;
     }
     writeSseHeaders(res);
+    const resumeSessionId =
+      typeof body.resumeSessionId === "string" && body.resumeSessionId.trim()
+        ? body.resumeSessionId.trim()
+        : createLyHermesSessionId(profileName);
     streamHermesGatewayChat(
       {
         profileName,
@@ -318,7 +365,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         history: Array.isArray(body.history)
           ? body.history as Array<{ role: string; content: string }>
           : [],
-        resumeSessionId: typeof body.resumeSessionId === "string" ? body.resumeSessionId : undefined,
+        resumeSessionId,
         model: typeof body.model === "string" ? body.model : undefined,
         host: process.env.HERMES_API_HOST || "127.0.0.1",
         port: gatewayPort,
@@ -343,9 +390,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   sendJson(res, 404, { error: "Not found", requestId: ctx.requestId });
 }
 
-export function createHermesServer(): http.Server {
+export function createHermesServer(options?: {
+  getMainWindow?: MainWindowGetter;
+}): http.Server {
+  const getMainWindow = options?.getMainWindow || (() => null);
   return http.createServer((req, res) => {
-    handleRequest(req, res).catch((error: unknown) => {
+    handleRequest(req, res, getMainWindow).catch((error: unknown) => {
       sendJson(res, 500, { error: error instanceof Error ? error.message : "Internal server error" });
     });
   });

@@ -507,6 +507,46 @@ export async function wakeUpEmployee(
   return { success: false, error: "Gateway 启动超时" };
 }
 
+export async function ensureEmployeeGatewayOnline(
+  profileName: string,
+  mainWindow: BrowserWindow | null,
+): Promise<{ success: boolean; error?: string }> {
+  if (!validateProfileName(profileName) && profileName !== "default") {
+    return { success: false, error: "无效的员工名称" };
+  }
+
+  let status = await getEmployeeStatus(profileName);
+  if (status === "idle" || status === "error") {
+    const wakeResult = await wakeUpEmployee(profileName, mainWindow);
+    if (!wakeResult.success) {
+      return { success: false, error: wakeResult.error || "员工唤醒失败" };
+    }
+    status = wakeResult.status || (await getEmployeeStatus(profileName));
+  }
+
+  if (status === "starting") {
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      status = await getEmployeeStatus(profileName);
+      if (status === "online") {
+        resetIdleTimer(profileName, mainWindow);
+        return { success: true };
+      }
+      if (status === "idle") break;
+    }
+  }
+
+  if (status === "online") {
+    resetIdleTimer(profileName, mainWindow);
+    return { success: true };
+  }
+
+  return {
+    success: false,
+    error: "员工 Gateway 未就绪，请检查模型配置或在桌面端手动唤醒",
+  };
+}
+
 export function putEmployeeToSleep(
   profileName: string,
   mainWindow: BrowserWindow | null,

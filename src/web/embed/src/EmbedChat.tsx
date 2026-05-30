@@ -3,7 +3,16 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Loader2, SendHorizonal, Sparkles, Wifi, WifiOff } from "lucide-react";
 import logoImg from "@renderer/assets/logo.png";
-import { checkHealth, fetchAgentInfo, streamChat, type EmbedAgentInfo } from "./embed-api";
+import { createLyHermesSessionId } from "../../../shared/session-id";
+import {
+  checkHealth,
+  fetchAgentInfo,
+  fetchSessionMessages,
+  loadEmbedSessionId,
+  saveEmbedSessionId,
+  streamChat,
+  type EmbedAgentInfo,
+} from "./embed-api";
 
 type ConnectionState = "checking" | "online" | "offline";
 
@@ -117,9 +126,12 @@ export default function EmbedChat(): React.ReactElement {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const storedSessionId = token ? loadEmbedSessionId(agent, token) : null;
+  const sessionIdRef = useRef<string>(storedSessionId || createLyHermesSessionId(agent));
 
   const displayName = agentInfo?.displayName || agent;
   const avatar = agentInfo?.avatar || "🧑‍💼";
@@ -133,6 +145,24 @@ export default function EmbedChat(): React.ReactElement {
   useEffect(() => {
     if (!token) return;
     fetchAgentInfo(agent, token).then(setAgentInfo).catch(() => {});
+  }, [agent, token]);
+
+  useEffect(() => {
+    if (!token) {
+      setHistoryLoading(false);
+      return;
+    }
+    const sessionId = loadEmbedSessionId(agent, token);
+    if (!sessionId) {
+      setHistoryLoading(false);
+      return;
+    }
+    sessionIdRef.current = sessionId;
+    fetchSessionMessages(agent, token, sessionId)
+      .then((items) => {
+        if (items.length > 0) setMessages(items);
+      })
+      .finally(() => setHistoryLoading(false));
   }, [agent, token]);
 
   useEffect(() => {
@@ -157,6 +187,7 @@ export default function EmbedChat(): React.ReactElement {
 
     setInput("");
     setIsSending(true);
+    saveEmbedSessionId(agent, token, sessionIdRef.current);
     const assistantId = `a_${Date.now()}`;
     const history = messages
       .filter((item) => item.content.trim())
@@ -168,7 +199,7 @@ export default function EmbedChat(): React.ReactElement {
       { id: assistantId, role: "assistant", content: "" },
     ]);
 
-    await streamChat(agent, token, trimmed, history, (event) => {
+    await streamChat(agent, token, trimmed, history, sessionIdRef.current, (event) => {
       if (event.type === "chunk") {
         setMessages((items) =>
           items.map((item) =>
@@ -207,6 +238,12 @@ export default function EmbedChat(): React.ReactElement {
         setIsSending(false);
       }
       if (event.type === "done") {
+        if (event.data.sessionId) {
+          sessionIdRef.current = event.data.sessionId;
+          saveEmbedSessionId(agent, token, event.data.sessionId);
+        } else {
+          saveEmbedSessionId(agent, token, sessionIdRef.current);
+        }
         setMessages((items) =>
           items.map((item) => (item.id === assistantId ? { ...item, toolHint: undefined } : item)),
         );
@@ -232,7 +269,7 @@ export default function EmbedChat(): React.ReactElement {
     void sendText(input);
   };
 
-  const composerDisabled = !token || connection !== "online" || isSending;
+  const composerDisabled = !token || connection !== "online" || isSending || historyLoading;
 
   return (
     <main className="embed-bg flex h-full min-h-screen flex-col">
@@ -267,6 +304,13 @@ export default function EmbedChat(): React.ReactElement {
                   链接缺少有效 token，请从 Hermes 员工管理页重新复制 Web 访问地址。
                 </p>
               </div>
+            </div>
+          ) : historyLoading ? (
+            <div className="mx-auto mt-[12vh] flex justify-center animate-fade-in">
+              <span className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <Loader2 size={16} className="animate-spin" />
+                正在恢复对话...
+              </span>
             </div>
           ) : messages.length === 0 ? (
             <div className="mx-auto mt-[8vh] w-full max-w-lg animate-fade-in text-center">

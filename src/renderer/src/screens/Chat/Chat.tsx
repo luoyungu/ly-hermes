@@ -20,6 +20,7 @@ import InteractivePet from '../../components/InteractivePet'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
 import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_BYTES, MAX_TEXT_BYTES, isImageMime, isTextFile } from '../../../../shared/attachments'
+import { createLyHermesSessionId } from '../../../../shared/session-id'
 
 interface ChatMessage {
   id: string
@@ -1871,7 +1872,7 @@ export default function Chat(): React.ReactElement {
         ? currentHistory.slice(0, -1)
         : currentHistory
     const historyForApi = historyForApiSource.map(m => ({ role: m.role, content: m.content }))
-    const activeSessionId = sessionIdsRef.current[empName] || `lyh-${empName}-${crypto.randomUUID()}`
+    const activeSessionId = sessionIdsRef.current[empName] || createLyHermesSessionId(empName)
     if (!sessionIdsRef.current[empName]) {
       sessionIdsRef.current = { ...sessionIdsRef.current, [empName]: activeSessionId }
       setSessionIds(prev => ({ ...prev, [empName]: activeSessionId }))

@@ -1,4 +1,6 @@
 import { type BrowserWindow } from "electron";
+
+type MainWindowGetter = () => BrowserWindow | null;
 import type http from "http";
 import { createHermesServer } from "../server";
 import { loadAppConfig, saveAppConfig } from "./config";
@@ -39,6 +41,11 @@ let server: http.Server | null = null;
 let currentPort = DEFAULT_WEB_SERVER_PORT;
 let currentHost = "127.0.0.1";
 let lastError = "";
+let resolveMainWindow: MainWindowGetter = () => null;
+
+export function configureDesktopWebServer(deps: { getMainWindow: MainWindowGetter }): void {
+  resolveMainWindow = deps.getMainWindow;
+}
 
 function readWebServerConfig(): { autoStart: boolean; port: number } {
   const config = loadAppConfig();
@@ -113,7 +120,7 @@ export async function startDesktopWebServer(port?: number): Promise<DesktopWebSe
   currentPort = Number(port || listen.port) || DEFAULT_WEB_SERVER_PORT;
   currentHost = listen.host;
   lastError = "";
-  server = createHermesServer();
+  server = createHermesServer({ getMainWindow: resolveMainWindow });
 
   return new Promise((resolve) => {
     const activeServer = server!;

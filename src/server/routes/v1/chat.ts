@@ -3,6 +3,7 @@ import { getApiPortForProfile } from "../../../main/employees";
 import { sendMessageViaApi, _currentChatReqs } from "../../../main/chat";
 import { stageAttachment } from "../../../main/attachment-staging";
 import { getApiServerKeyForProfile } from "../../../main/config";
+import { createLyHermesSessionId } from "../../../shared/session-id";
 import { readJsonBody, requireRemoteAuth, sendJson } from "./shared";
 import { writeChatEvent, writeSseHeaders } from "../../sse";
 import type { Attachment } from "../../../shared/attachments";
@@ -17,12 +18,17 @@ export async function handleV1ChatRoutes(
     if (!requireRemoteAuth(req, res)) return true;
     const body = await readJsonBody(req);
     const profileName = String(body.profileName || body.agent || "default").trim() || "default";
-    const { getEmployeeStatus, wakeUpEmployee } = await import("../../../main/employees");
-    let status = await getEmployeeStatus(profileName);
-    if (status === "idle" || status === "error") {
-      await wakeUpEmployee(profileName, getMainWindow());
+    const { ensureEmployeeGatewayOnline } = await import("../../../main/employees");
+    const ready = await ensureEmployeeGatewayOnline(profileName, getMainWindow());
+    if (!ready.success) {
+      sendJson(res, 503, { error: ready.error || "员工 Gateway 未就绪" });
+      return true;
     }
     writeSseHeaders(res);
+    const resumeSessionId =
+      typeof body.resumeSessionId === "string" && body.resumeSessionId.trim()
+        ? body.resumeSessionId.trim()
+        : createLyHermesSessionId(profileName);
     sendMessageViaApi(
       profileName,
       String(body.message || ""),
@@ -34,7 +40,7 @@ export async function handleV1ChatRoutes(
         ? (body.history as Array<{ role: string; content: string }>)
         : undefined,
       getMainWindow(),
-      typeof body.resumeSessionId === "string" ? body.resumeSessionId : undefined,
+      resumeSessionId,
       Array.isArray(body.attachments) ? (body.attachments as Attachment[]) : undefined,
     );
     return true;
