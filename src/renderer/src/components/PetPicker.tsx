@@ -49,7 +49,9 @@ export default function PetPicker({ value, onChange, onClose }: PetPickerProps):
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onCloseRef.current()
+      if (panelRef.current?.contains(e.target as Node)) return
+      if (triggerRef.current?.parentElement?.contains(e.target as Node)) return
+      onCloseRef.current()
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)

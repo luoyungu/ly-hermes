@@ -26,6 +26,16 @@ export type EmbedMessage = {
   thinking?: string;
 };
 
+export type EmbedAttachment = {
+  id: string;
+  kind: "text-file" | "path-ref";
+  name: string;
+  mime: string;
+  size: number;
+  text?: string;
+  path?: string;
+};
+
 function embedStorageKey(agent: string, token: string): string {
   return `lyhermes:embed:${agent}:${token}`;
 }
@@ -45,6 +55,15 @@ export function saveEmbedSessionId(agent: string, token: string, sessionId: stri
     localStorage.setItem(`${embedStorageKey(agent, token)}:sessionId`, sessionId);
   } catch {
     /* ignore quota / private mode */
+  }
+}
+
+export function clearEmbedSessionId(agent: string, token: string): void {
+  if (!token) return;
+  try {
+    localStorage.removeItem(`${embedStorageKey(agent, token)}:sessionId`);
+  } catch {
+    /* ignore private mode */
   }
 }
 
@@ -128,13 +147,16 @@ export async function streamChat(
   message: string,
   history: Array<{ role: string; content: string }>,
   resumeSessionId: string,
+  attachments: EmbedAttachment[],
   onEvent: (event: EmbedChatEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch("/api/chat/stream", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, token, message, history, resumeSessionId }),
+    body: JSON.stringify({ agent, token, message, history, resumeSessionId, attachments }),
+    signal,
   });
   if (!response.ok || !response.body) {
     onEvent({
@@ -161,5 +183,46 @@ export async function streamChat(
   if (buffer.trim()) {
     const event = parseSseBlock(buffer);
     if (event) onEvent(event);
+  }
+}
+
+export async function stageEmbedAttachment(
+  agent: string,
+  token: string,
+  sessionId: string,
+  filename: string,
+  base64: string,
+): Promise<{ path?: string; error?: string }> {
+  try {
+    const response = await fetch("/api/embed/attachments", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent, token, sessionId, filename, base64 }),
+    });
+    if (!response.ok) return { error: `HTTP ${response.status}` };
+    return await response.json() as { path?: string; error?: string };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Network error",
+    };
+  }
+}
+
+export async function abortEmbedChat(agent: string, token: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch("/api/chat/abort", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent, token }),
+    });
+    if (!response.ok) return { success: false, error: `HTTP ${response.status}` };
+    return await response.json() as { success: boolean; error?: string };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Network error",
+    };
   }
 }

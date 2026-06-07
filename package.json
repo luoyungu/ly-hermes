@@ -1,6 +1,6 @@
 {
   "name": "hermes-desktop",
-  "version": "1.13.0",
+  "version": "1.16.0",
   "description": "落云.Hermes — AI 员工管理平台",
   "license": "MIT",
   "main": "./out/main/index.js",

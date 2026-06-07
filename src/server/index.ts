@@ -17,6 +17,8 @@ import { validateSessionId } from "../main/sessions";
 import { getDeploymentMode } from "../main/deployment";
 import { handleV1Request } from "./routes/v1/index";
 import { writeChatEvent, writeSseHeaders } from "./sse";
+import { stageAttachment } from "../main/attachment-staging";
+import type { Attachment } from "../shared/attachments";
 import {
   clearSessionCookie,
   createWebSession,
@@ -27,6 +29,11 @@ import {
 import { invokeWebApiChannel, hasWebApiChannel } from "./web-api-registry";
 const EMBED_DIST_DIR = path.resolve(__dirname, "../../dist-web/embed");
 const APP_DIST_DIR = path.resolve(__dirname, "../../dist-web/app");
+const embedChatControllers: Record<string, AbortController> = {};
+const embedStagedAttachmentPaths: Record<string, Set<string>> = {};
+const EMBED_ALLOWED_ATTACHMENT_EXTENSIONS = new Set(["txt", "doc", "docx", "xls", "xlsx"]);
+const EMBED_MAX_TEXT_ATTACHMENT_BYTES = 256 * 1024;
+const EMBED_MAX_PATH_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 const WEB_LOCAL_INVOKE_DENYLIST = new Set([
   "check-install",
@@ -47,6 +54,62 @@ const WEB_LOCAL_INVOKE_DENYLIST = new Set([
 
 function isWebLocalInvokeAllowed(channel: string): boolean {
   return !WEB_LOCAL_INVOKE_DENYLIST.has(channel);
+}
+
+function embedAttachmentKey(profileName: string, sessionId: string): string {
+  return `${profileName}:${sessionId}`;
+}
+
+function getAttachmentExtension(filename: string): string {
+  return path.extname(filename || "").replace(/^\./, "").toLowerCase();
+}
+
+function estimateBase64Bytes(base64: string): number {
+  const clean = base64.replace(/^data:[^,]+,/, "").replace(/\s/g, "");
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+}
+
+function sanitizeEmbedAttachments(
+  profileName: string,
+  sessionId: string,
+  raw: unknown,
+): Attachment[] {
+  if (!Array.isArray(raw)) return [];
+  const staged = embedStagedAttachmentPaths[embedAttachmentKey(profileName, sessionId)];
+  const attachments: Attachment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || attachments.length >= 10) continue;
+    const entry = item as Record<string, unknown>;
+    const name = String(entry.name || "file");
+    const ext = getAttachmentExtension(name);
+    if (!EMBED_ALLOWED_ATTACHMENT_EXTENSIONS.has(ext)) continue;
+    const size = Number(entry.size || 0);
+    if (entry.kind === "text-file" && ext === "txt" && typeof entry.text === "string") {
+      if (size > EMBED_MAX_TEXT_ATTACHMENT_BYTES || Buffer.byteLength(entry.text, "utf-8") > EMBED_MAX_TEXT_ATTACHMENT_BYTES) {
+        continue;
+      }
+      attachments.push({
+        id: String(entry.id || `embed-text-${attachments.length}`),
+        kind: "text-file",
+        name,
+        mime: String(entry.mime || "text/plain"),
+        size,
+        text: entry.text,
+      });
+    } else if (entry.kind === "path-ref" && typeof entry.path === "string" && staged?.has(entry.path)) {
+      if (size > EMBED_MAX_PATH_ATTACHMENT_BYTES) continue;
+      attachments.push({
+        id: String(entry.id || `embed-file-${attachments.length}`),
+        kind: "path-ref",
+        name,
+        mime: String(entry.mime || "application/octet-stream"),
+        size,
+        path: entry.path,
+      });
+    }
+  }
+  return attachments;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -358,6 +421,14 @@ async function handleRequest(
       typeof body.resumeSessionId === "string" && body.resumeSessionId.trim()
         ? body.resumeSessionId.trim()
         : createLyHermesSessionId(profileName);
+    const controller = new AbortController();
+    embedChatControllers[profileName] = controller;
+    res.on("close", () => {
+      if (!res.writableEnded && embedChatControllers[profileName] === controller) {
+        controller.abort();
+        delete embedChatControllers[profileName];
+      }
+    });
     streamHermesGatewayChat(
       {
         profileName,
@@ -366,16 +437,74 @@ async function handleRequest(
           ? body.history as Array<{ role: string; content: string }>
           : [],
         resumeSessionId,
+        attachments: sanitizeEmbedAttachments(profileName, resumeSessionId, body.attachments),
         model: typeof body.model === "string" ? body.model : undefined,
         host: process.env.HERMES_API_HOST || "127.0.0.1",
         port: gatewayPort,
         apiServerKey: getApiServerKeyForProfile(profileName),
+        signal: controller.signal,
       },
       (event) => {
+        if (
+          (event.type === "done" || event.type === "error") &&
+          embedChatControllers[profileName] === controller
+        ) {
+          delete embedChatControllers[profileName];
+        }
         writeChatEvent(res, event);
         if (event.type === "done" || event.type === "error") res.end();
       },
     );
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/embed/attachments") {
+    const body = await readJsonBody(req);
+    const profileName = String(body.agent || body.profileName || "default").trim() || "default";
+    const sessionId = String(body.sessionId || "").trim();
+    if (!isAuthorizedEmbedRequest(profileName, body.token)) {
+      sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
+      return;
+    }
+    if (!sessionId || !validateSessionId(sessionId) || !isLyHermesSessionForProfile(sessionId, profileName)) {
+      sendJson(res, 400, { error: "Invalid session", requestId: ctx.requestId });
+      return;
+    }
+    const filename = String(body.filename || "file");
+    const ext = getAttachmentExtension(filename);
+    const base64 = String(body.base64 || body.base64Bytes || "");
+    if (!EMBED_ALLOWED_ATTACHMENT_EXTENSIONS.has(ext)) {
+      sendJson(res, 400, { error: "Unsupported attachment type", requestId: ctx.requestId });
+      return;
+    }
+    if (estimateBase64Bytes(base64) > EMBED_MAX_PATH_ATTACHMENT_BYTES) {
+      sendJson(res, 413, { error: "Attachment too large", requestId: ctx.requestId });
+      return;
+    }
+    const staged = stageAttachment(
+      sessionId,
+      filename,
+      base64,
+    );
+    const key = embedAttachmentKey(profileName, sessionId);
+    if (!embedStagedAttachmentPaths[key]) embedStagedAttachmentPaths[key] = new Set<string>();
+    embedStagedAttachmentPaths[key].add(staged);
+    sendJson(res, 200, { path: staged, requestId: ctx.requestId });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/chat/abort") {
+    const body = await readJsonBody(req);
+    const profileName = String(body.agent || body.profileName || "default").trim() || "default";
+    if (!isAuthorizedEmbedRequest(profileName, body.token)) {
+      sendJson(res, 401, { error: "Unauthorized", requestId: ctx.requestId });
+      return;
+    }
+    if (embedChatControllers[profileName]) {
+      embedChatControllers[profileName].abort();
+      delete embedChatControllers[profileName];
+    }
+    sendJson(res, 200, { success: true, requestId: ctx.requestId });
     return;
   }
 

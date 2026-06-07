@@ -4,6 +4,7 @@ import { HERMES_HOME, loadAppConfig, getProfilePath, runHermesCli } from "./conf
 import * as yaml from "./lib/yaml-simple";
 import { safeWriteFile, yamlStringify } from "./utils";
 import { loadDbSkillConfig, saveDbSkillConfig } from "./db";
+import { resolveHermesBundledSkillsDir } from "./hermes-skills-source";
 
 export interface InstalledSkill {
   id: string;
@@ -321,11 +322,22 @@ export function getSkillContent(skillPath: string): string {
   }
 }
 
+function getHermesSkillsPython(): string {
+  return process.platform === "win32"
+    ? join(HERMES_HOME, "hermes-agent", "venv", "Scripts", "python.exe")
+    : join(HERMES_HOME, "hermes-agent", "venv", "bin", "python");
+}
+
 function findHermesRepoDir(): string {
   const appConfig = loadAppConfig();
   const hermesConfig = appConfig.hermes as Record<string, unknown> || {};
   if (hermesConfig.repo && typeof hermesConfig.repo === "string") {
     return hermesConfig.repo;
+  }
+
+  const skillsDir = resolveHermesBundledSkillsDir(getHermesSkillsPython());
+  if (skillsDir) {
+    return join(skillsDir, "..");
   }
 
   const candidates = [
@@ -340,8 +352,9 @@ function findHermesRepoDir(): string {
 }
 
 export function listBundledSkills(profile?: string): BundledSkill[] {
-  const repoDir = findHermesRepoDir();
-  const bundledDir = join(repoDir, "skills");
+  const bundledDir =
+    resolveHermesBundledSkillsDir(getHermesSkillsPython()) ||
+    join(findHermesRepoDir(), "skills");
 
   if (!existsSync(bundledDir)) {
     return [];
@@ -418,7 +431,7 @@ export function listBundledSkills(profile?: string): BundledSkill[] {
     }
   }
 
-  const optionalDir = join(repoDir, "optional-skills");
+  const optionalDir = join(findHermesRepoDir(), "optional-skills");
   if (existsSync(optionalDir)) {
     let optEntries: string[];
     try {

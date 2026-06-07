@@ -31,14 +31,15 @@ import {
 } from 'lucide-react'
 import type { DesktopWebServerStatus, EmployeeInfo, InstalledSkill, BundledSkill, MemoryData, SavedModel } from '../../../../preload/index'
 import { showToast } from '../../App'
-import PetPicker from '../../components/PetPicker'
+import PetSelect from '../../components/PetSelect'
+import AvatarSelect from '../../components/AvatarSelect'
+import SoulGenerateDialog, { type SoulDraftResult } from '../../components/SoulGenerateDialog'
 import Popconfirm from '../../components/Popconfirm'
 import { useTheme } from '../../components/ThemeProvider'
 import {
   mapStatus,
   statusColor,
   statusDotClass,
-  AVATARS,
   ALL_TOOLS,
   EMPLOYEE_NAME_RE,
   getNestedValue,
@@ -213,24 +214,17 @@ export default function Manage(): React.ReactElement {
 
 function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<typeof useTheme>['lexicon']; onCreated: () => void; onCancel: () => void }): React.ReactElement {
   const { t } = useTranslation()
-  const { soulStyles, soulPrompts } = useEmployeeShared()
   const [name, setName] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [role, setRole] = useState('')
   const [avatar, setAvatar] = useState('🧑‍💼')
   const [soul, setSoul] = useState('')
   const [petSlug, setPetSlug] = useState('')
   const [creating, setCreating] = useState(false)
-  const [soulPrompt, setSoulPrompt] = useState('')
-  const [soulStyle, setSoulStyle] = useState('detailed')
-  const [generatingSoul, setGeneratingSoul] = useState(false)
-  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
-  const [showPetPicker, setShowPetPicker] = useState(false)
+  const [showSoulDialog, setShowSoulDialog] = useState(false)
   const [savedModels, setSavedModels] = useState<SavedModel[]>([])
   const [selectedModelId, setSelectedModelId] = useState('')
   const [soulModelInfo, setSoulModelInfo] = useState<{ model: string; provider: string; ready: boolean; hint?: string } | null>(null)
-  const avatarPickerRef = useRef<HTMLDivElement>(null)
-  const petPickerRef = useRef<HTMLDivElement>(null)
+  const generatedRoleRef = useRef('')
 
   useEffect(() => {
     Promise.all([
@@ -245,17 +239,6 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
     }).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    if (!showAvatarPicker) return
-    const handler = (e: MouseEvent) => {
-      if (avatarPickerRef.current && !avatarPickerRef.current.contains(e.target as Node)) {
-        setShowAvatarPicker(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showAvatarPicker])
-
   const handleCreate = async (): Promise<void> => {
     if (!name.trim()) { showToast(t('manage.enterName', { entity: lexicon.entities.employee }), 'error'); return }
     if (!EMPLOYEE_NAME_RE.test(name.trim())) { showToast(t('manage.invalidName', { entity: lexicon.entities.employee }), 'error'); return }
@@ -268,7 +251,7 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
     try {
       const result = await window.hermesAPI.createEmployee(name.trim(), {
         displayName: displayName.trim() || undefined,
-        role: role.trim() || undefined,
+        role: generatedRoleRef.current || undefined,
         avatar: avatar || undefined,
         soul: soul.trim() || undefined,
         petSlug: petSlug || undefined,
@@ -288,42 +271,11 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
     finally { setCreating(false) }
   }
 
-  const handleGenerateSoul = async (refinement = ''): Promise<void> => {
-    const prompt = soulPrompt.trim()
-    if (!prompt && !soul.trim()) {
-      showToast(t('manage.enterSoulDesc'), 'error')
-      return
-    }
-    if (soulModelInfo && !soulModelInfo.ready) {
-      showToast(soulModelInfo.hint || t('manage.configureModel'), 'error')
-      return
-    }
-    setGeneratingSoul(true)
-    try {
-      const result = await window.hermesAPI.generateEmployeeSoulDraft({
-        prompt: prompt || displayName.trim() || role.trim() || name.trim(),
-        name: name.trim(),
-        displayName: displayName.trim(),
-        role: role.trim(),
-        style: soulStyle,
-        refinement,
-        existingSoul: refinement ? soul.trim() : ''
-      })
-      if (!result.success || !result.draft) {
-        showToast(translateError(result.error, t) || t('manage.generateFailed'), 'error')
-        return
-      }
-      const draft = result.draft
-      setName(draft.name)
-      setDisplayName(draft.displayName)
-      setRole(draft.role)
-      setSoul(draft.soul)
-      showToast(t('manage.soulDraftGenerated'))
-    } catch (e: unknown) {
-      showToast(translateError((e as Error).message, t) || t('manage.generateFailedCheck'), 'error')
-    } finally {
-      setGeneratingSoul(false)
-    }
+  const handleApplySoulDraft = (draft: SoulDraftResult): void => {
+    setName(draft.name)
+    setDisplayName(draft.displayName)
+    generatedRoleRef.current = draft.role || ''
+    setSoul(draft.soul)
   }
 
   const soulModelLabel = soulModelInfo?.ready
@@ -331,99 +283,15 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
     : soulModelInfo?.hint || t('manage.noDefaultModel')
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
-      <h3 className="mb-5 text-lg font-semibold text-[var(--text-primary)]">{lexicon.entities.createEmployee}</h3>
+    <div className="w-full min-w-0 p-6">
       <div className="space-y-5 glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">
-        <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Sparkles size={16} className="text-[var(--accent)]" />
-              <span className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.generateSoulTitle')}</span>
-            </div>
-            <span className="text-xs text-[var(--text-dim)]">{t('manage.generateSoulHint')}</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={soulPrompt}
-              onChange={(e) => setSoulPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  handleGenerateSoul()
-                }
-              }}
-              placeholder={t('manage.soulPlaceholder')}
-              className="min-w-0 flex-1 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
-            />
-            <select
-              value={soulStyle}
-              onChange={(e) => setSoulStyle(e.target.value)}
-              className="shrink-0 glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
-            >
-              {soulStyles.map(option => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => handleGenerateSoul()}
-              disabled={generatingSoul || !soulPrompt.trim()}
-              className="shrink-0 flex items-center gap-2 rounded-[var(--radius)] bg-accent-gradient px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
-            >
-              {generatingSoul ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {generatingSoul ? t('common.generating') : t('common.generate')}
-            </button>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-[var(--text-dim)]">
-            {t('manage.soulGenerateNote')}
-          </p>
-          <p className={`mt-1.5 text-xs leading-relaxed ${soulModelInfo?.ready ? 'text-[var(--text-dim)]' : 'text-[var(--danger)]'}`}>
-            {t('manage.usingDefaultModel', { model: soulModelLabel })}
-          </p>
-          {soul.trim() && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {soulPrompts.map(option => (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => handleGenerateSoul(option.value)}
-                  disabled={generatingSoul}
-                  className="rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="flex items-center gap-2 mb-2">
           <UserPlus size={16} className="text-[var(--accent)]" />
-          <span className="text-sm font-semibold text-[var(--text-primary)]">{lexicon.entities.employeeInfo}</span>
+          <span className="text-sm font-semibold text-[var(--text-primary)]">{lexicon.entities.createEmployee}</span>
         </div>
-        <div className="flex items-start gap-4">
-          <div className="relative" ref={avatarPickerRef}>
-            <button
-              onClick={() => setShowAvatarPicker(!showAvatarPicker)}
-              className="w-16 h-16 rounded-2xl glass-medium flex items-center justify-center text-[32px] border border-[var(--border)] cursor-pointer hover:border-[var(--accent)] transition-colors"
-            >
-              {avatar}
-            </button>
-            {showAvatarPicker && (
-              <div className="absolute top-full left-0 mt-2 p-3 rounded-xl glass-heavy border border-[var(--border)] grid grid-cols-4 gap-2 z-10 shadow-lg max-w-[240px]">
-                {AVATARS.map(a => (
-                  <button
-                    key={a}
-                    onClick={() => { setAvatar(a); setShowAvatarPicker(false) }}
-                    className={`w-11 h-11 rounded-lg flex items-center justify-center text-[22px] cursor-pointer transition-colors border ${avatar === a ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'border-transparent hover:bg-[var(--bg-hover)]'}`}
-                  >
-                    {a}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex-1 space-y-3">
+        <div className="flex items-center gap-5">
+          <AvatarSelect value={avatar} onChange={setAvatar} />
+          <div className="flex-1 min-w-0 space-y-3">
             <div>
               <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.nameLabel')}</label>
               <input
@@ -466,48 +334,43 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
         </div>
 
         <div>
-          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.roleLabel')}</label>
-          <input
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            placeholder={t('manage.rolePlaceholder')}
-            className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5"><Sparkles size={14} /> {lexicon.concepts.soulSetting}</label>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">
+              <Sparkles size={14} /> {lexicon.concepts.soulSetting}
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                if (soulModelInfo && !soulModelInfo.ready) {
+                  showToast(soulModelInfo.hint || t('manage.configureModel'), 'error')
+                  return
+                }
+                setShowSoulDialog(true)
+              }}
+              title={t('manage.generateSoulHint')}
+              className="flex items-center gap-1.5 rounded-[var(--radius)] bg-accent-gradient px-3 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 cursor-pointer"
+            >
+              <Sparkles size={14} />
+              {t('common.generate')}
+            </button>
+          </div>
           <textarea
             value={soul}
             onChange={(e) => setSoul(e.target.value)}
             placeholder={t('manage.soulDescPlaceholder', { entity: lexicon.entities.virtualEmployee })}
-            className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none resize-none min-h-[120px] focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
+            className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none resize-none min-h-[160px] focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]"
           />
+          <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-dim)]">
+            {t('manage.soulGenerateNote')}
+          </p>
+          <p className={`mt-1 text-xs leading-relaxed ${soulModelInfo?.ready ? 'text-[var(--text-dim)]' : 'text-[var(--danger)]'}`}>
+            {t('manage.usingDefaultModel', { model: soulModelLabel })}
+          </p>
         </div>
 
-        <div className="relative" ref={petPickerRef}>
+        <div>
           <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 {t('manage.companionPet')}</label>
-          <button
-            type="button"
-            onClick={() => setShowPetPicker(!showPetPicker)}
-            className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] bg-[var(--bg-surface)] flex items-center gap-2 cursor-pointer text-left"
-          >
-            {petSlug ? (
-              <span className="flex items-center gap-2">
-                <span>🐾</span>
-                {petSlug}
-              </span>
-            ) : (
-              <span className="text-[var(--text-dim)]">{t('manage.selectPet')}</span>
-            )}
-          </button>
-          {showPetPicker && (
-            <PetPicker
-              value={petSlug}
-              onChange={setPetSlug}
-              onClose={() => setShowPetPicker(false)}
-            />
-          )}
+          <PetSelect value={petSlug} onChange={setPetSlug} />
         </div>
       </div>
 
@@ -527,6 +390,14 @@ function CreateEmployee({ lexicon, onCreated, onCancel }: { lexicon: ReturnType<
           {t('common.cancel')}
         </button>
       </div>
+
+      <SoulGenerateDialog
+        open={showSoulDialog}
+        onClose={() => setShowSoulDialog(false)}
+        onApply={handleApplySoulDraft}
+        context={{ name, displayName, soul }}
+        soulModelInfo={soulModelInfo}
+      />
     </div>
   )
 }
@@ -562,27 +433,11 @@ function EditEmployee({
   const [saving, setSaving] = useState(false)
 
   const [displayName, setDisplayName] = useState(employee.displayName || '')
-  const [role, setRole] = useState(employee.role || '')
   const [avatar, setAvatar] = useState(employee.avatar || '🧑‍💼')
   const [petSlug, setPetSlug] = useState(employee.petSlug || '')
   const [webAccessEnabled, setWebAccessEnabled] = useState(employee.webAccessEnabled === true)
   const [webAccessToken, setWebAccessToken] = useState(employee.webAccessToken || '')
   const [webServerStatus, setWebServerStatus] = useState<DesktopWebServerStatus | null>(null)
-  const [showPetPicker, setShowPetPicker] = useState(false)
-  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
-  const avatarPickerRef = useRef<HTMLDivElement>(null)
-  const petPickerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!showAvatarPicker) return
-    const handler = (e: MouseEvent) => {
-      if (avatarPickerRef.current && !avatarPickerRef.current.contains(e.target as Node)) {
-        setShowAvatarPicker(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showAvatarPicker])
 
   const [soulContent, setSoulContent] = useState('')
   const [soulOriginal, setSoulOriginal] = useState('')
@@ -648,7 +503,6 @@ function EditEmployee({
   useEffect(() => {
     const ename = employee.name
     setDisplayName(employee.displayName || '')
-    setRole(employee.role || '')
     setAvatar(employee.avatar || '🧑‍💼')
     setPetSlug(employee.petSlug || '')
     setWebAccessEnabled(employee.webAccessEnabled === true)
@@ -717,7 +571,6 @@ function EditEmployee({
     try {
       await window.hermesAPI.updateEmployee(employee.name, {
         displayName: displayName || undefined,
-        role: role || undefined,
         avatar: avatar || undefined
       })
       if (petSlug !== employee.petSlug) {
@@ -1035,62 +888,16 @@ function EditEmployee({
                 <UserPlus size={16} className="text-[var(--accent)]" />
                 <span className="text-sm font-semibold text-[var(--text-primary)]">{t('manage.basicInfo')}</span>
               </div>
-              <div className="flex items-start gap-5">
-                <div className="relative" ref={avatarPickerRef}>
-                  <button
-                    onClick={() => setShowAvatarPicker(!showAvatarPicker)}
-                    className="w-16 h-16 rounded-2xl glass-medium flex items-center justify-center text-[32px] border border-[var(--border)] cursor-pointer hover:border-[var(--accent)] transition-colors"
-                  >
-                    {avatar}
-                  </button>
-                  {showAvatarPicker && (
-                    <div className="absolute top-full left-0 mt-2 p-3 rounded-xl glass-heavy border border-[var(--border)] grid grid-cols-4 gap-2 z-10 shadow-lg max-w-[240px]">
-                      {AVATARS.map(a => (
-                        <button
-                          key={a}
-                          onClick={() => { setAvatar(a); setShowAvatarPicker(false) }}
-                          className={`w-11 h-11 rounded-lg flex items-center justify-center text-[22px] cursor-pointer transition-colors border ${avatar === a ? 'bg-[var(--accent-glow)] border-[var(--accent)]' : 'border-transparent hover:bg-[var(--bg-hover)]'}`}
-                        >
-                          {a}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+              <div className="flex items-center gap-5">
+                <AvatarSelect value={avatar} onChange={setAvatar} />
+                <div className="flex-1 min-w-0">
+                  <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.displayNameLabel')}</label>
+                  <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
                 </div>
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.displayNameLabel')}</label>
-                    <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium">{t('manage.roleLabel')}</label>
-                    <input value={role} onChange={(e) => setRole(e.target.value)} placeholder={t('manage.rolePlaceholder')} className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)]" />
-                  </div>
-                  <div className="relative" ref={petPickerRef}>
-                    <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 {t('manage.companionPet')}</label>
-                    <button
-                      type="button"
-                      onClick={() => setShowPetPicker(!showPetPicker)}
-                      className="w-full glass-medium border border-[var(--border)] rounded-[var(--radius)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--border-focus)] focus:shadow-[0_0_0_3px_var(--accent-glow)] bg-[var(--bg-surface)] flex items-center gap-2 cursor-pointer text-left"
-                    >
-                      {petSlug ? (
-                        <span className="flex items-center gap-2">
-                          <span>🐾</span>
-                          {petSlug}
-                        </span>
-                      ) : (
-                        <span className="text-[var(--text-dim)]">{t('manage.selectPet')}</span>
-                      )}
-                    </button>
-                    {showPetPicker && (
-                      <PetPicker
-                        value={petSlug}
-                        onChange={setPetSlug}
-                        onClose={() => setShowPetPicker(false)}
-                      />
-                    )}
-                  </div>
-                </div>
+              </div>
+              <div className="mt-4">
+                <label className="mb-1.5 text-sm text-[var(--text-secondary)] font-medium flex items-center gap-1.5">🐾 {t('manage.companionPet')}</label>
+                <PetSelect value={petSlug} onChange={setPetSlug} />
               </div>
             </div>
             <div className="glass-medium border border-[var(--border)] rounded-[var(--radius-lg)] p-5">

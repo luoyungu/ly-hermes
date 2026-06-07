@@ -13,6 +13,7 @@ import {
   validateProfileName,
   syncPresetProviderEnvFile,
 } from "../config";
+import { resolveLyProviderId, toHermesConfigProvider } from "../../shared/provider-registry";
 import { ensureDir, safeWriteFile, yamlStringify } from "../utils";
 import { notifyRenderer } from "../ipc/desktop-events";
 import { getSessionCount } from "../sessions";
@@ -103,9 +104,11 @@ export function createEmployeeProfile(
     (defaults.model as string) ||
     "";
   const provider =
-    (config.provider as string) ||
-    (defaults.provider as string) ||
-    "";
+    resolveLyProviderId(
+      (config.provider as string) ||
+      (defaults.provider as string) ||
+      "",
+    );
   const baseUrl =
     (config.base_url as string) ||
     (defaults.base_url as string) ||
@@ -126,7 +129,7 @@ export function createEmployeeProfile(
   const sessionCfg = Object.assign({}, defSession, (runtime.session_reset as Record<string, unknown>) || {});
 
   const configYaml = yamlStringify({
-    model: { default: model, provider: provider, base_url: baseUrl },
+    model: { default: model, provider: toHermesConfigProvider(provider), base_url: baseUrl },
     platforms: {
       api_server: {
         extra: { port: port, host: "127.0.0.1" },
@@ -178,7 +181,7 @@ export function createEmployeeProfile(
     "utf-8",
   );
 
-  const defaultProvider = (defaults.provider as string) || "";
+  const defaultProvider = resolveLyProviderId((defaults.provider as string) || "");
   const defaultApiKey =
     !defaultProvider || defaultProvider === provider
       ? (defaults.api_key as string) || ""

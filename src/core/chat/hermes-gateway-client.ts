@@ -1,6 +1,8 @@
 import http from "http";
 import type { ChatEventSink } from "./events";
 import { createLyHermesSessionId } from "../../shared/session-id";
+import type { Attachment } from "../../shared/attachments";
+import { escapeXmlAttr } from "../../shared/attachments";
 
 type ChatContent = string | Array<{ type: "text"; text: string }>;
 
@@ -13,6 +15,25 @@ export interface HermesGatewayChatInput {
   host?: string;
   port: number;
   apiServerKey?: string;
+  signal?: AbortSignal;
+  attachments?: Attachment[];
+}
+
+function buildUserContent(text: string, attachments?: Attachment[]): ChatContent {
+  if (!attachments || attachments.length === 0) return text;
+
+  const parts: string[] = [];
+  if (text.trim()) parts.push(text);
+  for (const file of attachments) {
+    if (file.kind === "text-file" && typeof file.text === "string") {
+      parts.push(
+        `<file name="${escapeXmlAttr(file.name)}" mime="${escapeXmlAttr(file.mime || "text/plain")}">\n${file.text}\n</file>`,
+      );
+    } else if (file.kind === "path-ref" && file.path) {
+      parts.push(`[Attached file: ${file.path}]`);
+    }
+  }
+  return parts.join("\n\n") || text;
 }
 
 function buildMessages(input: HermesGatewayChatInput): Array<{ role: string; content: ChatContent }> {
@@ -35,7 +56,7 @@ function buildMessages(input: HermesGatewayChatInput): Array<{ role: string; con
       });
     }
   }
-  messages.push({ role: "user", content: input.message });
+  messages.push({ role: "user", content: buildUserContent(input.message, input.attachments) });
   return messages;
 }
 
@@ -68,6 +89,7 @@ export function streamHermesGatewayChat(
   function finish(error?: string): void {
     if (finished) return;
     finished = true;
+    input.signal?.removeEventListener("abort", abortRequest);
     if (error) {
       emit({ type: "error", data: { profileName, error } });
       return;
@@ -186,6 +208,16 @@ export function streamHermesGatewayChat(
       res.on("error", (error: Error) => finish("流错误: " + error.message));
     },
   );
+
+  function abortRequest(): void {
+    req.destroy(new Error("已停止"));
+  }
+
+  if (input.signal?.aborted) {
+    abortRequest();
+  } else {
+    input.signal?.addEventListener("abort", abortRequest, { once: true });
+  }
 
   req.on("error", (error: Error) => finish("API 请求失败: " + error.message));
   req.on("timeout", () => {

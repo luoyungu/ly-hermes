@@ -14,7 +14,7 @@ import {
   runHermesCli,
   isApiServerReady,
   validateProfileName,
-  DEFAULT_HERMES_BIN,
+  resolveHermesBin,
   createHermesProcessEnv,
   syncPresetProviderEnvFile,
   PROVIDER_KEY_MAP,
@@ -390,8 +390,7 @@ export async function wakeUpEmployee(
   if (!port) return { success: false, error: "未配置端口" };
 
   const appConfig = loadAppConfig();
-  const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-  const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+  const hermesBin = resolveHermesBin();
   const defaults = appConfig.defaults as Record<string, unknown> | undefined;
   const maxOnline = (defaults?.max_online as number) || 5;
   const onlineCount = Object.keys(_gatewayProcesses).filter(

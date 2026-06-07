@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
  * 上传 Windows 安装包到 Gitee Release（需 Gitee 私人令牌）
- * 用法: GITEE_TOKEN=xxx node scripts/upload-gitee-release.mjs [1.13.0]
+ * 用法: GITEE_TOKEN=xxx node scripts/upload-gitee-release.mjs [1.14.0]
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
-const versionArg = process.argv[2] || '1.13.0'
+const versionArg = process.argv[2] || '1.14.0'
 const version = versionArg.replace(/^v/, '')
 const tag = `v${version}`
 const token = process.env.GITEE_TOKEN

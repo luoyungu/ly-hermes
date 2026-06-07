@@ -28,7 +28,6 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const { t } = useTranslation()
   const stageLabels = useMemo(() => [
     t('onboarding.stageCheckPython'),
-    t('onboarding.stageCheckGit'),
     t('onboarding.stagePrepareAgent'),
     t('onboarding.stageCreateVenv'),
     t('onboarding.stageInstallDeps'),

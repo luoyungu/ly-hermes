@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import crypto from "crypto";
-import { execFileSync, spawn, execFile, type ChildProcess } from "child_process";
+import { execFileSync, spawn, execFile } from "child_process";
 import http from "http";
 import https from "https";
 import * as yaml from "./lib/yaml-simple";
@@ -19,10 +19,16 @@ import {
   testMcpServer,
   type McpServerInput,
 } from "./services/tool-api";
+import {
+  PROVIDER_KEY_MAP,
+  getPresetEnvSyncKeys,
+  getProviderEnvKey,
+  resolveLyProviderId,
+  toHermesConfigProvider,
+  toHermesNativeProvider,
+} from "../shared/provider-registry";
 
-export function getProviderEnvKey(provider: string): string {
-  return PROVIDER_KEY_MAP[provider]?.envKey || "OPENAI_API_KEY";
-}
+export { getProviderEnvKey, PROVIDER_KEY_MAP };
 
 export function getApiServerKeyForProfile(profileName: string): string {
   return "lyhermes-local-" + crypto
@@ -32,41 +38,11 @@ export function getApiServerKeyForProfile(profileName: string): string {
     .slice(0, 32);
 }
 
-export const PROVIDER_KEY_MAP: Record<string, { envKey: string; baseUrl: string; baseEnvKey?: string }> = {
-  deepseek:    { envKey: "DEEPSEEK_API_KEY",    baseUrl: "https://api.deepseek.com/v1", baseEnvKey: "DEEPSEEK_BASE_URL" },
-  qwen:        { envKey: "DASHSCOPE_API_KEY",    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", baseEnvKey: "DASHSCOPE_BASE_URL" },
-  zhipu:       { envKey: "GLM_API_KEY",          baseUrl: "https://open.bigmodel.cn/api/paas/v4", baseEnvKey: "GLM_BASE_URL" },
-  moonshot:    { envKey: "MOONSHOT_API_KEY",     baseUrl: "https://api.moonshot.cn/v1" },
-  yi:          { envKey: "YI_API_KEY",           baseUrl: "https://api.lingyiwanwu.com/v1" },
-  minimax:     { envKey: "MINIMAX_API_KEY",      baseUrl: "https://api.minimax.chat/v1", baseEnvKey: "MINIMAX_BASE_URL" },
-  spark:       { envKey: "SPARK_API_KEY",        baseUrl: "https://spark-api-open.xf-yun.com/v1" },
-  siliconflow: { envKey: "SILICONFLOW_API_KEY",  baseUrl: "https://api.siliconflow.cn/v1" },
-  ernie:       { envKey: "QIANFAN_API_KEY",      baseUrl: "https://qianfan.baidubce.com/v2" },
-};
-
-/** LyHermes UI provider id → Hermes Agent 原生推理 provider（避免 custom 误路由到 OpenRouter） */
-const HERMES_INFERENCE_PROVIDER_MAP: Record<string, string> = {
-  deepseek: "deepseek",
-  qwen: "alibaba",
-  zhipu: "zai",
-  minimax: "minimax",
-};
+const PRESET_ENV_SYNC_KEYS = new Set(getPresetEnvSyncKeys());
 
 export function getHermesInferenceProvider(presetProvider: string): string {
-  return HERMES_INFERENCE_PROVIDER_MAP[presetProvider] || "custom";
+  return toHermesNativeProvider(resolveLyProviderId(presetProvider));
 }
-
-const PRESET_ENV_SYNC_KEYS = new Set([
-  "HERMES_INFERENCE_PROVIDER",
-  "OPENAI_API_KEY",
-  "CUSTOM_API_KEY",
-  "OPENAI_BASE_URL",
-  "CUSTOM_API_BASE_URL",
-  "CUSTOM_BASE_URL",
-  "DASHSCOPE_BASE_URL",
-  ...Object.values(PROVIDER_KEY_MAP).map((info) => info.envKey),
-  ...Object.values(PROVIDER_KEY_MAP).map((info) => info.baseEnvKey || ""),
-]);
 
 function parseEnvLines(content: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -86,8 +62,9 @@ export function syncPresetProviderEnvFile(
   provider: string,
   options?: { baseUrl?: string; apiKey?: string; allowExistingApiKey?: boolean },
 ): Record<string, string> {
-  const providerInfo = PROVIDER_KEY_MAP[provider];
-  const isCustom = provider === "custom" || (!providerInfo && provider !== "");
+  const lyProvider = resolveLyProviderId(provider);
+  const providerInfo = PROVIDER_KEY_MAP[lyProvider];
+  const isCustom = lyProvider === "custom" || (!providerInfo && lyProvider !== "");
   if (!providerInfo && !isCustom) return {};
 
   let envContent = "";
@@ -131,7 +108,7 @@ export function syncPresetProviderEnvFile(
       return !keysToRemove.has(key);
     });
 
-  const inferenceProvider = getHermesInferenceProvider(provider);
+  const inferenceProvider = getHermesInferenceProvider(lyProvider);
   const isNativeProvider = inferenceProvider !== "custom";
 
   if (apiKey) {
@@ -184,21 +161,21 @@ export const DEFAULT_HERMES_BIN: string =
   process.platform === "win32"
     ? path.join(HERMES_HOME, "hermes-agent", "venv", "Scripts", "hermes.exe")
     : path.join(HERMES_HOME, "hermes-agent", "venv", "bin", "hermes");
+
+export function resolveHermesBin(): string {
+  const appConfig = loadAppConfig();
+  const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
+  const configured = hermesCfg?.bin as string | undefined;
+  if (configured && path.isAbsolute(configured) && fs.existsSync(configured)) {
+    return configured;
+  }
+  return DEFAULT_HERMES_BIN;
+}
 export const PROFILES_DIR: string = path.join(HERMES_HOME, "profiles");
 export const DEFAULT_API_HOST: string = "127.0.0.1";
 export const DEFAULT_API_PORT: number = 8644;
-const HERMES_GITEE_REPO_URL = "https://gitee.com/YanPro/ly-hermes-agent";
-const HERMES_GITEE_BRANCH_API =
-  "https://gitee.com/api/v5/repos/YanPro/ly-hermes-agent/branches/main";
-const HERMES_GITEE_COMPARE_API =
-  "https://gitee.com/api/v5/repos/YanPro/ly-hermes-agent/compare";
-const HERMES_GITEE_ZIP_URL = "http://120.26.42.178:88/main.zip";
 const HERMES_REPO_DIR = path.join(HERMES_HOME, "hermes-agent");
 const HERMES_SOURCE_FILE = path.join(HERMES_REPO_DIR, ".hermes-desktop-source.json");
-const DESKTOP_REQUIRED_PY_PACKAGES = [
-  "aiohttp==3.13.3",
-  "websockets==15.0.1",
-];
 export const WALLPAPERS_DIR: string = path.join(
   APP_DATA_DIR,
   "wallpapers",
@@ -208,16 +185,8 @@ export function getHermesEnhancedPath(basePath = process.env.PATH || ""): string
   const extraPaths: string[] = [];
   if (process.platform === "win32") {
     const home = os.homedir();
-    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
-    const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
     const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
     extraPaths.push(
-      path.join(programFiles, "Git", "cmd"),
-      path.join(programFiles, "Git", "bin"),
-      path.join(programFilesX86, "Git", "cmd"),
-      path.join(programFilesX86, "Git", "bin"),
-      path.join(localAppData, "Programs", "Git", "cmd"),
-      path.join(localAppData, "Programs", "Git", "bin"),
       path.join(localAppData, "Microsoft", "WindowsApps"),
       path.join(home, "AppData", "Local", "Microsoft", "WindowsApps"),
     );
@@ -235,36 +204,14 @@ export function getHermesEnhancedPath(basePath = process.env.PATH || ""): string
   return parts.join(path.delimiter);
 }
 
-export function findWindowsGitBashPath(env: NodeJS.ProcessEnv = process.env): string | null {
-  if (process.platform !== "win32") return null;
-  const configured = env.HERMES_GIT_BASH_PATH;
-  if (configured && fs.existsSync(configured)) return configured;
-
-  const home = os.homedir();
-  const programFiles = env.ProgramFiles || "C:\\Program Files";
-  const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
-  const localAppData = env.LOCALAPPDATA || path.join(home, "AppData", "Local");
-  const candidates = [
-    path.join(programFiles, "Git", "bin", "bash.exe"),
-    path.join(programFilesX86, "Git", "bin", "bash.exe"),
-    path.join(localAppData, "Programs", "Git", "bin", "bash.exe"),
-  ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
-}
-
 export function createHermesProcessEnv(
   overrides: Record<string, string | undefined> = {},
 ): NodeJS.ProcessEnv {
-  const env = Object.assign({}, process.env, {
+  return Object.assign({}, process.env, {
     HOME: os.homedir(),
     HERMES_HOME,
     PATH: getHermesEnhancedPath(process.env.PATH || ""),
   }, overrides);
-  const gitBashPath = findWindowsGitBashPath(env);
-  if (gitBashPath) {
-    env.HERMES_GIT_BASH_PATH = gitBashPath;
-  }
-  return env;
 }
 
 export const RUNTIME_DEFAULTS: Record<string, unknown> = {
@@ -428,9 +375,7 @@ export function runHermesCli(
   profileName?: string,
   timeoutMs = 60000,
 ): string {
-  const appConfig = loadAppConfig();
-  const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-  const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+  const hermesBin = resolveHermesBin();
   const effectiveProfile = profileName || "default";
   const hermesHomeForProfile = effectiveProfile === "default"
     ? HERMES_HOME
@@ -533,15 +478,6 @@ function stripHermesCliUpdateInfo(versionText: string): string {
     .trim();
 }
 
-function ensureHermesGiteeOrigin(): void {
-  const hermesRepoDir = HERMES_REPO_DIR;
-  if (!fs.existsSync(path.join(hermesRepoDir, ".git"))) return;
-  execFileSync("git", ["remote", "set-url", "origin", HERMES_GITEE_REPO_URL], {
-    cwd: hermesRepoDir,
-    timeout: 10000,
-  });
-}
-
 function clearHermesCliUpdateCache(): void {
   try {
     fs.rmSync(path.join(HERMES_HOME, ".update_check"), { force: true });
@@ -551,102 +487,73 @@ function clearHermesCliUpdateCache(): void {
 }
 
 function prepareHermesVersionCheck(): void {
-  ensureHermesGiteeOrigin();
   clearHermesCliUpdateCache();
 }
 
-function readGiteeMainSha(): Promise<string | null> {
-  return new Promise((resolve) => {
-    const req = https.get(
-      HERMES_GITEE_BRANCH_API,
-      { timeout: 10000, headers: { "User-Agent": "HermesDesktop" } },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-        res.on("end", () => {
-          try {
-            const data = JSON.parse(body);
-            resolve(data?.commit?.sha || data?.commit?.id || null);
-          } catch {
-            resolve(null);
-          }
-        });
-      },
-    );
-    req.on("error", () => resolve(null));
-    req.on("timeout", () => { req.destroy(); resolve(null); });
-  });
-}
-
-function compareGiteeCommits(localCommit: string, remoteSha: string): Promise<number> {
-  return new Promise((resolve) => {
-    const req = https.get(
-      `${HERMES_GITEE_COMPARE_API}/${localCommit}...${remoteSha}`,
-      { timeout: 10000, headers: { "User-Agent": "HermesDesktop" } },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-        res.on("end", () => {
-          try {
-            const data = JSON.parse(body);
-            const commits = data?.commits;
-            resolve(Array.isArray(commits) ? commits.length : (data?.total_commits || 0));
-          } catch {
-            resolve(0);
-          }
-        });
-      },
-    );
-    req.on("error", () => resolve(0));
-    req.on("timeout", () => { req.destroy(); resolve(0); });
-  });
-}
-
-async function getHermesGiteeUpdateInfo(): Promise<string> {
+async function getHermesUpdateCheckInfo(): Promise<string> {
   try {
-    const canUseGit = hasSystemGit() && fs.existsSync(path.join(HERMES_REPO_DIR, ".git"));
-    const localCommit = canUseGit
-      ? execFileSync("git", ["rev-parse", "HEAD"], { cwd: HERMES_REPO_DIR, timeout: 10000 }).toString().trim()
-      : readDesktopSourceCommit();
-    const remoteSha = await readGiteeMainSha();
-    if (!remoteSha) return "";
-    if (localCommit && localCommit === remoteSha) return "\nUp to date";
+    const hermesBin = resolveHermesBin();
+    if (!fs.existsSync(hermesBin)) return "";
 
-    if (localCommit && canUseGit) {
-      let behindCount = 0;
-      try {
-        execFileSync("git", ["fetch", "origin", "main", "--quiet"], {
-          cwd: HERMES_REPO_DIR,
-          timeout: 30000,
-        });
-        behindCount = Number(
-          execFileSync("git", ["rev-list", "--count", "HEAD..origin/main"], {
-            cwd: HERMES_REPO_DIR,
-            timeout: 10000,
-          }).toString().trim(),
-        ) || 0;
-      } catch {
-        behindCount = await compareGiteeCommits(localCommit, remoteSha);
-      }
-      if (behindCount > 0) return `\nUpdate available: ${behindCount} commits behind ${remoteSha.slice(0, 8)}`;
-      return localCommit === remoteSha ? "\nUp to date" : `\nUpdate available: Gitee sync available ${remoteSha.slice(0, 8)}`;
-    }
+    const localVersion = await new Promise<string | null>((resolve) => {
+      const env = createHermesProcessEnv({ HERMES_HOME });
+      execFile(
+        hermesBin,
+        ["--version"],
+        { env, timeout: 15000, windowsHide: true },
+        (error, stdout) => {
+          if (error) { resolve(null); return; }
+          const match = (stdout || "").toString().match(/v(\d+\.\d+\.\d+)/);
+          resolve(match ? match[1] : null);
+        },
+      );
+    });
+    if (!localVersion) return "";
 
-    return `\nUpdate available: Gitee sync available ${remoteSha.slice(0, 8)}`;
+    const latestVersion = await new Promise<string | null>((resolve) => {
+      const req = https.get(
+        "https://pypi.org/pypi/hermes-agent/json",
+        { timeout: 15000 },
+        (res) => {
+          let body = "";
+          res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+          res.on("end", () => {
+            try {
+              const data = JSON.parse(body);
+              resolve(data?.info?.version || null);
+            } catch { resolve(null); }
+          });
+        },
+      );
+      req.on("error", () => resolve(null));
+      req.on("timeout", () => { req.destroy(); resolve(null); });
+    });
+
+    if (!latestVersion) return "";
+
+    const cmp = compareVersions(localVersion, latestVersion);
+    if (cmp < 0) return `\nUpdate available: ${latestVersion}`;
+    return "\nUp to date";
   } catch {
     return "";
   }
 }
 
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+  }
+  return 0;
+}
+
 function getHermesSourceInfo(): string {
   try {
-    if (hasSystemGit() && fs.existsSync(path.join(HERMES_REPO_DIR, ".git"))) {
-      const commit = execFileSync("git", ["rev-parse", "--short=8", "HEAD"], {
-        cwd: HERMES_REPO_DIR,
-        timeout: 10000,
-      }).toString().trim();
-      if (commit) return `\nCommit: ${commit}`;
-    }
     const markerCommit = readDesktopSourceCommit();
     if (markerCommit) return `\nCommit: ${markerCommit.slice(0, 8)}`;
   } catch {
@@ -661,15 +568,6 @@ function getHermesVenvPython(): string {
     : path.join(HERMES_REPO_DIR, "venv", "bin", "python");
 }
 
-function hasSystemGit(): boolean {
-  try {
-    execFileSync("git", ["--version"], { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function readDesktopSourceCommit(): string | null {
   try {
     if (!fs.existsSync(HERMES_SOURCE_FILE)) return null;
@@ -677,24 +575,6 @@ function readDesktopSourceCommit(): string | null {
     return typeof marker.commit === "string" ? marker.commit : null;
   } catch {
     return null;
-  }
-}
-
-function writeDesktopSourceMarker(commit: string | null, method: "git" | "zip"): void {
-  try {
-    fs.writeFileSync(
-      HERMES_SOURCE_FILE,
-      JSON.stringify({
-        repo: HERMES_GITEE_REPO_URL,
-        branch: "main",
-        commit,
-        method,
-        updatedAt: new Date().toISOString(),
-      }, null, 2),
-      "utf-8",
-    );
-  } catch {
-    /* ignore */
   }
 }
 
@@ -807,7 +687,7 @@ function getDefaultModelRequestConfig(): ModelRequestConfig {
       const cfg = yaml.parse(fs.readFileSync(configPath, "utf-8"));
       const m = cfg.model as Record<string, unknown> | undefined;
       if (m) {
-        provider = (m.provider as string) || provider;
+        provider = resolveLyProviderId((m.provider as string) || provider);
         model = (m.default as string) || (m.name as string) || model;
         baseUrl = (m.base_url as string) || baseUrl;
       }
@@ -1053,184 +933,6 @@ export async function parseMcpDescription(input: {
   }
 }
 
-function downloadFile(url: string, dest: string, timeoutMs: number): Promise<{ success: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const client = url.startsWith("http://") ? http.get : https.get;
-    const req = client(url, (res) => {
-      let settled = false;
-      const finish = (result: { success: boolean; error?: string }): void => {
-        if (settled) return;
-        settled = true;
-        resolve(result);
-      };
-      if ([301, 302, 303, 307, 308].includes(res.statusCode || 0) && res.headers.location) {
-        downloadFile(res.headers.location, dest, timeoutMs).then(resolve);
-        return;
-      }
-      if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
-        finish({ success: false, error: `HTTP ${res.statusCode}` });
-        return;
-      }
-      const expectedBytes = Number(res.headers["content-length"] || 0);
-      let receivedBytes = 0;
-      res.on("data", (chunk: Buffer) => {
-        receivedBytes += chunk.length;
-      });
-      const file = fs.createWriteStream(dest);
-      res.pipe(file);
-      file.on("finish", () => {
-        file.close();
-        if (expectedBytes > 0 && receivedBytes !== expectedBytes) {
-          finish({
-            success: false,
-            error: `下载不完整：${receivedBytes}/${expectedBytes} bytes`,
-          });
-          return;
-        }
-        finish({ success: true });
-      });
-      file.on("error", (err) => finish({ success: false, error: err.message }));
-      res.on("aborted", () => {
-        finish({ success: false, error: `下载中断：${receivedBytes}/${expectedBytes || "?"} bytes` });
-      });
-      res.on("error", (err) => finish({ success: false, error: err.message }));
-    });
-    req.setTimeout(timeoutMs, () => {
-      req.destroy();
-      resolve({ success: false, error: "下载超时" });
-    });
-    req.on("error", (err) => resolve({ success: false, error: err.message }));
-  });
-}
-
-function runProcess(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  env: Record<string, string>,
-  timeoutMs: number,
-): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, args, {
-      cwd,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
-    const timer = setTimeout(() => {
-      try { proc.kill(); } catch { /* ignore */ }
-      resolve({ success: false, stdout, stderr: stderr + "\n(超时)" });
-    }, timeoutMs);
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ success: code === 0, stdout, stderr });
-    });
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ success: false, stdout, stderr: err.message });
-    });
-  });
-}
-
-function removeDir(target: string): void {
-  if (!fs.existsSync(target)) return;
-  fs.rmSync(target, { recursive: true, force: true });
-}
-
-async function updateHermesFromGiteeZip(
-  env: Record<string, string>,
-  emit: (text: string) => void,
-  remoteSha: string | null,
-): Promise<{ success: boolean; error?: string }> {
-  const python = getHermesVenvPython();
-  if (!fs.existsSync(python)) {
-    return { success: false, error: "未找到 Hermes 虚拟环境 Python，无法执行无 Git 更新，请重新安装引擎" };
-  }
-
-  const tmpRoot = path.join(HERMES_HOME, ".update-tmp");
-  const zipPath = path.join(tmpRoot, "hermes-agent.zip");
-  const extractDir = path.join(tmpRoot, "repo");
-  const venvBackup = path.join(tmpRoot, "venv");
-
-  removeDir(tmpRoot);
-  ensureDir(tmpRoot);
-  emit("未检测到可用 Git，正在从 Gitee 下载引擎压缩包...\n");
-  const download = await downloadFile(HERMES_GITEE_ZIP_URL, zipPath, 300000);
-  if (!download.success) {
-    return { success: false, error: `Gitee 压缩包下载失败: ${download.error || "网络错误"}` };
-  }
-
-  try {
-    const header = fs.readFileSync(zipPath).slice(0, 4);
-    if (header[0] !== 0x50 || header[1] !== 0x4b) {
-      return { success: false, error: "下载的文件不是有效 ZIP，请检查网络" };
-    }
-  } catch {
-    return { success: false, error: "ZIP 文件校验失败" };
-  }
-
-  ensureDir(extractDir);
-  emit("压缩包下载完成，正在解压...\n");
-  const unzip = await runProcess(python, ["-m", "zipfile", "-e", zipPath, extractDir], tmpRoot, env, 120000);
-  if (!unzip.success) {
-    return { success: false, error: `解压失败: ${unzip.stderr.slice(-300)}` };
-  }
-
-  const entries = fs.readdirSync(extractDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-  const match = entries.find((entry) => /ly-hermes-agent/i.test(entry.name));
-  const repoRoot = entries.length === 1
-    ? path.join(extractDir, entries[0].name)
-    : match
-      ? path.join(extractDir, match.name)
-      : extractDir;
-  if (!fs.existsSync(path.join(repoRoot, "hermes")) && !fs.existsSync(path.join(repoRoot, "pyproject.toml"))) {
-    return { success: false, error: "解压后的目录结构不符合预期" };
-  }
-
-  const currentVenv = path.join(HERMES_REPO_DIR, "venv");
-  if (fs.existsSync(currentVenv)) {
-    fs.renameSync(currentVenv, venvBackup);
-  }
-  removeDir(HERMES_REPO_DIR);
-  fs.renameSync(repoRoot, HERMES_REPO_DIR);
-  if (fs.existsSync(venvBackup)) {
-    fs.renameSync(venvBackup, path.join(HERMES_REPO_DIR, "venv"));
-  }
-
-  emit("正在刷新 Python 依赖...\n");
-  const pipArgs = [
-    "-m",
-    "pip",
-    "install",
-    "--prefer-binary",
-    "--upgrade-strategy",
-    "only-if-needed",
-    "--retries",
-    "3",
-    "--timeout",
-    "60",
-    "-i",
-    "https://pypi.tuna.tsinghua.edu.cn/simple",
-    "--trusted-host",
-    "pypi.tuna.tsinghua.edu.cn",
-    "-e",
-    ".",
-    ...DESKTOP_REQUIRED_PY_PACKAGES,
-  ];
-  const install = await runProcess(getHermesVenvPython(), pipArgs, HERMES_REPO_DIR, env, 600000);
-  if (!install.success) {
-    return { success: false, error: `依赖刷新失败: ${install.stderr.slice(-500)}` };
-  }
-
-  writeDesktopSourceMarker(remoteSha, "zip");
-  removeDir(tmpRoot);
-  return { success: true };
-}
-
 function loadSavedModels(): Array<Record<string, unknown>> {
   return loadDbSavedModels();
 }
@@ -1278,8 +980,7 @@ export function registerConfigIpcHandlers(): void {
       hasApiKey: false,
       version: null,
     };
-    const appConfig = loadAppConfig();
-    const hermesBin = (appConfig.hermes as Record<string, unknown>)?.bin as string || DEFAULT_HERMES_BIN;
+    const hermesBin = resolveHermesBin();
     try {
       const versionOut = execFileSync(hermesBin, ["--version"], {
         encoding: "utf-8",
@@ -1520,14 +1221,14 @@ export function registerConfigIpcHandlers(): void {
         }
         if (!cfg.model) cfg.model = {};
         const m = cfg.model as Record<string, unknown>;
-        const previousProvider = (m.provider as string) || "";
-        const provider = (entry.provider as string) || "";
+        const previousProvider = resolveLyProviderId((m.provider as string) || "");
+        const provider = resolveLyProviderId((entry.provider as string) || "");
         const baseUrl =
           (entry.baseUrl as string) ||
           PROVIDER_KEY_MAP[provider]?.baseUrl ||
           "";
         m.default = entry.model;
-        m.provider = provider;
+        m.provider = toHermesConfigProvider(provider);
         if (baseUrl) {
           m.base_url = baseUrl;
         } else {
@@ -1539,7 +1240,7 @@ export function registerConfigIpcHandlers(): void {
         if (!apiKey) {
           const appConfig = loadAppConfig();
           const defaults = (appConfig.defaults as Record<string, unknown>) || {};
-          const defaultProvider = (defaults.provider as string) || "";
+          const defaultProvider = resolveLyProviderId((defaults.provider as string) || "");
           apiKey =
             !defaultProvider || defaultProvider === provider
               ? (defaults.api_key as string) || ""
@@ -1551,6 +1252,18 @@ export function registerConfigIpcHandlers(): void {
           apiKey,
           allowExistingApiKey: previousProvider === provider,
         });
+
+        try {
+          const { getEmployeeStatus, putEmployeeToSleep, wakeUpEmployee } = await import("./employees");
+          const status = await getEmployeeStatus(name);
+          if (status === "online" || status === "starting") {
+            putEmployeeToSleep(name, null);
+            await new Promise((r) => setTimeout(r, 2000));
+            await wakeUpEmployee(name, null);
+          }
+        } catch {
+          /* gateway restart is best-effort */
+        }
 
         return { success: true };
       } catch (e: unknown) {
@@ -1715,9 +1428,7 @@ export function registerConfigIpcHandlers(): void {
 
   webIpc("get-hermes-version", async () => {
     const versionText = await new Promise<string | null>((resolve) => {
-      const appConfig = loadAppConfig();
-      const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-      const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+      const hermesBin = resolveHermesBin();
       prepareHermesVersionCheck();
       const env = createHermesProcessEnv({ HERMES_HOME });
       execFile(hermesBin, ["--version"], { env, timeout: 15000, windowsHide: true }, (error, stdout) => {
@@ -1729,16 +1440,14 @@ export function registerConfigIpcHandlers(): void {
         },
       );
     });
-    const updateInfo = await getHermesGiteeUpdateInfo();
+    const updateInfo = await getHermesUpdateCheckInfo();
     _cachedVersion = (versionText || "") + getHermesSourceInfo() + updateInfo || null;
     return _cachedVersion;
   });
 
   webIpc("refresh-hermes-version", async () => {
     _cachedVersion = null;
-    const appConfig = loadAppConfig();
-    const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-    const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+    const hermesBin = resolveHermesBin();
     prepareHermesVersionCheck();
     const env = createHermesProcessEnv({ HERMES_HOME });
     const versionText = await new Promise<string | null>((resolve) => {
@@ -1747,7 +1456,7 @@ export function registerConfigIpcHandlers(): void {
         else resolve(stripHermesCliUpdateInfo(stdout.toString()));
       });
     });
-    const updateInfo = await getHermesGiteeUpdateInfo();
+    const updateInfo = await getHermesUpdateCheckInfo();
     _cachedVersion = (versionText || "") + getHermesSourceInfo() + updateInfo || null;
     return _cachedVersion;
   });
@@ -1761,18 +1470,16 @@ export function registerConfigIpcHandlers(): void {
   });
 
   webIpc("run-hermes-update", async (event) => {
-    const appConfig = loadAppConfig();
-    const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-    const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
     const env = createHermesProcessEnv({
       HERMES_HOME,
       TERM: "dumb",
     }) as Record<string, string>;
+    env.PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple";
+    env.PIP_TRUSTED_HOST = "pypi.tuna.tsinghua.edu.cn";
+
     return new Promise((resolve) => {
       let log = "";
       let resolved = false;
-      let proc: ChildProcess | null = null;
-      const stripAnsi = (text: string): string => text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
       const emit = (text: string): void => {
         log += text;
         event.sender.send("install-progress", {
@@ -1782,91 +1489,88 @@ export function registerConfigIpcHandlers(): void {
           detail: text.trim().slice(0, 120),
           log,
         });
-        if (!resolved && /Update complete!|✓ Update complete!/.test(log)) {
-          resolved = true;
+      };
+
+      const finish = (result: { success: boolean; error?: string }): void => {
+        if (resolved) return;
+        resolved = true;
+        if (result.success) {
           emit("\n更新完成！\n");
           _cachedVersion = null;
-          resolve({ success: true });
-          try { proc?.kill(); } catch { /* ignore */ }
         }
+        resolve(result);
       };
-      emit("正在更新...\n");
 
-      const run = async (): Promise<void> => {
-        const remoteSha = await new Promise<string | null>((remoteResolve) => {
-          const req = https.get(HERMES_GITEE_BRANCH_API, { timeout: 10000 }, (res) => {
-            let body = "";
-            res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-            res.on("end", () => {
-              try {
-                const data = JSON.parse(body);
-                remoteResolve(data?.commit?.sha || data?.commit?.id || null);
-              } catch {
-                remoteResolve(null);
-              }
+      const python = getHermesVenvPython();
+      if (!fs.existsSync(python)) {
+        finish({ success: false, error: "未找到 Hermes 虚拟环境 Python，请重新安装引擎" });
+        return;
+      }
+
+      const ensurePip = (): Promise<void> => {
+        return new Promise((res) => {
+          execFile(python, ["-m", "pip", "--version"], { timeout: 10000, windowsHide: true }, (err) => {
+            if (!err) { res(); return; }
+            emit("正在安装 pip...\n");
+            execFile(python, ["-m", "ensurepip", "--upgrade"], { timeout: 60000, windowsHide: true }, (e2) => {
+              if (e2) emit("pip 安装失败，将尝试继续更新...\n");
+              res();
             });
           });
-          req.on("error", () => remoteResolve(null));
-          req.on("timeout", () => { req.destroy(); remoteResolve(null); });
+        });
+      };
+
+      void ensurePip().then(() => {
+        emit("正在通过 pip 更新 hermes-agent...\n");
+        const pipArgs = [
+          "-m", "pip", "install",
+          "--prefer-binary",
+          "--upgrade-strategy", "only-if-needed",
+          "--retries", "3",
+          "--timeout", "60",
+          "-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
+          "--trusted-host", "pypi.tuna.tsinghua.edu.cn",
+          "--upgrade", "hermes-agent",
+        ];
+
+        const proc = spawn(python, pipArgs, {
+          cwd: HERMES_REPO_DIR,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
         });
 
-        const canUseGit = hasSystemGit() && fs.existsSync(path.join(HERMES_REPO_DIR, ".git"));
-        if (!canUseGit) {
-          const result = await updateHermesFromGiteeZip(env, emit, remoteSha);
-          if (resolved) return;
-          resolved = true;
-          if (result.success) {
-            emit("\n更新完成！\n");
-            _cachedVersion = null;
-            resolve({ success: true });
-          } else {
-            resolve({ success: false, error: result.error || "无 Git 更新失败" });
-          }
-          return;
-        }
+        const stripAnsi = (text: string): string => text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 
-        try {
-          ensureHermesGiteeOrigin();
-        } catch (e: unknown) {
-          resolved = true;
-          resolve({ success: false, error: `切换 Gitee 更新源失败: ${(e as Error).message}` });
-          return;
-        }
+        proc.stdout?.on("data", (data: Buffer) => {
+          const text = stripAnsi(data.toString());
+          emit(text);
+        });
+        proc.stderr?.on("data", (data: Buffer) => {
+          const text = stripAnsi(data.toString());
+          emit(text);
+        });
 
-        proc = spawn(hermesBin, ["update"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-        proc.stdout?.on("data", (data: Buffer) => emit(stripAnsi(data.toString())));
-        proc.stderr?.on("data", (data: Buffer) => emit(stripAnsi(data.toString())));
         proc.on("close", (code) => {
           if (resolved) return;
-          resolved = true;
           if (code === 0) {
-            emit("\n更新完成！\n");
-            _cachedVersion = null;
-            resolve({ success: true });
+            finish({ success: true });
           } else {
-            const lastLines = log.trim().split("\n").slice(-3).join("\n");
-            resolve({ success: false, error: lastLines || `更新失败 (exit code ${code})` });
+            finish({ success: false, error: "pip 更新失败，请检查网络或重新安装引擎" });
           }
         });
+
         proc.on("error", (err) => {
           if (resolved) return;
-          resolved = true;
-          resolve({ success: false, error: `更新执行失败: ${err.message}` });
+          finish({ success: false, error: `pip 更新执行失败: ${err.message}` });
         });
+
         setTimeout(() => {
           if (resolved) return;
-          resolved = true;
-          if (/Update complete!|✓ Update complete!/.test(log)) {
-            emit("\n更新完成！\n");
-            _cachedVersion = null;
-            resolve({ success: true });
-          } else {
-            resolve({ success: false, error: "更新超时，请检查网络连接后重试" });
-          }
-          try { proc?.kill(); } catch { /* ignore */ }
+          try { proc.kill(); } catch { /* ignore */ }
+          finish({ success: false, error: "pip 更新超时" });
         }, 10 * 60 * 1000);
-      };
-      void run();
+      });
     });
   });
 }

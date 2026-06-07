@@ -258,115 +258,19 @@ export interface ProviderPreset {
   apiKeyLabel: string
 }
 
-export const PROVIDER_PRESETS: ProviderPreset[] = [
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    apiKeyEnv: 'DEEPSEEK_API_KEY',
-    apiKeyLabel: 'DeepSeek API 密钥',
-    models: [
-      { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
-      { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
-      { id: 'deepseek-chat', label: 'DeepSeek Chat (即将停用)' },
-      { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner (即将停用)' },
-    ],
-  },
-  {
-    id: 'qwen',
-    label: '通义千问 (阿里云)',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiKeyEnv: 'DASHSCOPE_API_KEY',
-    apiKeyLabel: '通义千问 API 密钥',
-    models: [
-      { id: 'qwen3.6-plus', label: 'Qwen3.6 Plus' },
-      { id: 'qwen3.6-max-preview', label: 'Qwen3.6 Max Preview' },
-      { id: 'qwen3.6-flash', label: 'Qwen3.6 Flash' },
-      { id: 'qwen3-max', label: 'Qwen3 Max' },
-      { id: 'qwen3-235b-a22b', label: 'Qwen3 235B' },
-      { id: 'qwq-plus', label: 'QwQ Plus' },
-      { id: 'qwen-long', label: 'Qwen Long' },
-    ],
-  },
-  {
-    id: 'zhipu',
-    label: '智谱 AI',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    apiKeyEnv: 'GLM_API_KEY',
-    apiKeyLabel: '智谱 API 密钥',
-    models: [
-      { id: 'glm-5.1', label: 'GLM-5.1' },
-      { id: 'glm-5', label: 'GLM-5' },
-      { id: 'glm-4.7', label: 'GLM-4.7' },
-      { id: 'glm-4.5', label: 'GLM-4.5' },
-      { id: 'glm-4.5-air', label: 'GLM-4.5 Air' },
-    ],
-  },
-  {
-    id: 'moonshot',
-    label: '月之暗面 (Kimi)',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    apiKeyEnv: 'MOONSHOT_API_KEY',
-    apiKeyLabel: 'Moonshot API 密钥',
-    models: [
-      { id: 'kimi-k2.5', label: 'Kimi K2.5' },
-      { id: 'kimi-k2-0905-preview', label: 'Kimi K2 0905' },
-      { id: 'kimi-k2-thinking', label: 'Kimi K2 Thinking' },
-      { id: 'moonshot-v1-128k', label: 'Moonshot V1 128K' },
-      { id: 'moonshot-v1-32k', label: 'Moonshot V1 32K' },
-    ],
-  },
-  {
-    id: 'minimax',
-    label: 'MiniMax',
-    baseUrl: 'https://api.minimax.chat/v1',
-    apiKeyEnv: 'MINIMAX_API_KEY',
-    apiKeyLabel: 'MiniMax API 密钥',
-    models: [
-      { id: 'MiniMax-M2.5', label: 'MiniMax M2.5' },
-      { id: 'MiniMax-Text-01', label: 'MiniMax Text 01' },
-    ],
-  },
-  {
-    id: 'spark',
-    label: '讯飞星火',
-    baseUrl: 'https://spark-api-open.xf-yun.com/v1',
-    apiKeyEnv: 'SPARK_API_KEY',
-    apiKeyLabel: '讯飞星火 API 密钥',
-    models: [
-      { id: '4.0Ultra', label: '星火 4.0 Ultra' },
-      { id: 'spark-x', label: '星火 X1.5 (深度推理)' },
-      { id: 'generalv3.5', label: '星火 Max' },
-    ],
-  },
-  {
-    id: 'siliconflow',
-    label: '硅基流动',
-    baseUrl: 'https://api.siliconflow.cn/v1',
-    apiKeyEnv: 'SILICONFLOW_API_KEY',
-    apiKeyLabel: '硅基流动 API 密钥',
-    models: [
-      { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
-      { id: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
-      { id: 'Qwen/Qwen3-235B-A22B', label: 'Qwen3 235B' },
-      { id: 'Qwen/Qwen3-32B', label: 'Qwen3 32B' },
-      { id: 'THUDM/GLM-4-32B-0414', label: 'GLM-4 32B' },
-    ],
-  },
-  {
-    id: 'ernie',
-    label: '百度文心',
-    baseUrl: 'https://qianfan.baidubce.com/v2',
-    apiKeyEnv: 'QIANFAN_API_KEY',
-    apiKeyLabel: '百度千帆 API 密钥',
-    models: [
-      { id: 'ernie-4.5-8k', label: 'ERNIE 4.5' },
-      { id: 'ernie-4.0-8k', label: 'ERNIE 4.0' },
-      { id: 'ernie-speed-128k', label: 'ERNIE Speed 128K' },
-      { id: 'ernie-lite-8k', label: 'ERNIE Lite' },
-    ],
-  },
-]
+import {
+  PROVIDER_DEFINITIONS,
+  type ProviderDefinition,
+} from "../../../shared/provider-registry";
+
+export const PROVIDER_PRESETS: ProviderPreset[] = PROVIDER_DEFINITIONS.map((item: ProviderDefinition) => ({
+  id: item.id,
+  label: item.label,
+  baseUrl: item.baseUrl,
+  models: item.models,
+  apiKeyEnv: item.envKey,
+  apiKeyLabel: item.apiKeyLabel,
+}))
 
 export const PROVIDER_API_KEY_MAP: Record<string, { envKey: string; label: string; baseUrl: string }> = {}
 for (const p of PROVIDER_PRESETS) {

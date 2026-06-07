@@ -67,4 +67,4 @@ asar: false
 
 publish:
   provider: generic
-  url: https://www.luoyungu.com/lyhermes
+  url: http://www.luoyungu.com/lyhermes

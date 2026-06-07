@@ -7,12 +7,11 @@ import * as yaml from "./lib/yaml-simple";
 import {
   HERMES_HOME,
   DEFAULT_API_HOST,
-  loadAppConfig,
   getProfilePath,
   readHermesEnv,
   getModelFromProfile,
   validateProfileName,
-  DEFAULT_HERMES_BIN,
+  resolveHermesBin,
   createHermesProcessEnv,
   syncPresetProviderEnvFile,
   PROVIDER_KEY_MAP,
@@ -507,9 +506,7 @@ export function sendMessageViaCli(
     }
   }
 
-  const appConfig = loadAppConfig();
-  const hermesCfg = appConfig.hermes as Record<string, unknown> | undefined;
-  const hermesBin = (hermesCfg?.bin as string) || DEFAULT_HERMES_BIN;
+  const hermesBin = resolveHermesBin();
   const args = [
     "chat",
     "-q",
